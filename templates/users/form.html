@@ -50,13 +50,13 @@
                     
                     <div class="mb-3">
                         {{ form.expires_at.label(class="form-label") }}
-                        {{ form.expires_at(class="form-control" + (" is-invalid" if form.expires_at.errors else ""), placeholder="YYYY-MM-DD HH:MM:SS") }}
+                        {{ form.expires_at(class="form-control datetime-picker" + (" is-invalid" if form.expires_at.errors else ""), placeholder="Click to pick date and time") }}
                         {% if form.expires_at.errors %}
                             <div class="invalid-feedback">
                                 {% for error in form.expires_at.errors %}{{ error }}{% endfor %}
                             </div>
                         {% endif %}
-                        <small class="form-text text-muted">Optional. Format: YYYY-MM-DD HH:MM:SS</small>
+                        <small class="form-text text-muted">Optional. Click to pick date and time</small>
                     </div>
                     
                     <div class="mb-3">
@@ -160,7 +160,7 @@
                             </select>
                         </div>
                         <div class="col-md-4 mb-3">
-                            <button type="button" id="test-connection-btn" class="btn btn-info w-100" {% if not nas_list %}disabled{% endif %}>
+                            <button type="button" id="test-connection-btn" class="btn btn-info w-100" {% if not nas_list %}disabled{% endif %} data-user-id="{{ user.id }}">
                                 <i class="bi bi-wifi"></i> Test Connection
                             </button>
                         </div>
@@ -182,56 +182,85 @@
     </div>
 </div>
 
-{% if user %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Initialize date/time picker
+    const expiresAtField = document.querySelector('.datetime-picker');
+    if (expiresAtField) {
+        // Get existing value if any
+        const existingValue = expiresAtField.value;
+        
+        flatpickr(expiresAtField, {
+            enableTime: true,
+            dateFormat: "Y-m-d H:i:S",
+            time_24hr: true,
+            allowInput: false,
+            clickOpens: true,
+            defaultDate: existingValue || null,
+            placeholder: "Click to pick date and time",
+            // Ensure the value is properly formatted when set
+            onReady: function(selectedDates, dateStr, instance) {
+                if (existingValue && existingValue.trim()) {
+                    instance.setDate(existingValue, false);
+                }
+            }
+        });
+    }
+    
+    // Test connection functionality (only available when editing existing user)
     const testBtn = document.getElementById('test-connection-btn');
     const nasSelect = document.getElementById('test-nas-select');
     const testResult = document.getElementById('test-result');
     
     if (testBtn && nasSelect) {
-        testBtn.addEventListener('click', function() {
-            const nasId = nasSelect.value;
-            if (!nasId) {
-                testResult.innerHTML = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> Please select a NAS device first.</div>';
-                return;
-            }
-            
-            testBtn.disabled = true;
-            testBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Testing...';
-            testResult.innerHTML = '';
-            
-            fetch(`/users/test-connection/{{ user.id }}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ nas_id: parseInt(nasId) })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    testResult.innerHTML = `<div class="alert alert-success"><i class="bi bi-check-circle"></i> ${data.message}</div>`;
-                    if (data.activated) {
-                        // Reload page to show updated status
-                        setTimeout(() => location.reload(), 2000);
-                    }
-                } else {
-                    testResult.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ${data.message}</div>`;
+        const userId = testBtn.getAttribute('data-user-id');
+        if (userId) {
+            testBtn.addEventListener('click', function() {
+                const nasId = nasSelect.value;
+                if (!nasId) {
+                    testResult.innerHTML = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> Please select a NAS device first.</div>';
+                    return;
                 }
-            })
-            .catch(error => {
-                testResult.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> Test failed: ${error.message}</div>`;
-            })
-            .finally(() => {
-                testBtn.disabled = false;
-                testBtn.innerHTML = '<i class="bi bi-wifi"></i> Test Connection';
+                
+                testBtn.disabled = true;
+                testBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Testing...';
+                testResult.innerHTML = '';
+                
+                fetch('/users/test-connection/' + userId, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ nas_id: parseInt(nasId) })
+                })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (data.success) {
+                        testResult.innerHTML = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + data.message + '</div>';
+                        if (data.activated) {
+                            // Reload page to show updated status
+                            setTimeout(function() {
+                                location.reload();
+                            }, 2000);
+                        }
+                    } else {
+                        testResult.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + data.message + '</div>';
+                    }
+                })
+                .catch(function(error) {
+                    testResult.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> Test failed: ' + error.message + '</div>';
+                })
+                .finally(function() {
+                    testBtn.disabled = false;
+                    testBtn.innerHTML = '<i class="bi bi-wifi"></i> Test Connection';
+                });
             });
-        });
+        }
     }
 });
 </script>
-{% endif %}
 {% endblock %}
 
 
