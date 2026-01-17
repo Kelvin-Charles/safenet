@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-plus-circle"></i> Add Attribute to {{ plan.name }}
+            </div>
+            <div class="card-body">
+                <form method="POST" novalidate>
+                    {{ form.hidden_tag() }}
+                    
+                    <div class="mb-3">
+                        {{ form.attribute.label(class="form-label") }}
+                        {{ form.attribute(class="form-control" + (" is-invalid" if form.attribute.errors else ""), placeholder="e.g., Session-Timeout, Mikrotik-Rate-Limit") }}
+                        {% if form.attribute.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.attribute.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                {{ form.op.label(class="form-label") }}
+                                {{ form.op(class="form-select" + (" is-invalid" if form.op.errors else "")) }}
+                                {% if form.op.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.op.errors %}{{ error }}{% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-8">
+                            <div class="mb-3">
+                                {{ form.value.label(class="form-label") }}
+                                {{ form.value(class="form-control" + (" is-invalid" if form.value.errors else ""), placeholder="e.g., 3600, 10M/10M") }}
+                                {% if form.value.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.value.errors %}{{ error }}{% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.vendor.label(class="form-label") }}
+                        {{ form.vendor(class="form-select" + (" is-invalid" if form.vendor.errors else "")) }}
+                        {% if form.vendor.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.vendor.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                        <small class="form-text text-muted">Leave as "Standard" for universal RADIUS attributes</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.priority.label(class="form-label") }}
+                        {{ form.priority(class="form-control" + (" is-invalid" if form.priority.errors else "")) }}
+                        {% if form.priority.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.priority.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                        <small class="form-text text-muted">Lower numbers are processed first</small>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('edit_plan', plan_id=plan.id) }}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle"></i> Add Attribute
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+

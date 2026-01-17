@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}Session Detail - {{ app_name }}{% endblock %}
+{% block page_title %}Session Detail{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-info-circle"></i> Session Information</span>
+                {% if session.acctstoptime %}
+                    <span class="badge bg-secondary">Closed Session</span>
+                {% else %}
+                    <span class="badge bg-success">Active Session</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <h6 class="text-muted">User Information</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <th width="40%">Username:</th>
+                                <td><strong>{{ session.username }}</strong></td>
+                            </tr>
+                            <tr>
+                                <th>Group:</th>
+                                <td>{{ session.groupname or '-' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Realm:</th>
+                                <td>{{ session.realm or '-' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Framed IP:</th>
+                                <td><code>{{ session.framedipaddress or '-' }}</code></td>
+                            </tr>
+                        </table>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h6 class="text-muted">NAS Information</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <th width="40%">NAS IP:</th>
+                                <td><code>{{ session.nasipaddress }}</code></td>
+                            </tr>
+                            <tr>
+                                <th>Port ID:</th>
+                                <td>{{ session.nasportid or '-' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Port Type:</th>
+                                <td>{{ session.nasporttype or '-' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Service Type:</th>
+                                <td>{{ session.servicetype or '-' }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <h6 class="text-muted">Session Timing</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <th width="40%">Start Time:</th>
+                                <td>{{ session.acctstarttime.strftime('%Y-%m-%d %H:%M:%S') if session.acctstarttime else 'N/A' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Stop Time:</th>
+                                <td>{{ session.acctstoptime.strftime('%Y-%m-%d %H:%M:%S') if session.acctstoptime else 'Still Active' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Duration:</th>
+                                <td>
+                                    {% if duration_seconds %}
+                                        {{ (duration_seconds // 3600)|int }}h 
+                                        {{ ((duration_seconds % 3600) // 60)|int }}m 
+                                        {{ (duration_seconds % 60)|int }}s
+                                        {% if session.acctsessiontime %}
+                                            <small class="text-muted">({{ session.acctsessiontime }}s)</small>
+                                        {% endif %}
+                                    {% elif session.acctsessiontime %}
+                                        {{ (session.acctsessiontime // 3600)|int }}h 
+                                        {{ ((session.acctsessiontime % 3600) // 60)|int }}m 
+                                        {{ (session.acctsessiontime % 60)|int }}s
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Terminate Cause:</th>
+                                <td>{{ session.acctterminatecause or '-' }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <h6 class="text-muted">Data Usage</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <th width="40%">Input Octets:</th>
+                                <td>
+                                    {% if session.acctinputoctets %}
+                                        {{ "%.2f"|format(session.acctinputoctets / 1024 / 1024) }} MB
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Output Octets:</th>
+                                <td>
+                                    {% if session.acctoutputoctets %}
+                                        {{ "%.2f"|format(session.acctoutputoctets / 1024 / 1024) }} MB
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Total:</th>
+                                <td>
+                                    {% if total_bytes %}
+                                        <strong>{{ "%.2f"|format(total_mb) }} MB</strong>
+                                        <small class="text-muted">({{ "%.3f"|format(total_gb) }} GB)</small>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <th>Average Speed:</th>
+                                <td>
+                                    {% if total_bytes and duration_seconds and duration_seconds > 0 %}
+                                        {% set avg_speed_mbps = (total_bytes * 8) / duration_seconds / 1000000 %}
+                                        <strong>{{ "%.2f"|format(avg_speed_mbps) }} Mbps</strong>
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <div class="row">
+                    <div class="col-md-12">
+                        <h6 class="text-muted">Additional Information</h6>
+                        <table class="table table-sm">
+                            <tr>
+                                <th width="20%">Session ID:</th>
+                                <td><code>{{ session.acctsessionid }}</code></td>
+                            </tr>
+                            <tr>
+                                <th>Unique ID:</th>
+                                <td><code>{{ session.acctuniqueid }}</code></td>
+                            </tr>
+                            <tr>
+                                <th>Called Station:</th>
+                                <td>{{ session.calledstationid or '-' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Calling Station:</th>
+                                <td>{{ session.callingstationid or '-' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Connect Info (Start):</th>
+                                <td>{{ session.connectinfo_start or '-' }}</td>
+                            </tr>
+                            <tr>
+                                <th>Connect Info (Stop):</th>
+                                <td>{{ session.connectinfo_stop or '-' }}</td>
+                            </tr>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="d-flex justify-content-between mt-4">
+                    <a href="{{ url_for('accounting') }}" class="btn btn-secondary">
+                        <i class="bi bi-arrow-left"></i> Back to Sessions
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+

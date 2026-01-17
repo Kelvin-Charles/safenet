@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - {{ app_name }}{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-value">{{ total_users }}</div>
+            <div class="stat-label">Total Users</div>
+            <div class="mt-2">
+                <small class="text-success">
+                    <i class="bi bi-check-circle"></i> {{ active_users }} Active
+                </small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-value">{{ active_sessions }}</div>
+            <div class="stat-label">Active Sessions</div>
+            <div class="mt-2">
+                <small class="text-muted">
+                    <i class="bi bi-clock"></i> Real-time
+                </small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-value">{{ total_plans }}</div>
+            <div class="stat-label">Plans</div>
+            <div class="mt-2">
+                <small class="text-muted">
+                    <i class="bi bi-box"></i> Service Plans
+                </small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-value">{{ total_nas }}</div>
+            <div class="stat-label">NAS Devices</div>
+            <div class="mt-2">
+                <small class="text-muted">
+                    <i class="bi bi-router"></i> Network Devices
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Recent Sessions -->
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-clock-history"></i> Recent Sessions</span>
+                <a href="{{ url_for('accounting') }}" class="btn btn-sm btn-outline-primary">View All</a>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_sessions %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>NAS IP</th>
+                                <th>Start Time</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for session in recent_sessions %}
+                            <tr>
+                                <td>
+                                    <i class="bi bi-person"></i> {{ session.username }}
+                                </td>
+                                <td>{{ session.nasipaddress }}</td>
+                                <td>
+                                    <small>{{ session.acctstarttime.strftime('%Y-%m-%d %H:%M:%S') if session.acctstarttime else 'N/A' }}</small>
+                                </td>
+                                <td>
+                                    {% if session.acctstoptime %}
+                                        <span class="badge bg-secondary">Closed</span>
+                                    {% else %}
+                                        <span class="badge bg-success">Active</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="p-4 text-center text-muted">
+                    <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                    <p class="mt-2">No recent sessions</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Top Users by Data Usage -->
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-bar-chart"></i> Top Users by Data
+            </div>
+            <div class="card-body">
+                {% if top_users %}
+                <div class="list-group list-group-flush">
+                    {% for user in top_users %}
+                    <div class="list-group-item border-0 px-0">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <i class="bi bi-person-circle text-primary"></i>
+                                <strong>{{ user.username }}</strong>
+                            </div>
+                            <div>
+                                <span class="badge bg-info">
+                                    {{ "%.2f"|format(user.total_bytes / 1024 / 1024 / 1024) }} GB
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-3">
+                    <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                    <p class="mt-2 mb-0">No data available</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-lightning"></i> Quick Actions
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 mb-2">
+                        <a href="{{ url_for('add_user') }}" class="btn btn-outline-primary w-100">
+                            <i class="bi bi-person-plus"></i> Add User
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <a href="{{ url_for('add_plan') }}" class="btn btn-outline-success w-100">
+                            <i class="bi bi-box"></i> Add Plan
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <a href="{{ url_for('add_nas') }}" class="btn btn-outline-info w-100">
+                            <i class="bi bi-router"></i> Add NAS
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <a href="{{ url_for('accounting') }}" class="btn btn-outline-warning w-100">
+                            <i class="bi bi-graph-up"></i> View Sessions
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+

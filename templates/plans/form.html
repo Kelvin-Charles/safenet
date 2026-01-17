@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-box"></i> {{ title }}
+            </div>
+            <div class="card-body">
+                <form method="POST" novalidate>
+                    {{ form.hidden_tag() }}
+                    
+                    <div class="mb-3">
+                        {{ form.name.label(class="form-label") }}
+                        {{ form.name(class="form-control" + (" is-invalid" if form.name.errors else "")) }}
+                        {% if form.name.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.name.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                        <small class="form-text text-muted">This will be used as the group name in FreeRADIUS</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.description.label(class="form-label") }}
+                        {{ form.description(class="form-control" + (" is-invalid" if form.description.errors else ""), rows=3) }}
+                        {% if form.description.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.description.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.vendor.label(class="form-label") }}
+                        {{ form.vendor(class="form-select" + (" is-invalid" if form.vendor.errors else "")) }}
+                        {% if form.vendor.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.vendor.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                        <small class="form-text text-muted">Default vendor for this plan (can be overridden per attribute)</small>
+                    </div>
+                    
+                    <hr class="my-4">
+                    <h6 class="mb-3"><i class="bi bi-speedometer2"></i> Bandwidth Limits (Optional)</h6>
+                    <p class="text-muted small mb-3">Set default bandwidth limits for users in this plan.</p>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            {{ form.upload_speed.label(class="form-label") }}
+                            {{ form.upload_speed(class="form-control" + (" is-invalid" if form.upload_speed.errors else ""), placeholder="e.g., 10M, 100M, 1G") }}
+                            {% if form.upload_speed.errors %}
+                                <div class="invalid-feedback">
+                                    {% for error in form.upload_speed.errors %}{{ error }}{% endfor %}
+                                </div>
+                            {% endif %}
+                            <small class="form-text text-muted">{{ form.upload_speed.description }}</small>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            {{ form.download_speed.label(class="form-label") }}
+                            {{ form.download_speed(class="form-control" + (" is-invalid" if form.download_speed.errors else ""), placeholder="e.g., 10M, 100M, 1G") }}
+                            {% if form.download_speed.errors %}
+                                <div class="invalid-feedback">
+                                    {% for error in form.download_speed.errors %}{{ error }}{% endfor %}
+                                </div>
+                            {% endif %}
+                            <small class="form-text text-muted">{{ form.download_speed.description }}</small>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-8 mb-3">
+                            {{ form.data_cap.label(class="form-label") }}
+                            {{ form.data_cap(class="form-control" + (" is-invalid" if form.data_cap.errors else ""), placeholder="Data limit in GB") }}
+                            {% if form.data_cap.errors %}
+                                <div class="invalid-feedback">
+                                    {% for error in form.data_cap.errors %}{{ error }}{% endfor %}
+                                </div>
+                            {% endif %}
+                            <small class="form-text text-muted">{{ form.data_cap.description }}</small>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            {{ form.data_cap_period.label(class="form-label") }}
+                            {{ form.data_cap_period(class="form-select" + (" is-invalid" if form.data_cap_period.errors else "")) }}
+                            {% if form.data_cap_period.errors %}
+                                <div class="invalid-feedback">
+                                    {% for error in form.data_cap_period.errors %}{{ error }}{% endfor %}
+                                </div>
+                            {% endif %}
+                            <small class="form-text text-muted">{{ form.data_cap_period.description }}</small>
+                        </div>
+                    </div>
+                    
+                    {% if plan and plan.data_cap %}
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> 
+                        <strong>Data Cap Status:</strong> 
+                        {% if plan.last_reset %}
+                            Last reset: {{ plan.last_reset.strftime('%Y-%m-%d %H:%M:%S') }}
+                        {% else %}
+                            Not yet reset
+                        {% endif %}
+                        <br>
+                        <small>Period: <strong>{{ plan.data_cap_period|title if plan.data_cap_period else 'Monthly' }}</strong></small>
+                        {% if plan %}
+                        <form method="POST" action="{{ url_for('reset_plan_data_cap', plan_id=plan.id) }}" style="display: inline; margin-top: 0.5rem;">
+                            <button type="submit" class="btn btn-sm btn-warning" onclick="return confirm('Reset data cap counter for this plan and all users?');">
+                                <i class="bi bi-arrow-clockwise"></i> Reset Data Cap Counter
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    
+                    <div class="mb-3 form-check">
+                        {{ form.is_active(class="form-check-input") }}
+                        {{ form.is_active.label(class="form-check-label") }}
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('plans') }}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle"></i> Save Plan
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+

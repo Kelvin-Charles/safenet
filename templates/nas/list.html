@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}NAS Devices - {{ app_name }}{% endblock %}
+{% block page_title %}NAS Devices{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-router"></i> Network Access Servers</span>
+        <a href="{{ url_for('add_nas') }}" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> Add NAS
+        </a>
+    </div>
+    <div class="card-body">
+        {% if nas_list %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Short Name</th>
+                        <th>IP Address</th>
+                        <th>Type</th>
+                        <th>Vendor</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for nas in nas_list %}
+                    <tr>
+                        <td>
+                            <strong>{{ nas.shortname }}</strong>
+                        </td>
+                        <td>
+                            <code>{{ nas.nasname }}</code>
+                        </td>
+                        <td>
+                            <span class="badge bg-secondary">{{ nas.type }}</span>
+                        </td>
+                        <td>
+                            {% set vendor_name = dict(supported_vendors).get(nas.vendor, nas.vendor) %}
+                            <span class="badge vendor-badge bg-primary">{{ vendor_name }}</span>
+                        </td>
+                        <td>
+                            <small>{{ nas.description[:40] if nas.description else '-' }}</small>
+                        </td>
+                        <td>
+                            {% if nas.is_active %}
+                                <span class="badge bg-success">Active</span>
+                            {% else %}
+                                <span class="badge bg-danger">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button type="button" class="btn btn-sm btn-outline-info test-nas-btn" data-nas-id="{{ nas.id }}" data-nas-name="{{ nas.shortname }}">
+                                <i class="bi bi-wifi"></i> Test
+                            </button>
+                            <a href="{{ url_for('edit_nas', nas_id=nas.id) }}" class="btn btn-sm btn-outline-primary">
+                                <i class="bi bi-pencil"></i> Edit
+                            </a>
+                            <form method="POST" action="{{ url_for('delete_nas', nas_id=nas.id) }}" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this NAS device?');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                    <i class="bi bi-trash"></i> Delete
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-inbox" style="font-size: 3rem;"></i>
+            <p class="mt-3">No NAS devices configured</p>
+            <a href="{{ url_for('add_nas') }}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Add Your First NAS Device
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header">
+        <i class="bi bi-info-circle"></i> About NAS Devices
+    </div>
+    <div class="card-body">
+        <p class="mb-2"><strong>Network Access Server (NAS)</strong> devices are your network equipment (routers, switches, access points) that communicate with FreeRADIUS for authentication.</p>
+        <ul class="mb-0">
+            <li><strong>IP Address:</strong> The IP address of your network device</li>
+            <li><strong>Secret:</strong> Shared secret for RADIUS communication (must match device configuration)</li>
+            <li><strong>Vendor:</strong> Device manufacturer - determines which RADIUS attributes are supported</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const testButtons = document.querySelectorAll('.test-nas-btn');
+    testButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const nasId = this.dataset.nasId;
+            const nasName = this.dataset.nasName;
+            const originalText = this.innerHTML;
+            
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Testing...';
+            
+            fetch(`/nas/test/${nasId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('✓ ' + data.message);
+                } else {
+                    alert('✗ ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Test failed: ' + error.message);
+            })
+            .finally(() => {
+                this.disabled = false;
+                this.innerHTML = originalText;
+            });
+        });
+    });
+});
+</script>
+{% endblock %}
+
+

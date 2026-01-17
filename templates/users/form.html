@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-person"></i> {{ title }}
+            </div>
+            <div class="card-body">
+                <form method="POST" novalidate>
+                    {{ form.hidden_tag() }}
+                    
+                    <div class="mb-3">
+                        {{ form.username.label(class="form-label") }}
+                        {{ form.username(class="form-control" + (" is-invalid" if form.username.errors else ""), readonly=user is defined) }}
+                        {% if form.username.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.username.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                        <small class="form-text text-muted">Letters, numbers, dots, hyphens, and underscores only</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.password.label(class="form-label") }}
+                        {{ form.password(class="form-control" + (" is-invalid" if form.password.errors else ""), placeholder="Enter password" if user else "Enter password") }}
+                        {% if form.password.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.password.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                        {% if user %}
+                        <small class="form-text text-muted">Leave blank to keep current password</small>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.plan_id.label(class="form-label") }}
+                        {{ form.plan_id(class="form-select" + (" is-invalid" if form.plan_id.errors else "")) }}
+                        {% if form.plan_id.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.plan_id.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.expires_at.label(class="form-label") }}
+                        {{ form.expires_at(class="form-control" + (" is-invalid" if form.expires_at.errors else ""), placeholder="YYYY-MM-DD HH:MM:SS") }}
+                        {% if form.expires_at.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.expires_at.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                        <small class="form-text text-muted">Optional. Format: YYYY-MM-DD HH:MM:SS</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.notes.label(class="form-label") }}
+                        {{ form.notes(class="form-control" + (" is-invalid" if form.notes.errors else ""), rows=3) }}
+                        {% if form.notes.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.notes.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <hr class="my-4">
+                    <h6 class="mb-3"><i class="bi bi-speedometer2"></i> Bandwidth Limits (Optional)</h6>
+                    <p class="text-muted small mb-3">Override plan limits for this user. Leave empty to use plan defaults.</p>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            {{ form.upload_speed.label(class="form-label") }}
+                            {{ form.upload_speed(class="form-control" + (" is-invalid" if form.upload_speed.errors else ""), placeholder="e.g., 10M, 100M, 1G") }}
+                            {% if form.upload_speed.errors %}
+                                <div class="invalid-feedback">
+                                    {% for error in form.upload_speed.errors %}{{ error }}{% endfor %}
+                                </div>
+                            {% endif %}
+                            <small class="form-text text-muted">{{ form.upload_speed.description }}</small>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            {{ form.download_speed.label(class="form-label") }}
+                            {{ form.download_speed(class="form-control" + (" is-invalid" if form.download_speed.errors else ""), placeholder="e.g., 10M, 100M, 1G") }}
+                            {% if form.download_speed.errors %}
+                                <div class="invalid-feedback">
+                                    {% for error in form.download_speed.errors %}{{ error }}{% endfor %}
+                                </div>
+                            {% endif %}
+                            <small class="form-text text-muted">{{ form.download_speed.description }}</small>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-8 mb-3">
+                            {{ form.data_cap.label(class="form-label") }}
+                            {{ form.data_cap(class="form-control" + (" is-invalid" if form.data_cap.errors else ""), placeholder="Data limit in GB") }}
+                            {% if form.data_cap.errors %}
+                                <div class="invalid-feedback">
+                                    {% for error in form.data_cap.errors %}{{ error }}{% endfor %}
+                                </div>
+                            {% endif %}
+                            <small class="form-text text-muted">{{ form.data_cap.description }}</small>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            {{ form.data_cap_period.label(class="form-label") }}
+                            {{ form.data_cap_period(class="form-select" + (" is-invalid" if form.data_cap_period.errors else "")) }}
+                            {% if form.data_cap_period.errors %}
+                                <div class="invalid-feedback">
+                                    {% for error in form.data_cap_period.errors %}{{ error }}{% endfor %}
+                                </div>
+                            {% endif %}
+                            <small class="form-text text-muted">{{ form.data_cap_period.description }}</small>
+                        </div>
+                    </div>
+                    
+                    {% if user and user.data_cap %}
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> 
+                        <strong>Data Cap Status:</strong> 
+                        {% if user.last_reset %}
+                            Last reset: {{ user.last_reset.strftime('%Y-%m-%d %H:%M:%S') }}
+                        {% else %}
+                            Not yet reset
+                        {% endif %}
+                        <br>
+                        <small>Period: <strong>{{ user.data_cap_period|title if user.data_cap_period else 'Monthly' }}</strong></small>
+                        {% if user %}
+                        <form method="POST" action="{{ url_for('reset_user_data_cap', user_id=user.id) }}" style="display: inline; margin-top: 0.5rem;">
+                            <button type="submit" class="btn btn-sm btn-warning" onclick="return confirm('Reset data cap counter for this user?');">
+                                <i class="bi bi-arrow-clockwise"></i> Reset Data Cap Counter
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    
+                    <div class="mb-3 form-check">
+                        {{ form.is_active(class="form-check-input") }}
+                        {{ form.is_active.label(class="form-check-label") }}
+                    </div>
+                    
+                    {% if user %}
+                    <hr class="my-4">
+                    <h6 class="mb-3"><i class="bi bi-wifi"></i> Test Connection</h6>
+                    <p class="text-muted small mb-3">Test user authentication against a NAS device before activating.</p>
+                    <div class="row">
+                        <div class="col-md-8 mb-3">
+                            <select id="test-nas-select" class="form-select">
+                                <option value="">-- Select NAS Device --</option>
+                                {% for nas in nas_list %}
+                                <option value="{{ nas.id }}">{{ nas.shortname }} ({{ nas.nasname }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <button type="button" id="test-connection-btn" class="btn btn-info w-100" {% if not nas_list %}disabled{% endif %}>
+                                <i class="bi bi-wifi"></i> Test Connection
+                            </button>
+                        </div>
+                    </div>
+                    <div id="test-result" class="mt-2"></div>
+                    {% endif %}
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('users') }}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle"></i> Save User
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if user %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const testBtn = document.getElementById('test-connection-btn');
+    const nasSelect = document.getElementById('test-nas-select');
+    const testResult = document.getElementById('test-result');
+    
+    if (testBtn && nasSelect) {
+        testBtn.addEventListener('click', function() {
+            const nasId = nasSelect.value;
+            if (!nasId) {
+                testResult.innerHTML = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> Please select a NAS device first.</div>';
+                return;
+            }
+            
+            testBtn.disabled = true;
+            testBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Testing...';
+            testResult.innerHTML = '';
+            
+            fetch(`/users/test-connection/{{ user.id }}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ nas_id: parseInt(nasId) })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    testResult.innerHTML = `<div class="alert alert-success"><i class="bi bi-check-circle"></i> ${data.message}</div>`;
+                    if (data.activated) {
+                        // Reload page to show updated status
+                        setTimeout(() => location.reload(), 2000);
+                    }
+                } else {
+                    testResult.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ${data.message}</div>`;
+                }
+            })
+            .catch(error => {
+                testResult.innerHTML = `<div class="alert alert-danger"><i class="bi bi-x-circle"></i> Test failed: ${error.message}</div>`;
+            })
+            .finally(() => {
+                testBtn.disabled = false;
+                testBtn.innerHTML = '<i class="bi bi-wifi"></i> Test Connection';
+            });
+        });
+    }
+});
+</script>
+{% endif %}
+{% endblock %}
+
+

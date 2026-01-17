@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-router"></i> {{ title }}
+            </div>
+            <div class="card-body">
+                <form method="POST" novalidate>
+                    {{ form.hidden_tag() }}
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.nasname.label(class="form-label") }}
+                                {{ form.nasname(class="form-control" + (" is-invalid" if form.nasname.errors else ""), placeholder="192.168.1.1") }}
+                                {% if form.nasname.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.nasname.errors %}{{ error }}{% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.shortname.label(class="form-label") }}
+                                {{ form.shortname(class="form-control" + (" is-invalid" if form.shortname.errors else ""), placeholder="router1") }}
+                                {% if form.shortname.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.shortname.errors %}{{ error }}{% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.secret.label(class="form-label") }}
+                        {{ form.secret(class="form-control" + (" is-invalid" if form.secret.errors else ""), placeholder="Enter RADIUS shared secret") }}
+                        {% if form.secret.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.secret.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                        <small class="form-text text-muted">This must match the secret configured on your network device</small>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.type.label(class="form-label") }}
+                                {{ form.type(class="form-select" + (" is-invalid" if form.type.errors else "")) }}
+                                {% if form.type.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.type.errors %}{{ error }}{% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.vendor.label(class="form-label") }}
+                                {{ form.vendor(class="form-select" + (" is-invalid" if form.vendor.errors else "")) }}
+                                {% if form.vendor.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.vendor.errors %}{{ error }}{% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.ports.label(class="form-label") }}
+                                {{ form.ports(class="form-control" + (" is-invalid" if form.ports.errors else ""), placeholder="1812") }}
+                                {% if form.ports.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.ports.errors %}{{ error }}{% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                {{ form.server.label(class="form-label") }}
+                                {{ form.server(class="form-control" + (" is-invalid" if form.server.errors else "")) }}
+                                {% if form.server.errors %}
+                                    <div class="invalid-feedback">
+                                        {% for error in form.server.errors %}{{ error }}{% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.community.label(class="form-label") }}
+                        {{ form.community(class="form-control" + (" is-invalid" if form.community.errors else ""), placeholder="public") }}
+                        {% if form.community.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.community.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                        <small class="form-text text-muted">Optional: For SNMP monitoring</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        {{ form.description.label(class="form-label") }}
+                        {{ form.description(class="form-control" + (" is-invalid" if form.description.errors else "")) }}
+                        {% if form.description.errors %}
+                            <div class="invalid-feedback">
+                                {% for error in form.description.errors %}{{ error }}{% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="mb-3 form-check">
+                        {{ form.is_active(class="form-check-input") }}
+                        {{ form.is_active.label(class="form-check-label") }}
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('nas_list') }}" class="btn btn-secondary">
+                            <i class="bi bi-arrow-left"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-circle"></i> Save NAS
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+

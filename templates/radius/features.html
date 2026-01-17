@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}RADIUS Features - {{ app_name }}{% endblock %}
+{% block page_title %}RADIUS Features & Attributes Reference{% endblock %}
+
+{% block content %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-info-circle"></i> About RADIUS Attributes</h5>
+    </div>
+    <div class="card-body">
+        <p>RADIUS attributes are used to configure authentication, authorization, and accounting (AAA) for network users. 
+        This page lists all available standard and vendor-specific attributes that can be configured in plans and user profiles.</p>
+        <p class="mb-0"><strong>Note:</strong> When adding attributes to plans, use the format shown below. The operator (usually <code>:=</code>) assigns the value, 
+        while other operators like <code>==</code> are used for checking conditions.</p>
+    </div>
+</div>
+
+<!-- Standard RADIUS Attributes -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-star"></i> Standard RADIUS Attributes</h5>
+    </div>
+    <div class="card-body">
+        {% for category, attrs in standard_attributes.items() %}
+        <h6 class="mt-4 mb-3 text-primary">{{ category }}</h6>
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered">
+                <thead>
+                    <tr>
+                        <th style="width: 25%;">Attribute</th>
+                        <th style="width: 10%;">Operator</th>
+                        <th style="width: 25%;">Example Value</th>
+                        <th style="width: 40%;">Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for attr, op, value, desc in attrs %}
+                    <tr>
+                        <td><code>{{ attr }}</code></td>
+                        <td><span class="badge bg-secondary">{{ op }}</span></td>
+                        <td><code class="text-success">{{ value }}</code></td>
+                        <td><small>{{ desc }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Vendor-Specific Attributes -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-tag"></i> Vendor-Specific Attributes</h5>
+    </div>
+    <div class="card-body">
+        {% for vendor, attrs in vendor_attributes.items() %}
+        <h6 class="mt-4 mb-3 text-success">{{ vendor }}</h6>
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered">
+                <thead>
+                    <tr>
+                        <th style="width: 25%;">Attribute</th>
+                        <th style="width: 10%;">Operator</th>
+                        <th style="width: 25%;">Example Value</th>
+                        <th style="width: 40%;">Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for attr, op, value, desc in attrs %}
+                    <tr>
+                        <td><code>{{ attr }}</code></td>
+                        <td><span class="badge bg-secondary">{{ op }}</span></td>
+                        <td><code class="text-success">{{ value }}</code></td>
+                        <td><small>{{ desc }}</small></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Bandwidth Configuration Guide -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-speedometer2"></i> Bandwidth Limit Configuration</h5>
+    </div>
+    <div class="card-body">
+        <h6>Setting Bandwidth Limits</h6>
+        <p>You can set bandwidth limits in two ways:</p>
+        <ol>
+            <li><strong>Plan-level limits:</strong> Set default bandwidth limits for all users in a plan</li>
+            <li><strong>User-level limits:</strong> Override plan limits for specific users</li>
+        </ol>
+        
+        <h6 class="mt-4">Speed Format Examples</h6>
+        <ul>
+            <li><code>10M</code> - 10 Megabits per second</li>
+            <li><code>100M</code> - 100 Megabits per second</li>
+            <li><code>1G</code> - 1 Gigabit per second</li>
+            <li><code>10M/10M</code> - Upload/Download (MikroTik format)</li>
+        </ul>
+        
+        <h6 class="mt-4">Data Cap Format</h6>
+        <p>Data caps are specified in <strong>GB</strong> (Gigabytes). The system automatically converts to bytes for RADIUS attributes.</p>
+        <ul>
+            <li><code>10</code> - 10 GB monthly limit</li>
+            <li><code>100</code> - 100 GB monthly limit</li>
+            <li><code>0</code> or empty - Unlimited</li>
+        </ul>
+        
+        <div class="alert alert-info mt-4">
+            <i class="bi bi-lightbulb"></i> <strong>Tip:</strong> When bandwidth limits are set, the system automatically adds the appropriate RADIUS attributes 
+            (e.g., <code>Mikrotik-Rate-Limit</code>, <code>Cisco-AVPair</code>) based on the plan's vendor type.
+        </div>
+    </div>
+</div>
+
+<!-- Common Use Cases -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-book"></i> Common Configuration Examples</h5>
+    </div>
+    <div class="card-body">
+        <h6>Basic Internet Plan (10 Mbps, Unlimited Data)</h6>
+        <pre class="bg-light p-3 rounded"><code>Upload Speed: 10M
+Download Speed: 10M
+Data Cap: (empty/unlimited)</code></pre>
+        
+        <h6 class="mt-4">Premium Plan (100 Mbps, 500 GB Cap)</h6>
+        <pre class="bg-light p-3 rounded"><code>Upload Speed: 100M
+Download Speed: 100M
+Data Cap: 500</code></pre>
+        
+        <h6 class="mt-4">MikroTik Router (Asymmetric)</h6>
+        <pre class="bg-light p-3 rounded"><code>Upload Speed: 10M/20M (MikroTik format)
+Download Speed: (leave empty, included in upload)
+Data Cap: 100</code></pre>
+        
+        <div class="alert alert-warning mt-4">
+            <i class="bi bi-exclamation-triangle"></i> <strong>Note:</strong> Some vendors (like MikroTik) use combined upload/download format. 
+            Check your vendor's documentation for the correct format.
+        </div>
+    </div>
+</div>
+{% endblock %}
+

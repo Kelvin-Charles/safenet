@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Accounting - {{ app_name }}{% endblock %}
+{% block page_title %}Accounting & Sessions{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-graph-up"></i> Session Accounting
+    </div>
+    <div class="card-body">
+        <!-- Search and Filter -->
+        <form method="GET" class="mb-3">
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="input-group">
+                        <input type="text" name="search" class="form-control" placeholder="Search by username, NAS IP, or user IP..." value="{{ search }}">
+                        <button class="btn btn-outline-secondary" type="submit">
+                            <i class="bi bi-search"></i> Search
+                        </button>
+                        {% if search %}
+                        <a href="{{ url_for('accounting') }}" class="btn btn-outline-danger">
+                            <i class="bi bi-x"></i> Clear
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <select name="status" class="form-select" onchange="this.form.submit()">
+                        <option value="all" {% if status == 'all' %}selected{% endif %}>All Sessions</option>
+                        <option value="active" {% if status == 'active' %}selected{% endif %}>Active Only</option>
+                        <option value="closed" {% if status == 'closed' %}selected{% endif %}>Closed Only</option>
+                    </select>
+                </div>
+            </div>
+        </form>
+        
+        {% if pagination.items %}
+        <div class="table-responsive">
+            <table class="table table-hover table-sm">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>NAS IP</th>
+                        <th>User IP</th>
+                        <th>Start Time</th>
+                        <th>Duration</th>
+                        <th>Data Usage</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for session in pagination.items %}
+                    <tr>
+                        <td>
+                            <i class="bi bi-person-circle"></i>
+                            <strong>{{ session.username }}</strong>
+                        </td>
+                        <td><code>{{ session.nasipaddress }}</code></td>
+                        <td>
+                            {% if session.framedipaddress %}
+                                <code>{{ session.framedipaddress }}</code>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <small>{{ session.acctstarttime.strftime('%Y-%m-%d %H:%M') if session.acctstarttime else 'N/A' }}</small>
+                        </td>
+                        <td>
+                            {% if session.acctsessiontime %}
+                                <small>{{ (session.acctsessiontime // 3600)|int }}h {{ ((session.acctsessiontime % 3600) // 60)|int }}m</small>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if session.acctinputoctets and session.acctoutputoctets %}
+                                {% set total_bytes = session.acctinputoctets + session.acctoutputoctets %}
+                                <small>{{ "%.2f"|format(total_bytes / 1024 / 1024) }} MB</small>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if session.acctstoptime %}
+                                <span class="badge bg-secondary">Closed</span>
+                            {% else %}
+                                <span class="badge bg-success">Active</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ url_for('accounting_detail', session_id=session.radacctid) }}" class="btn btn-sm btn-outline-info">
+                                <i class="bi bi-eye"></i> View
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination -->
+        {% if pagination.pages > 1 %}
+        <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('accounting', page=pagination.prev_num, search=search, status=status) if pagination.has_prev else '#' }}">Previous</a>
+                </li>
+                
+                {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if page_num %}
+                        <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('accounting', page=page_num, search=search, status=status) }}">{{ page_num }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% endif %}
+                {% endfor %}
+                
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('accounting', page=pagination.next_num, search=search, status=status) if pagination.has_next else '#' }}">Next</a>
+                </li>
+            </ul>
+        </nav>
+        {% endif %}
+        
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-inbox" style="font-size: 3rem;"></i>
+            <p class="mt-3">No sessions found</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+

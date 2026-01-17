@@ -1,0 +1,152 @@
+# SQL Module Configuration for Multi-Vendor Support
+sql {
+    # Database driver
+    driver = "rlm_sql_mysql"
+    
+    # Database dialect
+    dialect = "mysql"
+    
+    # Connection info (defaults match docker-compose.yml)
+    server = "db"
+    port = 3306
+    login = "radius"
+    password = "radiuspassword"
+    radius_db = "radius"
+    
+    # Connection pool
+    pool {
+        start = 5
+        min = 4
+        max = 32
+        spare = 10
+        uses = 0
+        retry_delay = 30
+        lifetime = 0
+        idle_timeout = 60
+    }
+    
+    # Enable NAS table
+    read_clients = yes
+    client_table = "nas"
+    
+    # Table names
+    authcheck_table = "radcheck"
+    authreply_table = "radreply"
+    groupcheck_table = "radgroupcheck"
+    groupreply_table = "radgroupreply"
+    usergroup_table = "radusergroup"
+    postauth_table = "radpostauth"
+    acct_table1 = "radacct"
+    acct_table2 = "radacct"
+    
+    # SQL queries for authorization
+    authorize_check_query = "\
+        SELECT id, username, attribute, value, op \
+        FROM radcheck \
+        WHERE username = '%{SQL-User-Name}' \
+        ORDER BY id"
+    
+    authorize_reply_query = "\
+        SELECT id, username, attribute, value, op \
+        FROM radreply \
+        WHERE username = '%{SQL-User-Name}' \
+        ORDER BY id"
+    
+    authorize_group_check_query = "\
+        SELECT radgroupcheck.id, radgroupcheck.groupname, \
+               radgroupcheck.attribute, radgroupcheck.value, \
+               radgroupcheck.op \
+        FROM radgroupcheck, radusergroup \
+        WHERE radusergroup.username = '%{SQL-User-Name}' \
+        AND radusergroup.groupname = radgroupcheck.groupname \
+        ORDER BY radgroupcheck.id"
+    
+    authorize_group_reply_query = "\
+        SELECT radgroupreply.id, radgroupreply.groupname, \
+               radgroupreply.attribute, radgroupreply.value, \
+               radgroupreply.op \
+        FROM radgroupreply, radusergroup \
+        WHERE radusergroup.username = '%{SQL-User-Name}' \
+        AND radusergroup.groupname = radgroupreply.groupname \
+        ORDER BY radgroupreply.id"
+    
+    # Accounting queries - simplified format
+    accounting {
+        reference = "%{tolower:type.%{Acct-Status-Type}.query}"
+        
+        type {
+            accounting-on {
+                query = "\
+                    UPDATE radacct \
+                    SET acctstoptime = FROM_UNIXTIME(%{integer:Event-Timestamp}), \
+                        acctterminatecause = '%{%{Acct-Terminate-Cause}:-NAS-Reboot}' \
+                    WHERE acctstoptime IS NULL \
+                    AND nasipaddress = '%{NAS-IP-Address}' \
+                    AND acctstarttime <= FROM_UNIXTIME(%{integer:Event-Timestamp})"
+            }
+            
+            accounting-off {
+                query = "\
+                    UPDATE radacct \
+                    SET acctstoptime = FROM_UNIXTIME(%{integer:Event-Timestamp}), \
+                        acctterminatecause = '%{%{Acct-Terminate-Cause}:-NAS-Reboot}' \
+                    WHERE acctstoptime IS NULL \
+                    AND nasipaddress = '%{NAS-IP-Address}' \
+                    AND acctstarttime <= FROM_UNIXTIME(%{integer:Event-Timestamp})"
+            }
+            
+            start {
+                query = "\
+                    INSERT INTO radacct \
+                        (acctsessionid, acctuniqueid, username, realm, \
+                         nasipaddress, nasportid, nasporttype, acctstarttime, \
+                         acctupdatetime, acctsessiontime, acctauthentic, \
+                         connectinfo_start, calledstationid, callingstationid, \
+                         servicetype, framedprotocol, framedipaddress) \
+                    VALUES \
+                        ('%{Acct-Session-Id}', '%{Acct-Unique-Session-Id}', \
+                         '%{SQL-User-Name}', '%{Realm}', '%{NAS-IP-Address}', \
+                         '%{%{NAS-Port-ID}:-%{NAS-Port}}', '%{NAS-Port-Type}', \
+                         FROM_UNIXTIME(%{integer:Event-Timestamp}), \
+                         FROM_UNIXTIME(%{integer:Event-Timestamp}), 0, \
+                         '%{Acct-Authentic}', '%{Connect-Info}', \
+                         '%{Called-Station-Id}', '%{Calling-Station-Id}', \
+                         '%{Service-Type}', '%{Framed-Protocol}', \
+                         '%{Framed-IP-Address}')"
+            }
+            
+            interim-update {
+                query = "\
+                    UPDATE radacct \
+                    SET acctupdatetime = FROM_UNIXTIME(%{integer:Event-Timestamp}) \
+                    WHERE acctsessionid = '%{Acct-Session-Id}' \
+                    AND username = '%{SQL-User-Name}' \
+                    AND nasipaddress = '%{NAS-IP-Address}'"
+            }
+            
+            stop {
+                query = "\
+                    UPDATE radacct \
+                    SET acctstoptime = FROM_UNIXTIME(%{integer:Event-Timestamp}), \
+                        acctterminatecause = '%{Acct-Terminate-Cause}' \
+                    WHERE acctsessionid = '%{Acct-Session-Id}' \
+                    AND username = '%{SQL-User-Name}' \
+                    AND nasipaddress = '%{NAS-IP-Address}'"
+            }
+        }
+    }
+    
+    # Post-Auth
+    post-auth {
+        reference = ".query"
+        query = "\
+            INSERT INTO radpostauth \
+                (username, pass, reply, authdate) \
+            VALUES \
+                ('%{User-Name}', '%{%{User-Password}:-%{Chap-Password}}', \
+                 '%{reply:Packet-Type}', NOW())"
+    }
+    
+    # Safe characters
+    safe_characters = "@abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_: /"
+}
