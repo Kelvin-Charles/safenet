@@ -19,15 +19,13 @@ services:
     networks:
       - safenet-network
     healthcheck:
-      # Use container env so passwords with special chars work and match MYSQL_ROOT_PASSWORD.
-      test:
-        [
-          "CMD-SHELL",
-          'mysqladmin ping -h localhost --port=3302 -u root -p"$$MYSQL_ROOT_PASSWORD" || exit 1',
-        ]
+      # Official script: uses Unix socket as mysql user (no root password in process list).
+      # First init + schema.sql can take minutes on slow disks; start_period avoids false "unhealthy".
+      test: ["CMD", "healthcheck.sh", "--su-mysql", "--connect", "--innodb_initialized"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 15
+      start_period: 180s
 
   # phpMyAdmin - Database Management Interface
   phpmyadmin:
