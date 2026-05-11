@@ -10,8 +10,11 @@ sql {
     server = "db"
     port = 3306
     login = "radius"
-    password = "radiuspassword"
+    password = "SiriNywila321"
     radius_db = "radius"
+    
+    # SQL username attribute - tells SQL module which attribute contains the username
+    sql_user_name = "%{User-Name}"
     
     # Connection pool
     pool {

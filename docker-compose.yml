@@ -1,21 +1,27 @@
+version: "3.9"
+
 services:
-  # MariaDB Database
+  # MariaDB Database (listens on 3302 so host 3306 is free for another service)
   db:
     image: mariadb:10.11
     container_name: safenet-db
     restart: unless-stopped
+    command: ["mariadbd", "--port=3302"]
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-SiriNywila321}
       MYSQL_DATABASE: ${DB_NAME:-radius}
       MYSQL_USER: ${DB_USER:-radius}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-radiuspassword}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-SiriNywila321}
+    ports:
+      - "3302:3302"
     volumes:
       - db_data:/var/lib/mysql
       - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
     networks:
       - safenet-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-rootpassword}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--port=3302",
+             "-u", "root", "-p${DB_ROOT_PASSWORD:-SiriNywila321}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,11 +34,12 @@ services:
     ports:
       - "8081:80"
     environment:
+      TZ: ${TZ:-Africa/Nairobi}
       PMA_HOST: db
-      PMA_PORT: 3306
+      PMA_PORT: 3302
       PMA_USER: ${DB_USER:-radius}
-      PMA_PASSWORD: ${DB_PASSWORD:-radiuspassword}
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      PMA_PASSWORD: ${DB_PASSWORD:-SiriNywila321}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-SiriNywila321}
       UPLOAD_LIMIT: 300M
       MAX_EXECUTION_TIME: 600
     depends_on:
@@ -49,31 +56,46 @@ services:
     container_name: safenet-web
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "0.0.0.0:5001:5001"     # Listen on all interfaces so reachable at server IP (e.g. 159.198.40.102:5001)
     environment:
+      TZ: ${TZ:-Africa/Nairobi}
+      # Meraki CoA (Change of Authorization / Disconnect)
+      MERAKI_COA_HOST: ${MERAKI_COA_HOST:-n260.meraki.com}
+      MERAKI_COA_PORT: ${MERAKI_COA_PORT:-3799}
+      MERAKI_COA_SECRET: ${MERAKI_COA_SECRET:-JRIIT-fr33.}
       FLASK_APP: app.py
       FLASK_ENV: ${FLASK_ENV:-production}
       SECRET_KEY: ${SECRET_KEY:-change-this-to-a-random-secret-key}
       DB_HOST: db
-      DB_PORT: 3306
+      DB_PORT: 3302            # internal DB port
       DB_NAME: ${DB_NAME:-radius}
       DB_USER: ${DB_USER:-radius}
-      DB_PASSWORD: ${DB_PASSWORD:-radiuspassword}
+      DB_PASSWORD: ${DB_PASSWORD:-SiriNywila321}
       RADIUS_SECRET: ${RADIUS_SECRET:-testing123}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@safenet.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123@SafeNet}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-meenacharles22@gmail.com}
+      # Bandwidth alert email (SMTP - e.g. mail.safezonetz.com)
+      MAIL_SERVER: ${MAIL_SERVER:-mail.safezonetz.com}
+      MAIL_PORT: ${MAIL_PORT:-465}
+      MAIL_USE_SSL: ${MAIL_USE_SSL:-true}
+      MAIL_USERNAME: ${MAIL_USERNAME:-safenet@safezonetz.com}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-NEcEtmsvEc54}
+      MAIL_DEFAULT_SENDER: ${MAIL_DEFAULT_SENDER:-safenet@safezonetz.com}
+      BANDWIDTH_ALERT_FALLBACK_EMAIL: ${BANDWIDTH_ALERT_FALLBACK_EMAIL:-}
     depends_on:
       db:
         condition: service_healthy
     networks:
       - safenet-network
+    volumes:
+      - radius_logs:/var/log/freeradius:ro
     command: >
       sh -c "
         echo 'Waiting for database...' &&
         sleep 10 &&
         flask init-db &&
-        gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 120 app:app
+        gunicorn --bind 0.0.0.0:5001 --workers 4 --timeout 120 app:app
       "
 
   # FreeRADIUS Server
@@ -87,11 +109,12 @@ services:
       - "1812:1812/udp"  # RADIUS Authentication
       - "1813:1813/udp"  # RADIUS Accounting
     environment:
+      TZ: ${TZ:-Africa/Nairobi}
       DB_HOST: db
-      DB_PORT: 3306
+      DB_PORT: 3302
       DB_NAME: ${DB_NAME:-radius}
       DB_USER: ${DB_USER:-radius}
-      DB_PASSWORD: ${DB_PASSWORD:-radiuspassword}
+      DB_PASSWORD: ${DB_PASSWORD:-SiriNywila321}
       RADIUS_SECRET: ${RADIUS_SECRET:-testing123}
     depends_on:
       db:
@@ -102,15 +125,16 @@ services:
       - ./freeradius/clients.conf:/etc/freeradius/3.0/clients.conf:ro
       - ./freeradius/radiusd.conf:/etc/freeradius/3.0/radiusd.conf:ro
       - ./freeradius/mods-available/sql:/etc/freeradius/3.0/mods-available/sql:ro
+      - ./freeradius/sites-available/default:/etc/freeradius/3.0/sites-available/default:ro
+      - radius_logs:/var/log/freeradius
 
+  # Web app reads FreeRADIUS logs from shared volume (read-only)
 networks:
   safenet-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
 
 volumes:
   db_data:
     driver: local
-
+  radius_logs:
+    driver: local

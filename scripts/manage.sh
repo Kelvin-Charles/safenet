@@ -90,7 +90,7 @@ backup() {
     
     print_info "Creating database backup..."
     
-    if docker compose exec -T db mysqldump -u radius -p"${DB_PASSWORD:-radiuspassword}" radius > "$backup_file"; then
+    if docker compose exec -T db mysqldump -u radius -p"${DB_PASSWORD:-SiriNywila321}" radius > "$backup_file"; then
         gzip "$backup_file"
         print_success "Backup created: ${backup_file}.gz"
     else
@@ -116,9 +116,9 @@ restore() {
     print_info "Restoring database from $backup_file..."
     
     if [[ "$backup_file" == *.gz ]]; then
-        gunzip -c "$backup_file" | docker compose exec -T db mysql -u radius -p"${DB_PASSWORD:-radiuspassword}" radius
+        gunzip -c "$backup_file" | docker compose exec -T db mysql -u radius -p"${DB_PASSWORD:-SiriNywila321}" radius
     else
-        docker compose exec -T db mysql -u radius -p"${DB_PASSWORD:-radiuspassword}" radius < "$backup_file"
+        docker compose exec -T db mysql -u radius -p"${DB_PASSWORD:-SiriNywila321}" radius < "$backup_file"
     fi
     
     print_success "Database restored"
@@ -145,7 +145,7 @@ debug_radius() {
 # Database shell
 db_shell() {
     print_info "Connecting to database..."
-    docker compose exec db mysql -u radius -p"${DB_PASSWORD:-radiuspassword}" radius
+    docker compose exec db mysql -u radius -p"${DB_PASSWORD:-SiriNywila321}" radius
 }
 
 # Initialize database
