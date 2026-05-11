@@ -8,10 +8,11 @@ services:
     restart: unless-stopped
     command: ["mariadbd", "--port=3302"]
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-SiriNywila321}
+      # Required: MariaDB refuses uninitialized root; never use empty passwords.
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
       MYSQL_DATABASE: ${DB_NAME:-radius}
       MYSQL_USER: ${DB_USER:-radius}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-SiriNywila321}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
     ports:
       - "3302:3302"
     volumes:
@@ -20,8 +21,12 @@ services:
     networks:
       - safenet-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--port=3302",
-             "-u", "root", "-p${DB_ROOT_PASSWORD:-SiriNywila321}"]
+      # Use container env so passwords with special chars work and match MYSQL_ROOT_PASSWORD.
+      test:
+        [
+          "CMD-SHELL",
+          'mysqladmin ping -h localhost --port=3302 -u root -p"$$MYSQL_ROOT_PASSWORD" || exit 1',
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -38,8 +43,8 @@ services:
       PMA_HOST: db
       PMA_PORT: 3302
       PMA_USER: ${DB_USER:-radius}
-      PMA_PASSWORD: ${DB_PASSWORD:-SiriNywila321}
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-SiriNywila321}
+      PMA_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
       UPLOAD_LIMIT: 300M
       MAX_EXECUTION_TIME: 600
     depends_on:
@@ -70,7 +75,7 @@ services:
       DB_PORT: 3302            # internal DB port
       DB_NAME: ${DB_NAME:-radius}
       DB_USER: ${DB_USER:-radius}
-      DB_PASSWORD: ${DB_PASSWORD:-SiriNywila321}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       RADIUS_SECRET: ${RADIUS_SECRET:-testing123}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123@SafeNet}
@@ -114,7 +119,7 @@ services:
       DB_PORT: 3302
       DB_NAME: ${DB_NAME:-radius}
       DB_USER: ${DB_USER:-radius}
-      DB_PASSWORD: ${DB_PASSWORD:-SiriNywila321}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       RADIUS_SECRET: ${RADIUS_SECRET:-testing123}
     depends_on:
       db:
@@ -124,7 +129,7 @@ services:
     volumes:
       - ./freeradius/clients.conf:/etc/freeradius/3.0/clients.conf:ro
       - ./freeradius/radiusd.conf:/etc/freeradius/3.0/radiusd.conf:ro
-      - ./freeradius/mods-available/sql:/etc/freeradius/3.0/mods-available/sql:ro
+      - ./freeradius/mods-available/sql.template:/etc/freeradius/3.0/mods-available/sql.template:ro
       - ./freeradius/sites-available/default:/etc/freeradius/3.0/sites-available/default:ro
       - radius_logs:/var/log/freeradius
 

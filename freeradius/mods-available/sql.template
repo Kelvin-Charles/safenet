@@ -1,4 +1,5 @@
 # SQL Module Configuration for Multi-Vendor Support
+# Connection block is rendered at container start from DB_* env (see docker-entrypoint.sh).
 sql {
     # Database driver
     driver = "rlm_sql_mysql"
@@ -6,12 +7,12 @@ sql {
     # Database dialect
     dialect = "mysql"
     
-    # Connection info (defaults match docker-compose.yml)
-    server = "db"
-    port = 3306
-    login = "radius"
-    password = "SiriNywila321"
-    radius_db = "radius"
+    # Connection info (filled from environment)
+    server = "###DB_HOST###"
+    port = ###DB_PORT###
+    login = "###DB_USER###"
+    password = "###DB_PASSWORD###"
+    radius_db = "###DB_NAME###"
     
     # SQL username attribute - tells SQL module which attribute contains the username
     sql_user_name = "%{User-Name}"
