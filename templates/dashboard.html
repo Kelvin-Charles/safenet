@@ -125,7 +125,7 @@
                             </div>
                             <div>
                                 <span class="badge bg-info">
-                                    {{ "%.2f"|format(user.total_bytes / 1024 / 1024 / 1024) }} GB
+                                    {{ "%.2f"|format((user.total_bytes or 0) / 1024 / 1024 / 1024) }} GB
                                 </span>
                             </div>
                         </div>

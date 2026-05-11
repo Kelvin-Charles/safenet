@@ -100,11 +100,22 @@ def dashboard():
     # Recent sessions
     recent_sessions = RadAcct.query.order_by(desc(RadAcct.acctstarttime)).limit(10).all()
     
-    # Top users by data usage (last 30 days)
-    top_users = db.session.query(
-        RadAcct.username,
-        func.sum(RadAcct.acctinputoctets + RadAcct.acctoutputoctets).label('total_bytes')
-    ).group_by(RadAcct.username).order_by(desc('total_bytes')).limit(5).all()
+    # Top users by data usage. COALESCE protects against rows where octet
+    # counters are NULL (no accounting yet) so the template never divides by None.
+    total_bytes_expr = func.coalesce(
+        func.sum(
+            func.coalesce(RadAcct.acctinputoctets, 0)
+            + func.coalesce(RadAcct.acctoutputoctets, 0)
+        ),
+        0,
+    ).label('total_bytes')
+    top_users = (
+        db.session.query(RadAcct.username, total_bytes_expr)
+        .group_by(RadAcct.username)
+        .order_by(desc('total_bytes'))
+        .limit(5)
+        .all()
+    )
     
     return render_template('dashboard.html',
                          total_users=total_users,
