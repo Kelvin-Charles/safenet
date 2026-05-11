@@ -116,7 +116,7 @@ services:
       DB_NAME: ${DB_NAME:-radius}
       DB_USER: ${DB_USER:-radius}
       DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
-      RADIUS_SECRET: ${RADIUS_SECRET:-testing123}
+      RADIUS_SECRET: ${RADIUS_SECRET:-SiriNywila321}
     depends_on:
       db:
         condition: service_healthy
