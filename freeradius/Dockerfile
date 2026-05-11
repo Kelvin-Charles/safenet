@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
 # Copy custom configuration files
 COPY freeradius/radiusd.conf /etc/freeradius/3.0/radiusd.conf
 COPY freeradius/clients.conf /etc/freeradius/3.0/clients.conf
+COPY freeradius/sites-available/default /etc/freeradius/3.0/sites-available/default
 COPY freeradius/mods-available/sql.template /etc/freeradius/3.0/mods-available/sql.template
 COPY freeradius/render-freeradius-sql.py /usr/local/bin/render-freeradius-sql.py
 COPY freeradius/docker-entrypoint.sh /docker-entrypoint.sh
