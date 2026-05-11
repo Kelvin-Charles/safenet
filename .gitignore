@@ -80,3 +80,7 @@ coverage.xml
 freeradius/log/
 freeradius/run/
 freeradius/raddb/certs/
+
+# Seed input files may contain real passwords; never commit them.
+seed_users.json
+*.seed.json

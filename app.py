@@ -8,6 +8,9 @@ from sqlalchemy import func, or_, desc
 import subprocess
 import socket
 import struct
+import json
+import sys
+import click
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -872,6 +875,120 @@ def init_db():
         print(f'Admin user created: {Config.ADMIN_USERNAME}')
     
     print('Database initialized.')
+
+
+@app.cli.command('seed-users')
+@click.option(
+    '--file', '-f', 'path',
+    type=click.Path(exists=True, dir_okay=False, readable=True),
+    default=None,
+    help='Path to a JSON file with users. If omitted, JSON is read from stdin.',
+)
+@click.option(
+    '--update-password/--keep-password', default=True,
+    help='Overwrite the password for users that already exist (default: update).',
+)
+@click.option(
+    '--plan', default=None,
+    help='Default plan name to assign to seeded users that do not specify "plan".',
+)
+def seed_users(path, update_password, plan):
+    """Seed FreeRADIUS users from a JSON list.
+
+    JSON format (stdin or --file):
+        [
+          {"username": "alice", "password": "s3cret"},
+          {"username": "bob",   "password": "p@ss",  "plan": "Premium", "is_active": true}
+        ]
+
+    Examples (run inside the web container):
+        docker compose exec -T web flask seed-users < users.json
+        cat users.json | docker compose exec -T web flask seed-users
+    """
+    raw = open(path, 'r', encoding='utf-8').read() if path else sys.stdin.read()
+    if not raw.strip():
+        click.echo('No input received.', err=True)
+        sys.exit(2)
+    try:
+        users = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        click.echo(f'Invalid JSON: {exc}', err=True)
+        sys.exit(2)
+    if not isinstance(users, list):
+        click.echo('Top-level JSON must be a list of user objects.', err=True)
+        sys.exit(2)
+
+    created = updated = skipped = 0
+    for idx, entry in enumerate(users, start=1):
+        if not isinstance(entry, dict):
+            click.echo(f'[{idx}] skipped: not an object', err=True)
+            skipped += 1
+            continue
+        username = (entry.get('username') or '').strip()
+        password = entry.get('password')
+        if not username or not password:
+            click.echo(f'[{idx}] skipped: missing username/password', err=True)
+            skipped += 1
+            continue
+        is_active = bool(entry.get('is_active', True))
+        plan_name = entry.get('plan', plan)
+
+        plan_obj = None
+        if plan_name:
+            plan_obj = Plan.query.filter_by(name=plan_name).first()
+            if not plan_obj:
+                click.echo(
+                    f'[{idx}] {username}: plan "{plan_name}" not found, '
+                    'continuing without plan',
+                    err=True,
+                )
+
+        user = RadUser.query.filter_by(username=username).first()
+        is_new = user is None
+        if is_new:
+            user = RadUser(username=username, is_active=is_active)
+            if plan_obj is not None:
+                user.plan_id = plan_obj.id
+            db.session.add(user)
+        else:
+            user.is_active = is_active
+            if plan_obj is not None:
+                user.plan_id = plan_obj.id
+
+        radcheck = RadCheck.query.filter_by(
+            username=username, attribute='Cleartext-Password'
+        ).first()
+        if radcheck is None:
+            db.session.add(RadCheck(
+                username=username,
+                attribute='Cleartext-Password',
+                op=':=',
+                value=password,
+            ))
+        elif update_password:
+            radcheck.op = ':='
+            radcheck.value = password
+
+        if plan_obj is not None:
+            existing = RadUserGroup.query.filter_by(
+                username=username, groupname=plan_obj.name
+            ).first()
+            if existing is None:
+                RadUserGroup.query.filter_by(username=username).delete()
+                db.session.add(RadUserGroup(
+                    username=username, groupname=plan_obj.name, priority=1
+                ))
+
+        if is_new:
+            created += 1
+        else:
+            updated += 1
+
+    db.session.commit()
+    click.echo(
+        f'Done. created={created} updated={updated} skipped={skipped} '
+        f'total_input={len(users)}'
+    )
 
 
 if __name__ == '__main__':
