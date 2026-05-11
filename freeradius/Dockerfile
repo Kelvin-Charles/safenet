@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     freeradius-utils \
     mariadb-client \
     python3-minimal \
+    iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy custom configuration files
@@ -37,9 +38,10 @@ RUN mkdir -p /etc/freeradius/3.0/dictionary.d
 # Expose RADIUS ports
 EXPOSE 1812/udp 1813/udp
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD radtest test test localhost 0 testing123 || exit 1
+# Health check: just verify the auth socket is listening. Avoids spamming
+# the logs with bogus Access-Requests for a hard-coded "test" user.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+    CMD ss -uln 'sport = :1812' | grep -q ':1812' || exit 1
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["freeradius", "-X"]

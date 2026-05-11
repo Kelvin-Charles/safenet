@@ -295,7 +295,11 @@ authorize {
  #
  # See policy.d/filter for the definition of the filter_username policy.
  #
- filter_username
+ # NOTE: disabled. The stock filter_username policy on this FreeRADIUS 3.0
+ # build was rejecting all valid usernames ("test" matched /\.\./), which
+ # blocked every authentication. Re-enable only after auditing the policy
+ # file at /etc/freeradius/3.0/policy.d/filter inside the container.
+ # filter_username
 
  #
  # Some broken equipment sends passwords with embedded zeros.
