@@ -162,6 +162,30 @@ init_db() {
     print_success "Database initialized"
 }
 
+# Align MySQL 'radius' (or DB_USER) password inside the DB with DB_PASSWORD in .env.
+# MariaDB only applies MYSQL_PASSWORD on first volume init; changing .env alone causes 1045.
+sync_mysql_app_password() {
+    : "${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}"
+    : "${DB_PASSWORD:?Set DB_PASSWORD in .env}"
+    check_docker
+    local user="${DB_USER:-radius}"
+    print_info "Updating MySQL user '${user}'@'%' to match DB_PASSWORD (MariaDB port 3302)..."
+    local pw_esc user_esc
+    pw_esc=$(printf '%s' "$DB_PASSWORD" | sed "s/'/''/g")
+    user_esc=$(printf '%s' "$user" | sed "s/'/''/g")
+    if docker compose exec -T db mariadb -h 127.0.0.1 --port=3302 -u root -p"${DB_ROOT_PASSWORD}" <<SQL
+ALTER USER '${user_esc}'@'%' IDENTIFIED BY '${pw_esc}';
+FLUSH PRIVILEGES;
+SQL
+    then
+        print_success "MySQL application user password updated."
+        print_info "Restart web and freeradius: docker compose restart web freeradius"
+    else
+        print_error "Failed to update password (wrong DB_ROOT_PASSWORD or DB not running?)"
+        exit 1
+    fi
+}
+
 # Update system
 update() {
     print_info "Updating SafeNet..."
@@ -210,7 +234,8 @@ Commands:
     
     db                  Open database shell
     init-db             Initialize database
-    
+    sync-mysql-password Set DB user password inside MariaDB to match DB_PASSWORD in .env
+
     update              Update system and rebuild
     clean               Clean up all Docker resources
     
@@ -261,6 +286,9 @@ case "${1:-help}" in
         ;;
     init-db)
         init_db
+        ;;
+    sync-mysql-password)
+        sync_mysql_app_password
         ;;
     update)
         update
