@@ -111,7 +111,7 @@ services:
     container_name: safenet-radius
     restart: unless-stopped
     network_mode: host
-    entrypoint: ["/docker-entrypoint.sh"]
+    entrypoint: ["/bin/bash", "/docker-entrypoint.sh"]
     command: ["freeradius", "-f"]
     environment:
       TZ: ${TZ:-Africa/Nairobi}
