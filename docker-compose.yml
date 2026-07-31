@@ -28,6 +28,7 @@ services:
       start_period: 180s
 
   # phpMyAdmin - Database Management Interface
+  # No PMA_USER/PMA_PASSWORD: visitors must enter DB credentials on the login form.
   phpmyadmin:
     image: phpmyadmin/phpmyadmin:latest
     container_name: safenet-phpmyadmin
@@ -38,9 +39,6 @@ services:
       TZ: ${TZ:-Africa/Nairobi}
       PMA_HOST: db
       PMA_PORT: 3302
-      PMA_USER: ${DB_USER:-radius}
-      PMA_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
       UPLOAD_LIMIT: 300M
       MAX_EXECUTION_TIME: 600
     depends_on:
@@ -100,18 +98,19 @@ services:
       "
 
   # FreeRADIUS Server
+  # Host network: uses the host's DNS resolver and binds UDP 1812/1813
+  # directly on the host (no docker-proxy NAT). Reach MariaDB via the
+  # published host port 3302 — Docker DNS name "db" is not available.
   freeradius:
     build:
       context: .
       dockerfile: freeradius/Dockerfile
     container_name: safenet-radius
     restart: unless-stopped
-    ports:
-      - "1812:1812/udp"  # RADIUS Authentication
-      - "1813:1813/udp"  # RADIUS Accounting
+    network_mode: host
     environment:
       TZ: ${TZ:-Africa/Nairobi}
-      DB_HOST: db
+      DB_HOST: 127.0.0.1
       DB_PORT: 3302
       DB_NAME: ${DB_NAME:-radius}
       DB_USER: ${DB_USER:-radius}
@@ -120,8 +119,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    networks:
-      - safenet-network
     volumes:
       - ./freeradius/clients.conf:/etc/freeradius/3.0/clients.conf:ro
       - ./freeradius/radiusd.conf:/etc/freeradius/3.0/radiusd.conf:ro

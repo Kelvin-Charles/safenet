@@ -44,6 +44,9 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
     CMD ss -uln 'sport = :1812' | grep -q ':1812' || exit 1
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["freeradius", "-X"]
+# -f = foreground (required for Docker), normal log level.
+# Do NOT use -X in production: it dumps every auth packet to stdout
+# and floods `docker logs` / attached terminals.
+CMD ["freeradius", "-f"]
 
 
