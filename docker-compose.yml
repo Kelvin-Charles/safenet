@@ -55,7 +55,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      network: host
     image: safenet-web
+    pull_policy: never
     container_name: safenet-web
     restart: unless-stopped
     network_mode: host
@@ -103,7 +105,9 @@ services:
     build:
       context: .
       dockerfile: freeradius/Dockerfile
+      network: host
     image: safenet-freeradius
+    pull_policy: never
     container_name: safenet-radius
     restart: unless-stopped
     network_mode: host
