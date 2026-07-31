@@ -1,23 +1,20 @@
 services:
-  # MariaDB Database (listens on 3302 so host 3306 is free for another service)
+  # MariaDB — host network (bind 3302 on the host directly)
   db:
     image: mariadb:10.11
     container_name: safenet-db
     restart: unless-stopped
-    command: ["mariadbd", "--port=3302"]
+    network_mode: host
+    command: ["mariadbd", "--port=3302", "--bind-address=0.0.0.0"]
     environment:
       # Required: MariaDB refuses uninitialized root; never use empty passwords.
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
       MYSQL_DATABASE: ${DB_NAME:-radius}
       MYSQL_USER: ${DB_USER:-radius}
       MYSQL_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
-    ports:
-      - "3302:3302"
     volumes:
       - db_data:/var/lib/mysql
       - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
-    networks:
-      - safenet-network
     healthcheck:
       # Official script: uses Unix socket as mysql user (no root password in process list).
       # First init + schema.sql can take minutes on slow disks; start_period avoids false "unhealthy".
@@ -27,35 +24,41 @@ services:
       retries: 15
       start_period: 180s
 
-  # phpMyAdmin - Database Management Interface
-  # No PMA_USER/PMA_PASSWORD: visitors must enter DB credentials on the login form.
+  # phpMyAdmin — host network; login form (no PMA_USER/PMA_PASSWORD).
+  # Listens on host :8081 (avoids clashing with anything already on :80).
   phpmyadmin:
     image: phpmyadmin/phpmyadmin:latest
     container_name: safenet-phpmyadmin
     restart: unless-stopped
-    ports:
-      - "8081:80"
+    network_mode: host
     environment:
       TZ: ${TZ:-Africa/Nairobi}
-      PMA_HOST: db
+      PMA_HOST: 127.0.0.1
       PMA_PORT: 3302
+      APACHE_PORT: 8081
       UPLOAD_LIMIT: 300M
       MAX_EXECUTION_TIME: 600
     depends_on:
       db:
         condition: service_healthy
-    networks:
-      - safenet-network
+    # Official image defaults to :80; force :8081 under host networking.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        sed -i 's/Listen 80/Listen 8081/g' /etc/apache2/ports.conf
+        sed -i 's/:80/:8081/g' /etc/apache2/sites-enabled/*.conf 2>/dev/null || true
+        exec /docker-entrypoint.sh apache2-foreground
 
-  # Flask Web Application
+  # Flask Web Application — host network (DNS + SMTP use the host resolver)
   web:
     build:
       context: .
       dockerfile: Dockerfile
+    image: safenet-web
     container_name: safenet-web
     restart: unless-stopped
-    ports:
-      - "0.0.0.0:5001:5001"     # Listen on all interfaces so reachable at server IP (e.g. 159.198.40.102:5001)
+    network_mode: host
     environment:
       TZ: ${TZ:-Africa/Nairobi}
       # Meraki CoA (Change of Authorization / Disconnect)
@@ -65,8 +68,8 @@ services:
       FLASK_APP: app.py
       FLASK_ENV: ${FLASK_ENV:-production}
       SECRET_KEY: ${SECRET_KEY:-change-this-to-a-random-secret-key}
-      DB_HOST: db
-      DB_PORT: 3302            # internal DB port
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3302
       DB_NAME: ${DB_NAME:-radius}
       DB_USER: ${DB_USER:-radius}
       DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
@@ -85,8 +88,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    networks:
-      - safenet-network
     volumes:
       - radius_logs:/var/log/freeradius:ro
     command: >
@@ -97,17 +98,17 @@ services:
         gunicorn --bind 0.0.0.0:5001 --workers 4 --timeout 120 app:app
       "
 
-  # FreeRADIUS Server
-  # Host network: uses the host's DNS resolver and binds UDP 1812/1813
-  # directly on the host (no docker-proxy NAT). Reach MariaDB via the
-  # published host port 3302 — Docker DNS name "db" is not available.
+  # FreeRADIUS — host network; entrypoint bind-mounted (no rebuild needed for config fixes)
   freeradius:
     build:
       context: .
       dockerfile: freeradius/Dockerfile
+    image: safenet-freeradius
     container_name: safenet-radius
     restart: unless-stopped
     network_mode: host
+    entrypoint: ["/docker-entrypoint.sh"]
+    command: ["freeradius", "-f"]
     environment:
       TZ: ${TZ:-Africa/Nairobi}
       DB_HOST: 127.0.0.1
@@ -123,12 +124,9 @@ services:
       - ./freeradius/clients.conf:/etc/freeradius/3.0/clients.conf:ro
       - ./freeradius/radiusd.conf:/etc/freeradius/3.0/radiusd.conf:ro
       - ./freeradius/mods-available/sql.template:/etc/freeradius/3.0/mods-available/sql.template:ro
+      - ./freeradius/docker-entrypoint.sh:/docker-entrypoint.sh:ro
+      - ./freeradius/render-freeradius-sql.py:/usr/local/bin/render-freeradius-sql.py:ro
       - radius_logs:/var/log/freeradius
-
-  # Web app reads FreeRADIUS logs from shared volume (read-only)
-networks:
-  safenet-network:
-    driver: bridge
 
 volumes:
   db_data:
