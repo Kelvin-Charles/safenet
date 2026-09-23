@@ -2,7 +2,8 @@
 # SafeNet gateway firewall (nftables table inet safenet_gw).
 #
 # Guests arriving on LAN_IFS may only use DHCP, DNS and the portal until the
-# portal adds their MAC to @allowed_mac (with a timeout = their session).
+# portal adds their MAC and IP to @allowed (with a timeout = their session).
+# The IP matters: behind a Wi-Fi repeater many phones share one MAC.
 # Allowed guests get internet via WAN_IF only; private networks (your home
 # LAN, Docker, Tailscale) stay blocked for everyone.
 #
@@ -29,7 +30,7 @@ table inet safenet_gw
 delete table inet safenet_gw
 
 table inet safenet_gw {
-    set allowed_mac { type ether_addr; flags timeout; }
+    set allowed { type ether_addr . ipv4_addr; flags timeout; }
     # Per-guest byte counters for RADIUS accounting (upload / download)
     set up_ip   { type ipv4_addr; flags timeout; counter; }
     set down_ip { type ipv4_addr; flags timeout; counter; }
@@ -43,7 +44,7 @@ table inet safenet_gw {
     chain prerouting {
         type nat hook prerouting priority dstnat - 10; policy accept;
         iifname != $lan_ifs return
-        ether saddr @allowed_mac return
+        ether saddr . ip saddr @allowed return
         # Not logged in: every web request and DNS query goes to us
         ip daddr != $LAN_ADDR tcp dport 80 dnat ip to $LAN_ADDR:$PORTAL_PORT
         ip daddr != $LAN_ADDR meta l4proto { tcp, udp } th dport 53 dnat ip to $LAN_ADDR:53
@@ -85,9 +86,9 @@ table inet safenet_gw {
         oifname != "$WAN_IF" counter drop
         meta nfproto ipv6 drop
         ip daddr @private_nets counter drop
-        ether saddr @allowed_mac jump ratelimit
-        ether saddr @allowed_mac ip saddr @up_ip accept
-        ether saddr @allowed_mac accept
+        ether saddr . ip saddr @allowed jump ratelimit
+        ether saddr . ip saddr @allowed ip saddr @up_ip accept
+        ether saddr . ip saddr @allowed accept
         # Not logged in: fail HTTPS fast so phones show the sign-in page
         tcp dport 443 reject with tcp reset
         reject with icmpx admin-prohibited

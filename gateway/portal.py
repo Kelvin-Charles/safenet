@@ -68,6 +68,7 @@ SAFENET_API_KEY = os.environ.get('SAFENET_API_KEY', '')
 API_MODE = bool(SAFENET_API_URL and SAFENET_API_KEY) and os.environ.get('AUTH_MODE', 'auto') != 'radius'
 
 STATE_FILE = os.path.join(os.environ.get('STATE_DIRECTORY', '/var/lib/safenet-gateway'), 'sessions.json')
+LEASE_FILE = os.environ.get('LEASE_FILE', '/var/lib/misc/safenet-gw.leases')
 NFT_TABLE = 'safenet_gw'
 
 # Failed logins allowed per device before a cool-down
@@ -283,10 +284,16 @@ def _nft(script):
     subprocess.run(['nft', '-f', '-'], input=script, text=True, check=True, capture_output=True)
 
 
-def firewall_allow(mac, ip, seconds):
+def _fw_keys(wire, ip):
+    # Access is for this MAC *and* this IP: behind a Wi-Fi repeater every phone shares
+    # the repeater's MAC, so the MAC alone would let them all ride on one voucher.
+    return (('allowed', f'{wire} . {ip}'), ('up_ip', ip), ('down_ip', ip))
+
+
+def firewall_allow(wire, ip, seconds):
     # add+delete+add in one transaction replaces an existing element's timeout
     lines = []
-    for name, key in (('allowed_mac', mac), ('up_ip', ip), ('down_ip', ip)):
+    for name, key in _fw_keys(wire, ip):
         lines += [f'add element inet {NFT_TABLE} {name} {{ {key} }}',
                   f'delete element inet {NFT_TABLE} {name} {{ {key} }}',
                   f'add element inet {NFT_TABLE} {name} {{ {key} timeout {int(seconds)}s }}']
@@ -343,9 +350,9 @@ def apply_antishare(enabled):
         log.error('applying hotspot-sharing block failed: %s', getattr(e, 'stderr', None) or e)
 
 
-def firewall_deny(mac, ip):
+def firewall_deny(wire, ip):
     lines = []
-    for name, key in (('allowed_mac', mac), ('up_ip', ip), ('down_ip', ip)):
+    for name, key in _fw_keys(wire, ip):
         lines += [f'add element inet {NFT_TABLE} {name} {{ {key} }}',
                   f'delete element inet {NFT_TABLE} {name} {{ {key} }}']
     _nft('\n'.join(lines) + '\n')
@@ -358,15 +365,19 @@ def _set_elements(name):
     result = {}
     for item in json.loads(out).get('nftables', []):
         for elem in (item.get('set') or {}).get('elem', []):
+            count = 0
             if isinstance(elem, dict) and 'elem' in elem:
                 elem = elem['elem']
-                result[str(elem.get('val')).lower()] = (elem.get('counter') or {}).get('bytes', 0)
-            else:
-                result[str(elem).lower()] = 0
+                count = (elem.get('counter') or {}).get('bytes', 0)
+                elem = elem.get('val')
+            if isinstance(elem, dict) and 'concat' in elem:
+                elem = ' . '.join(str(v) for v in elem['concat'])
+            result[str(elem).lower()] = count
     return result
 
 
-def mac_for_ip(ip):
+def wire_mac_for_ip(ip):
+    """The MAC this IP's packets arrive with (a repeater's, for guests behind one)."""
     try:
         with open('/proc/net/arp') as f:
             next(f)
@@ -379,10 +390,28 @@ def mac_for_ip(ip):
     return None
 
 
+def mac_for_ip(ip):
+    """The guest device's own MAC. Wi-Fi repeaters rewrite it on the wire, but DHCP
+    still carries the real one, so our lease is the better source."""
+    try:
+        with open(LEASE_FILE) as f:
+            for line in f:
+                fields = line.split()
+                if len(fields) >= 3 and fields[2] == ip:
+                    return fields[1].lower()
+    except OSError:
+        pass
+    return wire_mac_for_ip(ip)
+
+
+def wire_of(s):
+    return s.get('wire') or s['mac']
+
+
 # ---------------------------------------------------------------------------
 # Sessions
 # ---------------------------------------------------------------------------
-sessions = {}           # mac -> {mac, ip, user, sid, start, expires, up, down, last_update}
+sessions = {}           # device mac -> {mac, wire, ip, user, sid, start, expires, up, down, last_update}
 sessions_lock = threading.Lock()
 failures = {}           # mac -> [timestamps]
 
@@ -406,7 +435,7 @@ def load_sessions():
         remaining = int(s['expires'] - now)
         if remaining > 5:
             try:
-                firewall_allow(mac, s['ip'], remaining)
+                firewall_allow(wire_of(s), s['ip'], remaining)
                 sessions[mac] = s
             except subprocess.CalledProcessError as e:
                 log.error('could not restore %s: %s', mac, e.stderr)
@@ -438,7 +467,7 @@ def end_session(mac, cause):
     except Exception as e:
         log.warning('reading final counters for %s failed: %s', mac, e)
     try:
-        firewall_deny(mac, s['ip'])
+        firewall_deny(wire_of(s), s['ip'])
     except subprocess.CalledProcessError as e:
         log.error('firewall deny %s: %s', mac, e.stderr)
     log.info('session ended user=%s mac=%s cause=%s', s['user'], mac, cause)
@@ -455,7 +484,7 @@ def accounting_loop():
             last_branding = time.time()
             refresh_branding()
         try:
-            allowed = _set_elements('allowed_mac')
+            allowed = _set_elements('allowed')
             up = _set_elements('up_ip')
             down = _set_elements('down_ip')
         except Exception as e:
@@ -469,7 +498,7 @@ def accounting_loop():
             s['down'] = max(s.get('down', 0), down.get(s['ip'], 0))
             if now >= s['expires'] - 1:
                 end_session(mac, TERM_SESSION_TIMEOUT)
-            elif mac not in allowed:
+            elif f"{wire_of(s)} . {s['ip']}" not in allowed:
                 end_session(mac, TERM_ADMIN_RESET)
             elif now - s.get('last_update', 0) >= ACCT_INTERIM:
                 s['last_update'] = now
@@ -535,13 +564,14 @@ def login(mac, ip, user, password):
     seconds = max(60, min(seconds, MAX_SESSION))
     if mac in sessions:
         end_session(mac, TERM_USER_REQUEST)
+    wire = wire_mac_for_ip(ip) or mac
     try:
-        firewall_allow(mac, ip, seconds)
+        firewall_allow(wire, ip, seconds)
     except subprocess.CalledProcessError as e:
         log.error('firewall allow %s: %s', mac, e.stderr)
         return None, 'Something went wrong on our side. Please try again.'
     now = time.time()
-    session = {'mac': mac, 'ip': ip, 'user': user, 'sid': secrets.token_hex(8),
+    session = {'mac': mac, 'wire': wire, 'ip': ip, 'user': user, 'sid': secrets.token_hex(8),
                'start': now, 'expires': now + seconds, 'up': 0, 'down': 0, 'last_update': now,
                'up_limit': up_limit, 'down_limit': down_limit}
     with sessions_lock:
@@ -553,6 +583,26 @@ def login(mac, ip, user, password):
     log.info('login ok user=%s mac=%s ip=%s for %ss', user, mac, ip, seconds)
     _background(account, ACCT_START, session)
     return session, None
+
+
+def follow_device(s):
+    """A guest who moves between the access point and a repeater keeps their IP but
+    arrives with a different MAC on the wire: move their access along with them."""
+    wire, old = wire_mac_for_ip(s['ip']), wire_of(s)
+    remaining = int(s['expires'] - time.time())
+    if not wire or wire == old or remaining < 5:
+        return
+    try:
+        _nft(f"add element inet {NFT_TABLE} allowed {{ {old} . {s['ip']} }}\n"
+             f"delete element inet {NFT_TABLE} allowed {{ {old} . {s['ip']} }}\n"
+             f"add element inet {NFT_TABLE} allowed {{ {wire} . {s['ip']} timeout {remaining}s }}\n")
+    except (subprocess.CalledProcessError, OSError) as e:
+        log.error('moving %s to %s failed: %s', s['mac'], wire, getattr(e, 'stderr', None) or e)
+        return
+    with sessions_lock:
+        s['wire'] = wire
+        save_sessions()
+    log.info('guest %s now reaches us via %s', s['mac'], wire)
 
 
 # ---------------------------------------------------------------------------
@@ -740,6 +790,7 @@ class PortalHandler(BaseHTTPRequestHandler):
         ip, mac = self._client()
         session = sessions.get(mac) if mac else None
         if session and session['ip'] == ip and session['expires'] > time.time():
+            follow_device(session)
             return self._send(200, status_page(session, dst, lang=lang))
         self._send(200, login_page(dst, lang=lang))
 
