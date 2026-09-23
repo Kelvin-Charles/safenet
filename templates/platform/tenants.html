@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Platform - {{ app_name }}{% endblock %}
+{% block page_title %}Platform: Tenants{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ tenants|length }}</div><div class="stat-label">Tenants</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ tenants|selectattr('status', 'equalto', 'trial')|list|length }}</div><div class="stat-label">On trial</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ tenants|selectattr('status', 'equalto', 'active')|list|length }}</div><div class="stat-label">Active</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ tenants|selectattr('status', 'equalto', 'suspended')|list|length }}</div><div class="stat-label">Suspended</div></div></div>
+</div>
+<div class="card">
+    <div class="card-header"><i class="bi bi-buildings"></i> All tenants</div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead><tr><th>Tenant</th><th>Owner</th><th>Status</th><th>Users / Vouchers</th><th>Devices</th><th>Online sales</th><th></th></tr></thead>
+                <tbody>
+                    {% for t in tenants %}
+                    {% set owner = owners.get(t.id) %}
+                    <tr>
+                        <td><strong>{{ t.name }}</strong><small class="text-muted d-block">{{ t.slug }} · since {{ t.created_at.strftime('%Y-%m-%d') }}{% if t.phone %} · {{ t.phone }}{% endif %}</small></td>
+                        <td>{% if owner %}{{ owner.username }}<small class="text-muted d-block">{{ owner.email }}{% if not owner.email_verified_at %} · <span class="text-warning">unverified</span>{% endif %}</small>{% else %}<span class="text-muted">–</span>{% endif %}</td>
+                        <td>
+                            {% if t.status == 'active' %}<span class="badge bg-success">Active</span>
+                            {% elif t.status == 'trial' %}<span class="badge bg-info">Trial</span><small class="text-muted d-block">{{ t.trial_days_left }} days left</small>
+                            {% else %}<span class="badge bg-danger">Suspended</span>{% endif %}
+                        </td>
+                        <td>{{ users.get(t.id, 0) }} / {{ vouchers.get(t.id, 0) }}</td>
+                        <td>{{ gateways.get(t.id, 0) }} gw · {{ nas.get(t.id, 0) }} NAS</td>
+                        <td>{{ t.currency }} {{ '{:,.0f}'.format(revenue.get(t.id, 0)) }}</td>
+                        <td class="text-nowrap">
+                            <form method="POST" action="{{ url_for('platform_switch', tid=t.id) }}" style="display:inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button class="btn btn-sm btn-outline-primary" type="submit" title="Manage this tenant"><i class="bi bi-box-arrow-in-right"></i> Manage</button>
+                            </form>
+                            <div class="dropdown d-inline">
+                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">Status</button>
+                                <ul class="dropdown-menu">
+                                    {% for action, label in [('activate', 'Activate'), ('extend', 'Extend trial'), ('verify', 'Mark email verified'), ('suspend', 'Suspend')] %}
+                                    {% if not (action == 'suspend' and t.slug == 'safenet') %}
+                                    <li><form method="POST" action="{{ url_for('platform_tenant_status', tid=t.id) }}" {% if action == 'suspend' %}onsubmit="return confirm('Suspend {{ t.name }}? Their users will be cut off at next login.');"{% endif %}>
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <input type="hidden" name="action" value="{{ action }}">
+                                        <button class="dropdown-item {{ 'text-danger' if action == 'suspend' }}" type="submit">{{ label }}</button>
+                                    </form></li>
+                                    {% endif %}
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

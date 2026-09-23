@@ -61,6 +61,21 @@ class Config:
     # Shared key captive-portal gateways send in X-SafeNet-Key (empty = API disabled)
     PORTAL_API_KEY = os.getenv('PORTAL_API_KEY', '')
 
+    # Public address of this app, used in emailed links (verification, password reset)
+    PUBLIC_URL = os.getenv('PUBLIC_URL', 'https://radius.safezonetz.com').rstrip('/')
+
+    # Self-service signup
+    SIGNUP_ENABLED = os.getenv('SIGNUP_ENABLED', 'true').lower() == 'true'
+    TRIAL_DAYS = int(os.getenv('TRIAL_DAYS', '14'))
+
+    # Outgoing email
+    MAIL_SERVER = os.getenv('MAIL_SERVER', '')
+    MAIL_PORT = int(os.getenv('MAIL_PORT', '465'))
+    MAIL_USE_SSL = os.getenv('MAIL_USE_SSL', 'true').lower() == 'true'
+    MAIL_USERNAME = os.getenv('MAIL_USERNAME', '')
+    MAIL_PASSWORD = os.getenv('MAIL_PASSWORD', '')
+    MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER', '')
+
     # Pagination
     ITEMS_PER_PAGE = 25
     

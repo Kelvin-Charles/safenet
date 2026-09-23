@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% from "auth/_field.html" import field %}
+
+{% block title %}Create your account - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+        <div class="card shadow-lg border-0">
+            <div class="card-body p-5">
+                <div class="text-center mb-4">
+                    <h1 class="display-5 mb-2"><i class="bi bi-wifi text-primary"></i></h1>
+                    <h3 class="fw-bold">Start your Wi-Fi business</h3>
+                    <p class="text-muted">{{ trial_days }}-day free trial. Sell vouchers and packages, and manage your users and routers.</p>
+                </div>
+                <form method="POST" novalidate>
+                    {{ form.hidden_tag() }}
+                    {{ field(form.business_name, placeholder="e.g. Mama Salma Cafe") }}
+                    <div class="row">
+                        <div class="col-sm-6">{{ field(form.username) }}</div>
+                        <div class="col-sm-6">{{ field(form.phone, placeholder="07XX XXX XXX") }}</div>
+                    </div>
+                    {{ field(form.email) }}
+                    <div class="row">
+                        <div class="col-sm-6">{{ field(form.password) }}</div>
+                        <div class="col-sm-6">{{ field(form.confirm) }}</div>
+                    </div>
+                    <div class="form-check mb-4">
+                        {{ form.accept(class="form-check-input" + (" is-invalid" if form.accept.errors else "")) }}
+                        {{ form.accept.label(class="form-check-label") }}
+                    </div>
+                    <div class="d-grid"><button type="submit" class="btn btn-primary btn-lg">Create account</button></div>
+                </form>
+                <p class="text-center mt-3 mb-0 small">Already have an account? <a href="{{ url_for('login') }}">Log in</a></p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

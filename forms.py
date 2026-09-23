@@ -185,3 +185,63 @@ class PackageForm(FlaskForm):
     def validate_validity_value(self, field):
         if not 1 <= (field.data or 0) <= 100000:
             raise ValidationError('Enter a positive duration.')
+
+
+class SignupForm(FlaskForm):
+    """Self-service signup: creates a tenant and its owner"""
+    business_name = StringField('Business name', validators=[DataRequired(), Length(min=2, max=100)])
+    username = StringField('Username', validators=[DataRequired(), Length(min=3, max=64)])
+    email = StringField('Email', validators=[DataRequired(), Email(), Length(max=120)])
+    phone = StringField('Phone', validators=[Optional(), Length(max=20)])
+    password = PasswordField('Password', validators=[DataRequired(), Length(min=8, max=128)])
+    confirm = PasswordField('Confirm password', validators=[DataRequired()])
+    accept = BooleanField('I accept the terms of service', validators=[DataRequired()])
+
+    def validate_username(self, field):
+        if not re.match(r'^[a-zA-Z0-9_.-]+$', field.data):
+            raise ValidationError('Use letters, numbers, dots, hyphens and underscores only.')
+
+    def validate_confirm(self, field):
+        if field.data != self.password.data:
+            raise ValidationError('Passwords do not match.')
+
+
+class EmailForm(FlaskForm):
+    """Resend verification / forgot password"""
+    email = StringField('Email', validators=[DataRequired(), Email()])
+
+
+class ResetPasswordForm(FlaskForm):
+    password = PasswordField('New password', validators=[DataRequired(), Length(min=8, max=128)])
+    confirm = PasswordField('Confirm password', validators=[DataRequired()])
+
+    def validate_confirm(self, field):
+        if field.data != self.password.data:
+            raise ValidationError('Passwords do not match.')
+
+
+class TenantSettingsForm(FlaskForm):
+    name = StringField('Business name', validators=[DataRequired(), Length(max=100)])
+    phone = StringField('Business phone', validators=[Optional(), Length(max=20)])
+    hotspot_name = StringField('Wi-Fi name shown to guests', validators=[Optional(), Length(max=64)],
+                               description='On the splash page and printed vouchers. Defaults to the business name.')
+    support_phone = StringField('Support phone / WhatsApp', validators=[Optional(), Length(max=32)])
+    currency = StringField('Currency', validators=[DataRequired(), Length(min=3, max=3)])
+    terms = TextAreaField('Terms of use for guests', validators=[Optional(), Length(max=4000)])
+
+
+class TeamMemberForm(FlaskForm):
+    username = StringField('Username', validators=[DataRequired(), Length(min=3, max=64)])
+    email = StringField('Email', validators=[DataRequired(), Email(), Length(max=120)])
+    role = SelectField('Role', choices=[('staff', 'Staff: users, vouchers, live'),
+                                        ('admin', 'Admin: everything except team owners')])
+    password = PasswordField('Temporary password', validators=[DataRequired(), Length(min=8, max=128)])
+
+    def validate_username(self, field):
+        if not re.match(r'^[a-zA-Z0-9_.-]+$', field.data):
+            raise ValidationError('Use letters, numbers, dots, hyphens and underscores only.')
+
+
+class GatewayForm(FlaskForm):
+    name = StringField('Gateway name', validators=[DataRequired(), Length(max=64)],
+                       description='e.g. "Main branch - dev server"')

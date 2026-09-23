@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "auth/_field.html" import field %}
+
+{% block title %}Settings - {{ app_name }}{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-sliders"></i> Business and guest Wi-Fi</div>
+            <div class="card-body">
+                <form method="POST" novalidate>
+                    {{ form.hidden_tag() }}
+                    <div class="row">
+                        <div class="col-md-8">{{ field(form.name) }}</div>
+                        <div class="col-md-4">{{ field(form.phone) }}</div>
+                    </div>
+                    {{ field(form.hotspot_name) }}
+                    <div class="row">
+                        <div class="col-md-8">{{ field(form.support_phone) }}</div>
+                        <div class="col-md-4">{{ field(form.currency) }}</div>
+                    </div>
+                    {{ field(form.terms, rows=5, help="Leave empty to use the standard terms.") }}
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> Save</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-info-circle"></i> Your account</div>
+            <div class="card-body small">
+                <p class="mb-2">Account ID: <code>{{ tenant.slug }}</code></p>
+                <p class="mb-2">Status: <strong>{{ tenant.status|capitalize }}</strong>
+                    {% if tenant.trial_days_left is not none %}({{ tenant.trial_days_left }} days left){% endif %}</p>
+                <p class="mb-0">Public splash page: <a href="{{ url_for('portal', t=tenant.slug) }}" target="_blank">{{ url_for('portal', t=tenant.slug) }}</a></p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

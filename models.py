@@ -6,6 +6,60 @@ import bcrypt
 db = SQLAlchemy()
 
 
+class Tenant(db.Model):
+    """A customer business (workspace) with its own users, routers and sales."""
+    __tablename__ = 'tenants'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    slug = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    status = db.Column(db.String(16), nullable=False, default='trial')  # trial, active, suspended
+    trial_ends_at = db.Column(db.DateTime)
+    phone = db.Column(db.String(20))
+    # Guest-facing branding (splash page, printed vouchers)
+    hotspot_name = db.Column(db.String(64))
+    support_phone = db.Column(db.String(32))
+    currency = db.Column(db.String(3), nullable=False, default='TZS')
+    terms = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def display_hotspot_name(self):
+        return self.hotspot_name or self.name
+
+    @property
+    def trial_days_left(self):
+        if self.status != 'trial' or not self.trial_ends_at:
+            return None
+        return max(0, (self.trial_ends_at - datetime.utcnow()).days + 1)
+
+    def __repr__(self):
+        return f'<Tenant {self.slug}>'
+
+
+class Gateway(db.Model):
+    """A SafeNet gateway box; authenticates to the API with its own key."""
+    __tablename__ = 'gateways'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    name = db.Column(db.String(64), nullable=False)
+    key_prefix = db.Column(db.String(8), nullable=False)       # shown in the UI to tell keys apart
+    key_hash = db.Column(db.String(64), unique=True, nullable=False)  # sha256 of the full key
+    is_active = db.Column(db.Boolean, default=True)
+    last_seen_at = db.Column(db.DateTime)
+    last_ip = db.Column(db.String(45))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    tenant = db.relationship('Tenant')
+
+    def __repr__(self):
+        return f'<Gateway {self.name}>'
+
+
+ROLES = ('staff', 'admin', 'owner')   # increasing permissions
+
+
 class Admin(UserMixin, db.Model):
     """Admin users for the management interface"""
     __tablename__ = 'admins'
@@ -17,6 +71,15 @@ class Admin(UserMixin, db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
+    role = db.Column(db.String(16), nullable=False, default='owner')
+    is_superadmin = db.Column(db.Boolean, nullable=False, default=False)  # platform operator
+    email_verified_at = db.Column(db.DateTime)
+
+    tenant = db.relationship('Tenant')
+
+    def has_role(self, role):
+        return self.is_superadmin or ROLES.index(self.role or 'staff') >= ROLES.index(role)
     
     def set_password(self, password):
         """Hash and set password"""
@@ -33,9 +96,15 @@ class Admin(UserMixin, db.Model):
 class Plan(db.Model):
     """Service plans/groups"""
     __tablename__ = 'plans'
+    __table_args__ = (db.UniqueConstraint('tenant_id', 'name', name='uq_plans_tenant_name'),)
     
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
+    name = db.Column(db.String(64), nullable=False, index=True)
+    # FreeRADIUS group name (radusergroup/radgroupreply). Fixed at creation so
+    # renaming a plan never orphans its RADIUS rows; unique across tenants
+    # (index uq_plans_group_name, created by migrations.py).
+    group_name = db.Column(db.String(64))
     description = db.Column(db.Text)
     vendor = db.Column(db.String(32), default='standard')  # Default vendor for this plan
     is_active = db.Column(db.Boolean, default=True)
@@ -183,6 +252,7 @@ class Nas(db.Model):
     __tablename__ = 'nas'
     
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
     nasname = db.Column(db.String(128), nullable=False, unique=True, index=True)
     shortname = db.Column(db.String(32), nullable=False)
     type = db.Column(db.String(30), nullable=False, default='other')
@@ -204,6 +274,7 @@ class RadUser(db.Model):
     __tablename__ = 'radusers'
     
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
     username = db.Column(db.String(64), unique=True, nullable=False, index=True)
     plan_id = db.Column(db.Integer, db.ForeignKey('plans.id'))
     is_active = db.Column(db.Boolean, default=True)
@@ -251,6 +322,7 @@ class Voucher(db.Model):
     __tablename__ = 'vouchers'
 
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
     code = db.Column(db.String(32), unique=True, nullable=False, index=True)
     plan_id = db.Column(db.Integer, db.ForeignKey('plans.id', ondelete='SET NULL'))
     batch = db.Column(db.String(64), index=True)
@@ -298,6 +370,7 @@ class Package(db.Model):
     __tablename__ = 'packages'
 
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
     name = db.Column(db.String(64), nullable=False)
     description = db.Column(db.String(200))
     plan_id = db.Column(db.Integer, db.ForeignKey('plans.id', ondelete='SET NULL'))
@@ -325,6 +398,7 @@ class Payment(db.Model):
     __tablename__ = 'payments'
 
     id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
     reference = db.Column(db.String(20), unique=True, nullable=False, index=True)  # ClickPesa orderReference
     package_id = db.Column(db.Integer, db.ForeignKey('packages.id', ondelete='SET NULL'))
     package_name = db.Column(db.String(64))

@@ -1,13 +1,18 @@
-from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, abort
+from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, abort, session, g
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment
-from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm
+from models import db, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway
+from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
 from sqlalchemy import func, or_, desc
 import clickpesa
+import migrations
+from mailer import send_mail
+from tenancy import current_tenant, tenant_id, scoped, owned_or_404, tenant_usernames, role_required, superadmin_required
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+import hashlib
 import subprocess
 import secrets
 import hmac
@@ -43,11 +48,25 @@ def load_user(user_id):
 # Context processor for global template variables
 @app.context_processor
 def inject_globals():
+    tenant = current_tenant() if current_user.is_authenticated else None
     return {
         'app_name': 'SafeNet RADIUS Manager',
         'supported_vendors': Config.SUPPORTED_VENDORS,
         'csrf_token': generate_csrf,
+        'tenant': tenant,
+        'viewing_other_tenant': bool(tenant and current_user.is_authenticated and tenant.id != current_user.tenant_id),
+        'signup_enabled': Config.SIGNUP_ENABLED,
     }
+
+
+@app.before_request
+def block_suspended_tenants():
+    if current_user.is_authenticated and not current_user.is_superadmin:
+        tenant = current_user.tenant
+        if tenant is None or tenant.status == 'suspended' or not current_user.is_active:
+            logout_user()
+            flash('This account is suspended. Please contact support.', 'danger')
+            return redirect(url_for('login'))
 
 
 # Error handlers
@@ -75,13 +94,20 @@ def login():
             if not admin.is_active:
                 flash('Your account has been disabled.', 'danger')
                 return redirect(url_for('login'))
+            if not admin.email_verified_at:
+                return render_template('auth/verify_notice.html', email=admin.email, form=EmailForm(email=admin.email))
+            if not admin.is_superadmin and admin.tenant and admin.tenant.status == 'suspended':
+                flash('This account is suspended. Please contact support.', 'danger')
+                return redirect(url_for('login'))
             
             admin.last_login = datetime.utcnow()
             db.session.commit()
             login_user(admin)
             
-            next_page = request.args.get('next')
-            return redirect(next_page) if next_page else redirect(url_for('dashboard'))
+            next_page = request.args.get('next', '')
+            if not next_page.startswith('/') or next_page.startswith('//'):
+                next_page = url_for('dashboard')
+            return redirect(next_page)
         else:
             flash('Invalid username or password.', 'danger')
     
@@ -91,6 +117,7 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
+    session.pop('tenant_id', None)
     logout_user()
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
@@ -102,16 +129,17 @@ def logout():
 @login_required
 def dashboard():
     # Statistics
-    total_users = RadUser.query.count()
-    active_users = RadUser.query.filter_by(is_active=True).count()
-    total_plans = Plan.query.count()
-    total_nas = Nas.query.count()
+    total_users = scoped(RadUser).count()
+    active_users = scoped(RadUser).filter_by(is_active=True).count()
+    total_plans = scoped(Plan).count()
+    total_nas = scoped(Nas).count()
+    mine = RadAcct.username.in_(tenant_usernames())
     
     # Active sessions
-    active_sessions = RadAcct.query.filter(RadAcct.acctstoptime.is_(None)).count()
+    active_sessions = RadAcct.query.filter(mine, RadAcct.acctstoptime.is_(None)).count()
     
     # Recent sessions
-    recent_sessions = RadAcct.query.order_by(desc(RadAcct.acctstarttime)).limit(10).all()
+    recent_sessions = RadAcct.query.filter(mine).order_by(desc(RadAcct.acctstarttime)).limit(10).all()
     
     # Top users by data usage. COALESCE protects against rows where octet
     # counters are NULL (no accounting yet) so the template never divides by None.
@@ -124,6 +152,7 @@ def dashboard():
     ).label('total_bytes')
     top_users = (
         db.session.query(RadAcct.username, total_bytes_expr)
+        .filter(mine)
         .group_by(RadAcct.username)
         .order_by(desc('total_bytes'))
         .limit(5)
@@ -147,7 +176,7 @@ def users():
     page = request.args.get('page', 1, type=int)
     search = request.args.get('search', '', type=str)
     
-    query = RadUser.query
+    query = scoped(RadUser)
     if search:
         query = query.filter(RadUser.username.like(f'%{search}%'))
     
@@ -162,16 +191,17 @@ def users():
 @login_required
 def add_user():
     form = UserForm()
-    form.plan_id.choices = [(0, '-- No Plan --')] + [(p.id, p.name) for p in Plan.query.filter_by(is_active=True).all()]
+    form.plan_id.choices = [(0, '-- No Plan --')] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
     
     if form.validate_on_submit():
-        # Check if username exists
-        if RadUser.query.filter_by(username=form.username.data).first():
-            flash('Username already exists.', 'danger')
+        # Usernames are global in RADIUS: check every tenant's users and vouchers
+        if _radius_username_taken(form.username.data):
+            flash('That username is already taken. Choose another.', 'danger')
             return render_template('users/form.html', form=form, title='Add User')
         
         # Create RadUser
         user = RadUser(
+            tenant_id=tenant_id(),
             username=form.username.data,
             plan_id=form.plan_id.data if form.plan_id.data > 0 else None,
             is_active=form.is_active.data,
@@ -196,12 +226,12 @@ def add_user():
         
         # If plan is selected, create group mapping and apply attributes
         if form.plan_id.data and form.plan_id.data > 0:
-            plan = Plan.query.get(form.plan_id.data)
+            plan = scoped(Plan).filter_by(id=form.plan_id.data).first()
             if plan:
                 # Create user-group mapping
                 usergroup = RadUserGroup(
                     username=form.username.data,
-                    groupname=plan.name,
+                    groupname=plan.group_name,
                     priority=1
                 )
                 db.session.add(usergroup)
@@ -211,16 +241,16 @@ def add_user():
         return redirect(url_for('users'))
     
     # Get NAS list for testing (empty for new users - they need to be saved first)
-    nas_list = Nas.query.filter_by(is_active=True).all()
+    nas_list = scoped(Nas).filter_by(is_active=True).all()
     return render_template('users/form.html', form=form, nas_list=nas_list, title='Add User')
 
 
 @app.route('/users/edit/<int:user_id>', methods=['GET', 'POST'])
 @login_required
 def edit_user(user_id):
-    user = RadUser.query.get_or_404(user_id)
+    user = owned_or_404(RadUser, user_id)
     form = UserForm(obj=user)
-    form.plan_id.choices = [(0, '-- No Plan --')] + [(p.id, p.name) for p in Plan.query.filter_by(is_active=True).all()]
+    form.plan_id.choices = [(0, '-- No Plan --')] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
     
     # Convert data_cap from bytes to GB for display
     if user.data_cap:
@@ -229,7 +259,7 @@ def edit_user(user_id):
         form.data_cap_period.data = user.data_cap_period
     
     # Get NAS list for testing
-    nas_list = Nas.query.filter_by(is_active=True).all()
+    nas_list = scoped(Nas).filter_by(is_active=True).all()
     
     if form.validate_on_submit():
         # Update RadUser
@@ -267,11 +297,11 @@ def edit_user(user_id):
         # Update group mapping
         RadUserGroup.query.filter_by(username=user.username).delete()
         if form.plan_id.data and form.plan_id.data > 0:
-            plan = Plan.query.get(form.plan_id.data)
+            plan = scoped(Plan).filter_by(id=form.plan_id.data).first()
             if plan:
                 usergroup = RadUserGroup(
                     username=user.username,
-                    groupname=plan.name,
+                    groupname=plan.group_name,
                     priority=1
                 )
                 db.session.add(usergroup)
@@ -287,7 +317,7 @@ def edit_user(user_id):
 @login_required
 def test_user_connection(user_id):
     """Test user RADIUS authentication against a NAS device"""
-    user = RadUser.query.get_or_404(user_id)
+    user = owned_or_404(RadUser, user_id)
     nas_id = request.json.get('nas_id') if request.is_json else request.form.get('nas_id', type=int)
     
     if not nas_id:
@@ -299,7 +329,7 @@ def test_user_connection(user_id):
         flash('Please select a NAS device to test against.', 'danger')
         return redirect(url_for('edit_user', user_id=user_id))
     
-    nas = Nas.query.get_or_404(nas_id)
+    nas = owned_or_404(Nas, nas_id)
     
     # Get user password from radcheck
     radcheck = RadCheck.query.filter_by(
@@ -395,7 +425,7 @@ def test_user_connection(user_id):
 @app.route('/users/delete/<int:user_id>', methods=['POST'])
 @login_required
 def delete_user(user_id):
-    user = RadUser.query.get_or_404(user_id)
+    user = owned_or_404(RadUser, user_id)
     username = user.username
     
     # Delete all related records
@@ -412,23 +442,27 @@ def delete_user(user_id):
 # Plan management routes
 @app.route('/plans')
 @login_required
+@role_required('admin')
 def plans():
-    all_plans = Plan.query.order_by(Plan.created_at.desc()).all()
+    all_plans = scoped(Plan).order_by(Plan.created_at.desc()).all()
     return render_template('plans/list.html', plans=all_plans)
 
 
 @app.route('/plans/add', methods=['GET', 'POST'])
 @login_required
+@role_required('admin')
 def add_plan():
     form = PlanForm()
     form.vendor.choices = Config.SUPPORTED_VENDORS
     
     if form.validate_on_submit():
-        if Plan.query.filter_by(name=form.name.data).first():
+        if scoped(Plan).filter_by(name=form.name.data).first():
             flash('Plan name already exists.', 'danger')
             return render_template('plans/form.html', form=form, title='Add Plan')
         
         plan = Plan(
+            tenant_id=tenant_id(),
+            group_name=_new_group_name(form.name.data),
             name=form.name.data,
             description=form.description.data,
             vendor=form.vendor.data,
@@ -450,8 +484,9 @@ def add_plan():
 
 @app.route('/plans/edit/<int:plan_id>', methods=['GET', 'POST'])
 @login_required
+@role_required('admin')
 def edit_plan(plan_id):
-    plan = Plan.query.get_or_404(plan_id)
+    plan = owned_or_404(Plan, plan_id)
     form = PlanForm(obj=plan)
     form.vendor.choices = Config.SUPPORTED_VENDORS
     
@@ -462,7 +497,11 @@ def edit_plan(plan_id):
         form.data_cap_period.data = plan.data_cap_period
     
     if form.validate_on_submit():
-        plan.name = form.name.data
+        clash = scoped(Plan).filter(Plan.name == form.name.data, Plan.id != plan.id).first()
+        if clash:
+            flash('Plan name already exists.', 'danger')
+            return redirect(url_for('edit_plan', plan_id=plan.id))
+        plan.name = form.name.data   # group_name stays fixed, so users keep their plan
         plan.description = form.description.data
         plan.vendor = form.vendor.data
         plan.is_active = form.is_active.data
@@ -490,8 +529,9 @@ def edit_plan(plan_id):
 
 @app.route('/plans/<int:plan_id>/attributes/add', methods=['GET', 'POST'])
 @login_required
+@role_required('admin')
 def add_plan_attribute(plan_id):
-    plan = Plan.query.get_or_404(plan_id)
+    plan = owned_or_404(Plan, plan_id)
     form = PlanAttributeForm()
     form.vendor.choices = [('', '-- Standard --')] + Config.SUPPORTED_VENDORS
     
@@ -508,7 +548,7 @@ def add_plan_attribute(plan_id):
         
         # Also add to radgroupreply
         groupreply = RadGroupReply(
-            groupname=plan.name,
+            groupname=plan.group_name,
             attribute=form.attribute.data,
             op=form.op.data,
             value=form.value.data,
@@ -525,13 +565,14 @@ def add_plan_attribute(plan_id):
 
 @app.route('/plans/reset-data-cap/<int:plan_id>', methods=['POST'])
 @login_required
+@role_required('admin')
 def reset_plan_data_cap(plan_id):
     """Reset data cap counter for all users in a plan"""
-    plan = Plan.query.get_or_404(plan_id)
+    plan = owned_or_404(Plan, plan_id)
     plan.last_reset = datetime.utcnow()
     
     # Reset all users in this plan
-    users = RadUser.query.filter_by(plan_id=plan_id).all()
+    users = scoped(RadUser).filter_by(plan_id=plan_id).all()
     for user in users:
         if user.data_cap_period == plan.data_cap_period or not user.data_cap_period:
             user.last_reset = datetime.utcnow()
@@ -543,13 +584,14 @@ def reset_plan_data_cap(plan_id):
 
 @app.route('/plans/<int:plan_id>/attributes/<int:attr_id>/delete', methods=['POST'])
 @login_required
+@role_required('admin')
 def delete_plan_attribute(plan_id, attr_id):
-    attribute = PlanAttribute.query.get_or_404(attr_id)
-    plan = Plan.query.get_or_404(plan_id)
+    plan = owned_or_404(Plan, plan_id)
+    attribute = PlanAttribute.query.filter_by(id=attr_id, plan_id=plan.id).first_or_404()
     
     # Also delete from radgroupreply
     RadGroupReply.query.filter_by(
-        groupname=plan.name,
+        groupname=plan.group_name,
         attribute=attribute.attribute
     ).delete()
     
@@ -562,14 +604,15 @@ def delete_plan_attribute(plan_id, attr_id):
 
 @app.route('/plans/delete/<int:plan_id>', methods=['POST'])
 @login_required
+@role_required('admin')
 def delete_plan(plan_id):
-    plan = Plan.query.get_or_404(plan_id)
+    plan = owned_or_404(Plan, plan_id)
     plan_name = plan.name
     
     # Delete related records
-    RadGroupCheck.query.filter_by(groupname=plan_name).delete()
-    RadGroupReply.query.filter_by(groupname=plan_name).delete()
-    RadUserGroup.query.filter_by(groupname=plan_name).delete()
+    RadGroupCheck.query.filter_by(groupname=plan.group_name).delete()
+    RadGroupReply.query.filter_by(groupname=plan.group_name).delete()
+    RadUserGroup.query.filter_by(groupname=plan.group_name).delete()
     
     db.session.delete(plan)
     db.session.commit()
@@ -581,23 +624,27 @@ def delete_plan(plan_id):
 # NAS management routes
 @app.route('/nas')
 @login_required
+@role_required('admin')
 def nas_list():
-    all_nas = Nas.query.order_by(Nas.created_at.desc()).all()
+    all_nas = scoped(Nas).order_by(Nas.created_at.desc()).all()
     return render_template('nas/list.html', nas_list=all_nas)
 
 
 @app.route('/nas/add', methods=['GET', 'POST'])
 @login_required
+@role_required('admin')
 def add_nas():
     form = NasForm()
     form.vendor.choices = Config.SUPPORTED_VENDORS
     
     if form.validate_on_submit():
+        # IPs are global: FreeRADIUS identifies a router by its address
         if Nas.query.filter_by(nasname=form.nasname.data).first():
-            flash('NAS with this IP address already exists.', 'danger')
+            flash('A router with this IP address is already registered.', 'danger')
             return render_template('nas/form.html', form=form, title='Add NAS')
         
         nas = Nas(
+            tenant_id=tenant_id(),
             nasname=form.nasname.data,
             shortname=form.shortname.data,
             type=form.type.data,
@@ -620,12 +667,16 @@ def add_nas():
 
 @app.route('/nas/edit/<int:nas_id>', methods=['GET', 'POST'])
 @login_required
+@role_required('admin')
 def edit_nas(nas_id):
-    nas = Nas.query.get_or_404(nas_id)
+    nas = owned_or_404(Nas, nas_id)
     form = NasForm(obj=nas)
     form.vendor.choices = Config.SUPPORTED_VENDORS
     
     if form.validate_on_submit():
+        if Nas.query.filter(Nas.nasname == form.nasname.data, Nas.id != nas.id).first():
+            flash('A router with this IP address is already registered.', 'danger')
+            return render_template('nas/form.html', form=form, nas=nas, title='Edit NAS')
         nas.nasname = form.nasname.data
         nas.shortname = form.shortname.data
         nas.type = form.type.data
@@ -646,9 +697,10 @@ def edit_nas(nas_id):
 
 @app.route('/nas/test/<int:nas_id>', methods=['POST'])
 @login_required
+@role_required('admin')
 def test_nas_connection(nas_id):
     """Test RADIUS connection to a NAS device"""
-    nas = Nas.query.get_or_404(nas_id)
+    nas = owned_or_404(Nas, nas_id)
     
     try:
         # Test if NAS is reachable
@@ -697,8 +749,9 @@ def test_nas_connection(nas_id):
 
 @app.route('/nas/delete/<int:nas_id>', methods=['POST'])
 @login_required
+@role_required('admin')
 def delete_nas(nas_id):
-    nas = Nas.query.get_or_404(nas_id)
+    nas = owned_or_404(Nas, nas_id)
     shortname = nas.shortname
     
     db.session.delete(nas)
@@ -716,7 +769,7 @@ def accounting():
     search = request.args.get('search', '', type=str)
     status = request.args.get('status', 'all', type=str)
     
-    query = RadAcct.query
+    query = RadAcct.query.filter(RadAcct.username.in_(tenant_usernames()))
     
     if search:
         query = query.filter(or_(
@@ -740,7 +793,8 @@ def accounting():
 @app.route('/accounting/<int:session_id>')
 @login_required
 def accounting_detail(session_id):
-    session = RadAcct.query.get_or_404(session_id)
+    session = RadAcct.query.filter(RadAcct.radacctid == session_id,
+                                   RadAcct.username.in_(tenant_usernames())).first_or_404()
     
     # Calculate bandwidth usage
     total_bytes = (session.acctinputoctets or 0) + (session.acctoutputoctets or 0)
@@ -774,7 +828,8 @@ def auth_logs():
     search = request.args.get('search', '', type=str)
     reply_filter = request.args.get('reply', 'all', type=str)
     
-    query = RadPostAuth.query
+    mine = RadPostAuth.username.in_(tenant_usernames())
+    query = RadPostAuth.query.filter(mine)
     
     if search:
         query = query.filter(RadPostAuth.username.like(f'%{search}%'))
@@ -791,10 +846,10 @@ def auth_logs():
     )
     
     # Statistics
-    total_auths = RadPostAuth.query.count()
-    accepted = RadPostAuth.query.filter_by(reply='Access-Accept').count()
-    rejected = RadPostAuth.query.filter_by(reply='Access-Reject').count()
-    challenged = RadPostAuth.query.filter_by(reply='Access-Challenge').count()
+    total_auths = RadPostAuth.query.filter(mine).count()
+    accepted = RadPostAuth.query.filter(mine, RadPostAuth.reply == 'Access-Accept').count()
+    rejected = RadPostAuth.query.filter(mine, RadPostAuth.reply == 'Access-Reject').count()
+    challenged = RadPostAuth.query.filter(mine, RadPostAuth.reply == 'Access-Challenge').count()
     
     return render_template('auth/logs.html', 
                          pagination=pagination, 
@@ -901,7 +956,23 @@ def _new_voucher_code(taken):
             return code
 
 
-def _create_vouchers(count, plan, minutes, price, batch):
+def _radius_username_taken(username):
+    """RADIUS usernames are global: users, voucher codes and radcheck rows of every tenant."""
+    return bool(RadUser.query.filter_by(username=username).first()
+                or Voucher.query.filter_by(code=username).first()
+                or RadCheck.query.filter_by(username=username).first())
+
+
+def _new_group_name(plan_name):
+    """Globally unique FreeRADIUS group for a new plan of the current tenant."""
+    base = f't{tenant_id()}-{plan_name}'[:56]
+    name = base
+    while Plan.query.filter_by(group_name=name).first():
+        name = f'{base}-{secrets.token_hex(3)}'
+    return name
+
+
+def _create_vouchers(count, plan, minutes, price, batch, tenant=None):
     """Adds `count` vouchers (and their RADIUS rows) to the session; caller commits."""
     # Codes double as RADIUS usernames, so avoid clashes with both tables.
     taken = {c for (c,) in db.session.query(Voucher.code)}
@@ -909,12 +980,13 @@ def _create_vouchers(count, plan, minutes, price, batch):
     created = []
     for _ in range(count):
         code = _new_voucher_code(taken)
-        voucher = Voucher(code=code, plan_id=plan.id if plan else None, batch=batch,
+        voucher = Voucher(tenant_id=tenant if tenant is not None else tenant_id(),
+                          code=code, plan_id=plan.id if plan else None, batch=batch,
                           validity_minutes=minutes, price=price)
         db.session.add(voucher)
         db.session.add(RadCheck(username=code, attribute='Cleartext-Password', op=':=', value=code))
         if plan:
-            db.session.add(RadUserGroup(username=code, groupname=plan.name, priority=1))
+            db.session.add(RadUserGroup(username=code, groupname=plan.group_name, priority=1))
         created.append(voucher)
     return created
 
@@ -928,7 +1000,7 @@ def vouchers():
     search = request.args.get('search', '', type=str).strip()
 
     now = datetime.utcnow()
-    query = Voucher.query
+    query = scoped(Voucher)
     if batch:
         query = query.filter(Voucher.batch == batch)
     if search:
@@ -946,28 +1018,28 @@ def vouchers():
         page=page, per_page=Config.ITEMS_PER_PAGE, error_out=False
     )
 
-    batches = [b for (b,) in db.session.query(Voucher.batch)
+    batches = [b for (b,) in db.session.query(Voucher.batch).filter(Voucher.tenant_id == tenant_id())
                .group_by(Voucher.batch).order_by(func.max(Voucher.created_at).desc()).limit(50)]
     stats = {
-        'unused': Voucher.query.filter_by(status='unused').count(),
-        'active': Voucher.query.filter(Voucher.status == 'active', Voucher.expires_at > now).count(),
-        'expired': Voucher.query.filter(Voucher.status != 'disabled', Voucher.expires_at <= now).count(),
+        'unused': scoped(Voucher).filter_by(status='unused').count(),
+        'active': scoped(Voucher).filter(Voucher.status == 'active', Voucher.expires_at > now).count(),
+        'expired': scoped(Voucher).filter(Voucher.status != 'disabled', Voucher.expires_at <= now).count(),
         'sold_value': db.session.query(func.coalesce(func.sum(Voucher.price), 0))
-                        .filter(Voucher.first_used_at.isnot(None)).scalar(),
+                        .filter(Voucher.tenant_id == tenant_id(), Voucher.first_used_at.isnot(None)).scalar(),
     }
     return render_template('vouchers/list.html', pagination=pagination, batches=batches,
                            batch=batch, state=state, search=search, stats=stats,
-                           currency=Config.HOTSPOT_CURRENCY)
+                           currency=current_tenant().currency)
 
 
 @app.route('/vouchers/generate', methods=['GET', 'POST'])
 @login_required
 def generate_vouchers():
     form = VoucherGenerateForm()
-    form.plan_id.choices = [(0, '-- No Plan --')] + [(p.id, p.name) for p in Plan.query.filter_by(is_active=True).all()]
+    form.plan_id.choices = [(0, '-- No Plan --')] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
 
     if form.validate_on_submit():
-        plan = Plan.query.get(form.plan_id.data) if form.plan_id.data else None
+        plan = scoped(Plan).filter_by(id=form.plan_id.data).first() if form.plan_id.data else None
         minutes = form.validity_value.data * (1440 if form.validity_unit.data == 'days' else 60)
         price = Decimal(form.price.data.strip()) if form.price.data else None
         batch = (form.batch.data or '').strip() or datetime.utcnow().strftime('%Y%m%d-%H%M%S')
@@ -978,7 +1050,7 @@ def generate_vouchers():
         flash(f'{form.count.data} vouchers created in batch "{batch}".', 'success')
         return redirect(url_for('vouchers', batch=batch))
 
-    return render_template('vouchers/generate.html', form=form, currency=Config.HOTSPOT_CURRENCY)
+    return render_template('vouchers/generate.html', form=form, currency=current_tenant().currency)
 
 
 @app.route('/vouchers/print')
@@ -988,16 +1060,16 @@ def print_vouchers():
     if not batch:
         flash('Choose a batch to print.', 'warning')
         return redirect(url_for('vouchers'))
-    items = Voucher.query.filter_by(batch=batch, status='unused').order_by(Voucher.id).all()
+    items = scoped(Voucher).filter_by(batch=batch, status='unused').order_by(Voucher.id).all()
     return render_template('vouchers/print.html', vouchers=items, batch=batch,
-                           hotspot=_hotspot_settings())
+                           hotspot=_hotspot_settings(current_tenant()))
 
 
 @app.route('/vouchers/<int:voucher_id>/toggle', methods=['POST'])
 @login_required
 def toggle_voucher(voucher_id):
     _check_csrf()
-    voucher = Voucher.query.get_or_404(voucher_id)
+    voucher = owned_or_404(Voucher, voucher_id)
     if voucher.status == 'disabled':
         voucher.status = 'active' if voucher.first_used_at else 'unused'
         flash(f'Voucher {voucher.code} enabled.', 'success')
@@ -1012,7 +1084,7 @@ def toggle_voucher(voucher_id):
 @login_required
 def delete_voucher(voucher_id):
     _check_csrf()
-    voucher = Voucher.query.get_or_404(voucher_id)
+    voucher = owned_or_404(Voucher, voucher_id)
     code = voucher.code
     RadCheck.query.filter_by(username=code).delete()
     RadReply.query.filter_by(username=code).delete()
@@ -1028,7 +1100,7 @@ def delete_voucher(voucher_id):
 def delete_unused_batch():
     _check_csrf()
     batch = request.form.get('batch', '')
-    codes = [c for (c,) in db.session.query(Voucher.code).filter_by(batch=batch, status='unused')]
+    codes = [c for (c,) in db.session.query(Voucher.code).filter_by(tenant_id=tenant_id(), batch=batch, status='unused')]
     if codes:
         RadCheck.query.filter(RadCheck.username.in_(codes)).delete(synchronize_session=False)
         RadReply.query.filter(RadReply.username.in_(codes)).delete(synchronize_session=False)
@@ -1040,13 +1112,20 @@ def delete_unused_batch():
 
 
 # Public guest portal
-def _hotspot_settings():
+def _hotspot_settings(tenant):
+    if tenant is None or tenant.slug == migrations.DEFAULT_TENANT_SLUG:
+        defaults = {'name': Config.HOTSPOT_NAME, 'ssid': Config.HOTSPOT_SSID,
+                    'support': Config.HOTSPOT_SUPPORT, 'terms': Config.HOTSPOT_TERMS}
+    else:
+        defaults = {'name': tenant.name, 'ssid': '', 'support': '', 'terms': Config.HOTSPOT_TERMS}
+    if tenant is None:
+        return {**defaults, 'currency': Config.HOTSPOT_CURRENCY}
     return {
-        'name': Config.HOTSPOT_NAME,
-        'ssid': Config.HOTSPOT_SSID,
-        'support': Config.HOTSPOT_SUPPORT,
-        'terms': Config.HOTSPOT_TERMS,
-        'currency': Config.HOTSPOT_CURRENCY,
+        'name': tenant.hotspot_name or defaults['name'],
+        'ssid': defaults['ssid'],
+        'support': tenant.support_phone or defaults['support'],
+        'terms': tenant.terms or defaults['terms'],
+        'currency': tenant.currency,
     }
 
 
@@ -1087,7 +1166,9 @@ def portal():
         gateway = {'action': meraki_login, 'next_field': 'success_url',
                    'next_value': request.args.get('continue_url', '')}
 
-    return render_template('portal/index.html', hotspot=_hotspot_settings(), gateway=gateway,
+    slug = request.args.get('t', migrations.DEFAULT_TENANT_SLUG)[:64]
+    tenant = Tenant.query.filter_by(slug=slug).first()
+    return render_template('portal/index.html', hotspot=_hotspot_settings(tenant), gateway=gateway,
                            error=request.args.get('error', '')[:200])
 
 
@@ -1105,16 +1186,17 @@ def _split_minutes(minutes):
 
 @app.route('/packages')
 @login_required
+@role_required('admin')
 def packages():
-    items = Package.query.order_by(Package.sort_order, Package.price).all()
+    items = scoped(Package).order_by(Package.sort_order, Package.price).all()
     return render_template('packages/list.html', packages=items,
                            clickpesa_ready=clickpesa.is_configured(),
-                           portal_api_ready=bool(Config.PORTAL_API_KEY))
+                           portal_api_ready=bool(scoped(Gateway).filter_by(is_active=True).count() or Config.PORTAL_API_KEY))
 
 
 def _package_form():
     form = PackageForm()
-    form.plan_id.choices = [(0, '-- No speed limit --')] + [(p.id, p.name) for p in Plan.query.filter_by(is_active=True).all()]
+    form.plan_id.choices = [(0, '-- No speed limit --')] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
     return form
 
 
@@ -1131,10 +1213,11 @@ def _fill_package(package, form):
 
 @app.route('/packages/add', methods=['GET', 'POST'])
 @login_required
+@role_required('admin')
 def add_package():
     form = _package_form()
     if form.validate_on_submit():
-        package = Package(currency=Config.HOTSPOT_CURRENCY)
+        package = Package(tenant_id=tenant_id(), currency=current_tenant().currency)
         _fill_package(package, form)
         db.session.add(package)
         db.session.commit()
@@ -1145,8 +1228,9 @@ def add_package():
 
 @app.route('/packages/<int:package_id>/edit', methods=['GET', 'POST'])
 @login_required
+@role_required('admin')
 def edit_package(package_id):
-    package = Package.query.get_or_404(package_id)
+    package = owned_or_404(Package, package_id)
     form = _package_form()
     if request.method == 'GET':
         form.process(obj=package)
@@ -1163,9 +1247,10 @@ def edit_package(package_id):
 
 @app.route('/packages/<int:package_id>/delete', methods=['POST'])
 @login_required
+@role_required('admin')
 def delete_package(package_id):
     _check_csrf()
-    package = Package.query.get_or_404(package_id)
+    package = owned_or_404(Package, package_id)
     name = package.name
     db.session.delete(package)
     db.session.commit()
@@ -1191,7 +1276,8 @@ def _fulfil_payment(payment):
     """Paid: issue a voucher for the package (once)."""
     if payment.voucher_id:
         return
-    voucher = _create_vouchers(1, payment.plan, payment.validity_minutes, payment.amount, 'online-payments')[0]
+    voucher = _create_vouchers(1, payment.plan, payment.validity_minutes, payment.amount, 'online-payments',
+                               tenant=payment.tenant_id)[0]
     db.session.flush()
     payment.voucher_id = voucher.id
     payment.status = 'paid'
@@ -1239,7 +1325,7 @@ def payments():
     page = request.args.get('page', 1, type=int)
     status = request.args.get('status', '', type=str)
     search = request.args.get('search', '', type=str).strip()
-    query = Payment.query
+    query = scoped(Payment)
     if status:
         query = query.filter(Payment.status == status)
     if search:
@@ -1250,17 +1336,18 @@ def payments():
     now = datetime.utcnow()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month = today.replace(day=1)
+    tid = tenant_id()
     paid_total = lambda since=None: db.session.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
-        Payment.status == 'paid', *( [Payment.paid_at >= since] if since else [])).scalar()
+        Payment.tenant_id == tid, Payment.status == 'paid', *( [Payment.paid_at >= since] if since else [])).scalar()
     stats = {
         'today': paid_total(today),
         'month': paid_total(month),
         'all_time': paid_total(),
-        'paid_count': Payment.query.filter_by(status='paid').count(),
-        'pending': Payment.query.filter_by(status='pending').count(),
+        'paid_count': scoped(Payment).filter_by(status='paid').count(),
+        'pending': scoped(Payment).filter_by(status='pending').count(),
     }
     return render_template('payments/list.html', pagination=pagination, stats=stats, status=status,
-                           search=search, currency=Config.HOTSPOT_CURRENCY,
+                           search=search, currency=current_tenant().currency,
                            clickpesa_ready=clickpesa.is_configured())
 
 
@@ -1268,19 +1355,39 @@ def payments():
 @login_required
 def refresh_payment(payment_id):
     _check_csrf()
-    payment = Payment.query.get_or_404(payment_id)
+    payment = owned_or_404(Payment, payment_id)
     payment = _refresh_payment(payment.reference, force=True)
     flash(f'Payment {payment.reference}: {payment.status}.', 'info')
     return redirect(request.referrer or url_for('payments'))
 
 
 # Captive-portal gateway API (JSON, authenticated with X-SafeNet-Key)
+def _hash_key(key):
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
 def portal_api(fn):
+    """Authenticates a gateway by its X-SafeNet-Key and sets g.api_tenant.
+    The legacy shared PORTAL_API_KEY maps to the default tenant."""
     @wraps(fn)
     def wrapper(*args, **kwargs):
         key = request.headers.get('X-SafeNet-Key', '')
-        if not Config.PORTAL_API_KEY or not hmac.compare_digest(key.encode(), Config.PORTAL_API_KEY.encode()):
+        tenant = None
+        if key:
+            gw = Gateway.query.filter_by(key_hash=_hash_key(key), is_active=True).first()
+            if gw:
+                tenant = gw.tenant
+                now = datetime.utcnow()
+                if not gw.last_seen_at or (now - gw.last_seen_at).total_seconds() > 60:
+                    gw.last_seen_at, gw.last_ip = now, request.remote_addr
+                    db.session.commit()
+            elif Config.PORTAL_API_KEY and hmac.compare_digest(key.encode(), Config.PORTAL_API_KEY.encode()):
+                tenant = migrations.default_tenant()
+        if tenant is None:
             return jsonify(error='unauthorized'), 401
+        if tenant.status == 'suspended':
+            return jsonify(error='This network is suspended.'), 403
+        g.api_tenant = tenant
         return fn(*args, **kwargs)
     return wrapper
 
@@ -1304,7 +1411,7 @@ def _payment_json(payment):
 @app.route('/api/portal/packages')
 @portal_api
 def api_portal_packages():
-    items = Package.query.filter_by(is_active=True, show_on_portal=True).order_by(
+    items = Package.query.filter_by(tenant_id=g.api_tenant.id, is_active=True, show_on_portal=True).order_by(
         Package.sort_order, Package.price).all()
     return jsonify(packages=[{
         'id': p.id, 'name': p.name, 'description': p.description or '',
@@ -1317,7 +1424,8 @@ def api_portal_packages():
 @portal_api
 def api_portal_purchase():
     data = request.get_json(silent=True) or {}
-    package = Package.query.filter_by(id=data.get('package_id'), is_active=True, show_on_portal=True).first()
+    package = Package.query.filter_by(id=data.get('package_id'), tenant_id=g.api_tenant.id,
+                                      is_active=True, show_on_portal=True).first()
     if not package:
         return jsonify(error='That package is no longer available.'), 404
     phone = _normalize_tz_phone(str(data.get('phone', '')))
@@ -1331,6 +1439,7 @@ def api_portal_purchase():
         return jsonify(error='A payment request was just sent to this number. Check your phone, or wait a minute.'), 429
 
     payment = Payment(
+        tenant_id=g.api_tenant.id,
         reference='SN' + secrets.token_hex(6).upper(),
         package_id=package.id, package_name=package.name, plan_id=package.plan_id,
         validity_minutes=package.validity_minutes, phone=phone,
@@ -1369,6 +1478,8 @@ def api_portal_purchase():
 @app.route('/api/portal/purchase/<reference>')
 @portal_api
 def api_portal_purchase_status(reference):
+    if not Payment.query.filter_by(reference=reference, tenant_id=g.api_tenant.id).first():
+        return jsonify(error='not found'), 404
     payment = _refresh_payment(reference)
     if not payment:
         return jsonify(error='not found'), 404
@@ -1408,7 +1519,7 @@ def _iso(dt):
 @app.route('/live')
 @login_required
 def live():
-    return render_template('live.html', currency=Config.HOTSPOT_CURRENCY)
+    return render_template('live.html', currency=current_tenant().currency)
 
 
 @app.route('/api/live')
@@ -1419,16 +1530,18 @@ def api_live():
     cutoff = now - timedelta(minutes=LIVE_STALE_MINUTES)
     last_seen = func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime)
 
+    tid = tenant_id()
+    names = tenant_usernames(tid)
     open_sessions = (RadAcct.query
-                     .filter(RadAcct.acctstoptime.is_(None), last_seen >= cutoff)
+                     .filter(RadAcct.username.in_(names), RadAcct.acctstoptime.is_(None), last_seen >= cutoff)
                      .order_by(RadAcct.acctstarttime.desc()).limit(200).all())
     usernames = {s.username for s in open_sessions}
-    vouchers = {v.code: v for v in Voucher.query.filter(Voucher.code.in_(usernames))} if usernames else {}
+    vouchers = {v.code: v for v in scoped(Voucher).filter(Voucher.code.in_(usernames))} if usernames else {}
     phones = {}
     if vouchers:
         ids = [v.id for v in vouchers.values()]
         phones = {p.voucher_id: p.phone for p in Payment.query.filter(Payment.voucher_id.in_(ids))}
-    nas_names = {n.nasname: n.shortname for n in Nas.query.all()}
+    nas_names = {n.nasname: n.shortname for n in scoped(Nas).all()}
 
     online = []
     for s in open_sessions:
@@ -1451,39 +1564,40 @@ def api_live():
             'up': up,
         })
 
-    day_sessions = RadAcct.query.filter(or_(RadAcct.acctstoptime.is_(None), RadAcct.acctstoptime >= midnight))
+    day_sessions = RadAcct.query.filter(RadAcct.username.in_(names),
+                                        or_(RadAcct.acctstoptime.is_(None), RadAcct.acctstoptime >= midnight))
     usage = day_sessions.with_entities(
         func.coalesce(func.sum(RadAcct.acctoutputoctets), 0),
         func.coalesce(func.sum(RadAcct.acctinputoctets), 0)).one()
-    paid_today = Payment.query.filter(Payment.status == 'paid', Payment.paid_at >= midnight)
-    cash_today = Voucher.query.filter(Voucher.first_used_at >= midnight, Voucher.batch != 'online-payments')
+    paid_today = scoped(Payment).filter(Payment.status == 'paid', Payment.paid_at >= midnight)
+    cash_today = scoped(Voucher).filter(Voucher.first_used_at >= midnight, Voucher.batch != 'online-payments')
     stats = {
         'online': len(online),
         'down_today': int(usage[0]),
         'up_today': int(usage[1]),
-        'logins_today': RadPostAuth.query.filter(RadPostAuth.authdate >= midnight,
+        'logins_today': RadPostAuth.query.filter(RadPostAuth.username.in_(names), RadPostAuth.authdate >= midnight,
                                                  RadPostAuth.reply == 'Access-Accept').count(),
-        'rejects_today': RadPostAuth.query.filter(RadPostAuth.authdate >= midnight,
+        'rejects_today': RadPostAuth.query.filter(RadPostAuth.username.in_(names), RadPostAuth.authdate >= midnight,
                                                   RadPostAuth.reply != 'Access-Accept').count(),
         'online_revenue_today': float(paid_today.with_entities(func.coalesce(func.sum(Payment.amount), 0)).scalar()),
         'online_sales_today': paid_today.count(),
         'cash_revenue_today': float(cash_today.with_entities(func.coalesce(func.sum(Voucher.price), 0)).scalar()),
-        'vouchers_activated_today': Voucher.query.filter(Voucher.first_used_at >= midnight).count(),
-        'pending_payments': Payment.query.filter_by(status='pending').count(),
+        'vouchers_activated_today': scoped(Voucher).filter(Voucher.first_used_at >= midnight).count(),
+        'pending_payments': scoped(Payment).filter_by(status='pending').count(),
     }
 
     events = []
-    for a in RadPostAuth.query.order_by(RadPostAuth.id.desc()).limit(30):
+    for a in RadPostAuth.query.filter(RadPostAuth.username.in_(names)).order_by(RadPostAuth.id.desc()).limit(30):
         ok = a.reply == 'Access-Accept'
         events.append({'at': _iso(a.authdate), 'type': 'login' if ok else 'reject',
                        'text': f'{a.username} {"logged in" if ok else "was rejected"}'})
-    for s in RadAcct.query.order_by(RadAcct.radacctid.desc()).limit(30):
+    for s in RadAcct.query.filter(RadAcct.username.in_(names)).order_by(RadAcct.radacctid.desc()).limit(30):
         events.append({'at': _iso(s.acctstarttime), 'type': 'start',
                        'text': f'{s.username} started a session on {s.calledstationid or s.nasipaddress}'})
         if s.acctstoptime:
             events.append({'at': _iso(s.acctstoptime), 'type': 'stop',
                            'text': f'{s.username} disconnected ({s.acctterminatecause or "stop"})'})
-    for p in Payment.query.order_by(Payment.id.desc()).limit(20):
+    for p in scoped(Payment).order_by(Payment.id.desc()).limit(20):
         amount = f'{p.currency} {p.amount:,.0f}'
         events.append({'at': _iso(p.created_at), 'type': 'payment',
                        'text': f'{p.phone} requested {p.package_name} ({amount})'})
@@ -1499,17 +1613,357 @@ def api_live():
                    stale_minutes=LIVE_STALE_MINUTES)
 
 
+# ---------------------------------------------------------------------------
+# Accounts: signup, email verification, password reset
+# ---------------------------------------------------------------------------
+def _tokens(salt):
+    return URLSafeTimedSerializer(app.config['SECRET_KEY'], salt=salt)
+
+
+def _link(endpoint, **values):
+    if Config.PUBLIC_URL:
+        return Config.PUBLIC_URL + url_for(endpoint, **values)
+    return url_for(endpoint, _external=True, **values)
+
+
+def _send_verification(admin):
+    token = _tokens('verify-email').dumps({'id': admin.id, 'email': admin.email})
+    return send_mail(admin.email, 'Confirm your SafeNet account',
+                     f'Hi {admin.username},\n\nConfirm your email address to start using SafeNet:\n'
+                     f'{_link("verify_email", token=token)}\n\nThe link expires in 3 days.\n')
+
+
+def _unique_slug(name):
+    base = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')[:40] or 'network'
+    slug, n = base, 2
+    while Tenant.query.filter_by(slug=slug).first():
+        slug, n = f'{base}-{n}', n + 1
+    return slug
+
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if not Config.SIGNUP_ENABLED:
+        abort(404)
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    form = SignupForm()
+    if form.validate_on_submit():
+        email = form.email.data.strip().lower()
+        if Admin.query.filter_by(username=form.username.data).first():
+            form.username.errors.append('That username is taken.')
+        elif Admin.query.filter(func.lower(Admin.email) == email).first():
+            form.email.errors.append('An account with this email already exists. Log in or reset your password.')
+        else:
+            tenant = Tenant(name=form.business_name.data.strip(), slug=_unique_slug(form.business_name.data),
+                            status='trial', phone=(form.phone.data or '').strip() or None,
+                            trial_ends_at=datetime.utcnow() + timedelta(days=Config.TRIAL_DAYS))
+            db.session.add(tenant)
+            db.session.flush()
+            owner = Admin(username=form.username.data, email=email, tenant_id=tenant.id, role='owner')
+            owner.set_password(form.password.data)
+            db.session.add(owner)
+            db.session.commit()
+            _send_verification(owner)
+            return render_template('auth/verify_notice.html', email=email, form=EmailForm(email=email), new=True)
+    return render_template('auth/signup.html', form=form, trial_days=Config.TRIAL_DAYS)
+
+
+@app.route('/verify/<token>')
+def verify_email(token):
+    try:
+        data = _tokens('verify-email').loads(token, max_age=3 * 86400)
+    except SignatureExpired:
+        flash('That confirmation link has expired. Log in to get a new one.', 'warning')
+        return redirect(url_for('login'))
+    except BadSignature:
+        abort(404)
+    admin = db.session.get(Admin, data.get('id'))
+    if not admin or admin.email != data.get('email'):
+        abort(404)
+    if not admin.email_verified_at:
+        admin.email_verified_at = datetime.utcnow()
+        db.session.commit()
+    flash('Email confirmed. You can log in now.', 'success')
+    return redirect(url_for('login'))
+
+
+@app.route('/verify/resend', methods=['POST'])
+def resend_verification():
+    form = EmailForm()
+    if form.validate_on_submit():
+        admin = Admin.query.filter(func.lower(Admin.email) == form.email.data.strip().lower()).first()
+        if admin and not admin.email_verified_at:
+            _send_verification(admin)
+    flash('If that account is waiting for confirmation, we sent a new link.', 'info')
+    return redirect(url_for('login'))
+
+
+@app.route('/forgot', methods=['GET', 'POST'])
+def forgot_password():
+    form = EmailForm()
+    if form.validate_on_submit():
+        admin = Admin.query.filter(func.lower(Admin.email) == form.email.data.strip().lower()).first()
+        if admin and admin.is_active:
+            token = _tokens('reset-password').dumps({'id': admin.id, 'h': admin.password_hash[-16:]})
+            send_mail(admin.email, 'Reset your SafeNet password',
+                      f'Hi {admin.username},\n\nReset your password here (valid for 1 hour):\n'
+                      f'{_link("reset_password", token=token)}\n\nIf you did not ask for this, ignore this email.\n')
+        flash('If an account uses that email, we sent a reset link.', 'info')
+        return redirect(url_for('login'))
+    return render_template('auth/forgot.html', form=form)
+
+
+@app.route('/reset/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    try:
+        data = _tokens('reset-password').loads(token, max_age=3600)
+    except (BadSignature, SignatureExpired):
+        flash('That reset link is invalid or has expired.', 'warning')
+        return redirect(url_for('forgot_password'))
+    admin = db.session.get(Admin, data.get('id'))
+    # The token embeds part of the old hash, so it stops working once used
+    if not admin or admin.password_hash[-16:] != data.get('h'):
+        flash('That reset link has already been used.', 'warning')
+        return redirect(url_for('forgot_password'))
+    form = ResetPasswordForm()
+    if form.validate_on_submit():
+        admin.set_password(form.password.data)
+        admin.email_verified_at = admin.email_verified_at or datetime.utcnow()
+        db.session.commit()
+        flash('Password changed. You can log in now.', 'success')
+        return redirect(url_for('login'))
+    return render_template('auth/reset.html', form=form)
+
+
+# ---------------------------------------------------------------------------
+# Tenant settings and team
+# ---------------------------------------------------------------------------
+@app.route('/settings', methods=['GET', 'POST'])
+@login_required
+@role_required('admin')
+def tenant_settings():
+    tenant = current_tenant()
+    form = TenantSettingsForm(obj=tenant)
+    if form.validate_on_submit():
+        tenant.name = form.name.data.strip()
+        tenant.phone = (form.phone.data or '').strip() or None
+        tenant.hotspot_name = (form.hotspot_name.data or '').strip() or None
+        tenant.support_phone = (form.support_phone.data or '').strip() or None
+        tenant.currency = form.currency.data.strip().upper()
+        tenant.terms = (form.terms.data or '').strip() or None
+        db.session.commit()
+        flash('Settings saved.', 'success')
+        return redirect(url_for('tenant_settings'))
+    return render_template('settings.html', form=form)
+
+
+def _manageable(member):
+    """Can the current admin change this team member?"""
+    if member.id == current_user.id or member.is_superadmin:
+        return False
+    if current_user.is_superadmin or current_user.role == 'owner':
+        return member.role != 'owner'
+    return member.role == 'staff'
+
+
+@app.route('/team')
+@login_required
+@role_required('admin')
+def team():
+    members = scoped(Admin).order_by(Admin.created_at).all()
+    return render_template('team/list.html', members=members, manageable=_manageable)
+
+
+@app.route('/team/add', methods=['GET', 'POST'])
+@login_required
+@role_required('admin')
+def add_team_member():
+    form = TeamMemberForm()
+    if not (current_user.is_superadmin or current_user.role == 'owner'):
+        form.role.choices = [c for c in form.role.choices if c[0] == 'staff']
+    if form.validate_on_submit():
+        email = form.email.data.strip().lower()
+        if Admin.query.filter_by(username=form.username.data).first():
+            form.username.errors.append('That username is taken.')
+        elif Admin.query.filter(func.lower(Admin.email) == email).first():
+            form.email.errors.append('That email already has an account.')
+        else:
+            member = Admin(username=form.username.data, email=email, tenant_id=tenant_id(),
+                           role=form.role.data, email_verified_at=datetime.utcnow())
+            member.set_password(form.password.data)
+            db.session.add(member)
+            db.session.commit()
+            send_mail(email, f'You were added to {current_tenant().name} on SafeNet',
+                      f'Hi {member.username},\n\n{current_user.username} added you to {current_tenant().name}.\n'
+                      f'Log in at {_link("login")} with username "{member.username}" and the temporary '
+                      f'password they gave you, then change it with "Forgot password".\n')
+            flash(f'{member.username} added as {member.role}.', 'success')
+            return redirect(url_for('team'))
+    return render_template('team/form.html', form=form)
+
+
+@app.route('/team/<int:member_id>/toggle', methods=['POST'])
+@login_required
+@role_required('admin')
+def toggle_team_member(member_id):
+    _check_csrf()
+    member = owned_or_404(Admin, member_id)
+    if not _manageable(member):
+        abort(403)
+    member.is_active = not member.is_active
+    db.session.commit()
+    flash(f'{member.username} {"enabled" if member.is_active else "disabled"}.', 'success')
+    return redirect(url_for('team'))
+
+
+@app.route('/team/<int:member_id>/delete', methods=['POST'])
+@login_required
+@role_required('admin')
+def delete_team_member(member_id):
+    _check_csrf()
+    member = owned_or_404(Admin, member_id)
+    if not _manageable(member):
+        abort(403)
+    name = member.username
+    db.session.delete(member)
+    db.session.commit()
+    flash(f'{name} removed from the team.', 'success')
+    return redirect(url_for('team'))
+
+
+# ---------------------------------------------------------------------------
+# Gateways (SafeNet gateway boxes, authenticated by API key)
+# ---------------------------------------------------------------------------
+@app.route('/gateways')
+@login_required
+@role_required('admin')
+def gateways():
+    items = scoped(Gateway).order_by(Gateway.created_at.desc()).all()
+    return render_template('gateways/list.html', gateways=items, form=GatewayForm(), now=datetime.utcnow())
+
+
+@app.route('/gateways/add', methods=['POST'])
+@login_required
+@role_required('admin')
+def add_gateway():
+    form = GatewayForm()
+    if not form.validate_on_submit():
+        flash('Give the gateway a name.', 'danger')
+        return redirect(url_for('gateways'))
+    key = 'sgw_' + secrets.token_urlsafe(32)
+    gw = Gateway(tenant_id=tenant_id(), name=form.name.data.strip(), key_prefix=key[:8], key_hash=_hash_key(key))
+    db.session.add(gw)
+    db.session.commit()
+    # The key is shown once and never stored in plain text
+    return render_template('gateways/created.html', gateway=gw, key=key,
+                           api_url=Config.PUBLIC_URL or request.host_url.rstrip('/'))
+
+
+@app.route('/gateways/<int:gateway_id>/revoke', methods=['POST'])
+@login_required
+@role_required('admin')
+def revoke_gateway(gateway_id):
+    _check_csrf()
+    gw = owned_or_404(Gateway, gateway_id)
+    gw.is_active = False
+    db.session.commit()
+    flash(f'Gateway "{gw.name}" disabled. Its key no longer works.', 'success')
+    return redirect(url_for('gateways'))
+
+
+@app.route('/gateways/<int:gateway_id>/delete', methods=['POST'])
+@login_required
+@role_required('admin')
+def delete_gateway(gateway_id):
+    _check_csrf()
+    gw = owned_or_404(Gateway, gateway_id)
+    name = gw.name
+    db.session.delete(gw)
+    db.session.commit()
+    flash(f'Gateway "{name}" deleted.', 'success')
+    return redirect(url_for('gateways'))
+
+
+# ---------------------------------------------------------------------------
+# Platform (super-admin)
+# ---------------------------------------------------------------------------
+@app.route('/platform/tenants')
+@login_required
+@superadmin_required
+def platform_tenants():
+    tenants = Tenant.query.order_by(Tenant.created_at.desc()).all()
+    count = lambda model: dict(db.session.query(model.tenant_id, func.count()).group_by(model.tenant_id).all())
+    revenue = dict(db.session.query(Payment.tenant_id, func.coalesce(func.sum(Payment.amount), 0))
+                   .filter(Payment.status == 'paid').group_by(Payment.tenant_id).all())
+    owners = {a.tenant_id: a for a in Admin.query.filter_by(role='owner').order_by(Admin.id.desc())}
+    return render_template('platform/tenants.html', tenants=tenants, users=count(RadUser),
+                           vouchers=count(Voucher), gateways=count(Gateway), nas=count(Nas),
+                           revenue=revenue, owners=owners, now=datetime.utcnow())
+
+
+@app.route('/platform/tenants/<int:tid>/status', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_tenant_status(tid):
+    _check_csrf()
+    tenant = db.get_or_404(Tenant, tid)
+    action = request.form.get('action')
+    if action == 'activate':
+        tenant.status = 'active'
+    elif action == 'suspend':
+        if tenant.slug == migrations.DEFAULT_TENANT_SLUG:
+            abort(400)
+        tenant.status = 'suspended'
+    elif action == 'extend':
+        base = max(tenant.trial_ends_at or datetime.utcnow(), datetime.utcnow())
+        tenant.status, tenant.trial_ends_at = 'trial', base + timedelta(days=Config.TRIAL_DAYS)
+    elif action == 'verify':
+        for a in Admin.query.filter_by(tenant_id=tenant.id, email_verified_at=None):
+            a.email_verified_at = datetime.utcnow()
+    else:
+        abort(400)
+    db.session.commit()
+    flash(f'{tenant.name}: {action} done.', 'success')
+    return redirect(url_for('platform_tenants'))
+
+
+@app.route('/platform/switch/<int:tid>', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_switch(tid):
+    _check_csrf()
+    tenant = db.get_or_404(Tenant, tid)
+    session['tenant_id'] = tenant.id
+    flash(f'You are now managing {tenant.name}.', 'info')
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/platform/switch-back', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_switch_back():
+    _check_csrf()
+    session.pop('tenant_id', None)
+    return redirect(url_for('platform_tenants'))
+
+
 # Initialize database
 @app.cli.command()
 def init_db():
     """Initialize the database."""
     db.create_all()
+    migrations.run()
     
     # Create default admin if not exists
     if not Admin.query.filter_by(username=Config.ADMIN_USERNAME).first():
         admin = Admin(
             username=Config.ADMIN_USERNAME,
-            email=Config.ADMIN_EMAIL
+            email=Config.ADMIN_EMAIL,
+            tenant_id=migrations.default_tenant().id,
+            role='owner',
+            is_superadmin=True,
+            email_verified_at=datetime.utcnow(),
         )
         admin.set_password(Config.ADMIN_PASSWORD)
         db.session.add(admin)
@@ -1524,8 +1978,9 @@ def init_db():
 @click.option('--password', '-p', prompt=True, hide_input=True, confirmation_prompt=True, help='Admin password')
 @click.option('--email', '-e', prompt=True, help='Admin email')
 @click.option('--force', is_flag=True, help='Update password/email if username already exists')
-def create_admin(username, password, email, force):
-    """Create a web-panel admin (or reset password with --force)."""
+@click.option('--superadmin/--no-superadmin', default=True, help='Platform super-admin (default: yes)')
+def create_admin(username, password, email, force, superadmin):
+    """Create a platform admin in the default tenant (or reset password with --force)."""
     username = (username or '').strip()
     email = (email or '').strip()
     if not username or not password or not email:
@@ -1541,6 +1996,7 @@ def create_admin(username, password, email, force):
         admin.email = email
         admin.set_password(password)
         admin.is_active = True
+        admin.email_verified_at = admin.email_verified_at or datetime.utcnow()
         db.session.commit()
         click.echo(f'Admin updated: {username}')
     else:
@@ -1548,7 +2004,9 @@ def create_admin(username, password, email, force):
         if Admin.query.filter_by(email=email).first():
             click.echo(f'Email "{email}" is already used by another admin.', err=True)
             raise SystemExit(1)
-        admin = Admin(username=username, email=email, is_active=True)
+        admin = Admin(username=username, email=email, is_active=True, role='owner',
+                      tenant_id=migrations.default_tenant().id, is_superadmin=superadmin,
+                      email_verified_at=datetime.utcnow())
         admin.set_password(password)
         db.session.add(admin)
         db.session.commit()
@@ -1570,7 +2028,9 @@ def create_admin(username, password, email, force):
     '--plan', default=None,
     help='Default plan name to assign to seeded users that do not specify "plan".',
 )
-def seed_users(path, update_password, plan):
+@click.option('--tenant', 'tenant_slug', default=migrations.DEFAULT_TENANT_SLUG,
+              help='Tenant (slug) that owns the users (default: the platform tenant).')
+def seed_users(path, update_password, plan, tenant_slug):
     """Seed FreeRADIUS users from a JSON list.
 
     JSON format (stdin or --file):
@@ -1596,6 +2056,11 @@ def seed_users(path, update_password, plan):
         click.echo('Top-level JSON must be a list of user objects.', err=True)
         sys.exit(2)
 
+    tenant = Tenant.query.filter_by(slug=tenant_slug).first()
+    if not tenant:
+        click.echo(f'Tenant "{tenant_slug}" not found.', err=True)
+        sys.exit(2)
+
     created = updated = skipped = 0
     for idx, entry in enumerate(users, start=1):
         if not isinstance(entry, dict):
@@ -1613,7 +2078,7 @@ def seed_users(path, update_password, plan):
 
         plan_obj = None
         if plan_name:
-            plan_obj = Plan.query.filter_by(name=plan_name).first()
+            plan_obj = Plan.query.filter_by(tenant_id=tenant.id, name=plan_name).first()
             if not plan_obj:
                 click.echo(
                     f'[{idx}] {username}: plan "{plan_name}" not found, '
@@ -1622,9 +2087,13 @@ def seed_users(path, update_password, plan):
                 )
 
         user = RadUser.query.filter_by(username=username).first()
+        if user is not None and user.tenant_id != tenant.id:
+            click.echo(f'[{idx}] skipped: {username} belongs to another tenant', err=True)
+            skipped += 1
+            continue
         is_new = user is None
         if is_new:
-            user = RadUser(username=username, is_active=is_active)
+            user = RadUser(username=username, is_active=is_active, tenant_id=tenant.id)
             if plan_obj is not None:
                 user.plan_id = plan_obj.id
             db.session.add(user)
@@ -1649,12 +2118,12 @@ def seed_users(path, update_password, plan):
 
         if plan_obj is not None:
             existing = RadUserGroup.query.filter_by(
-                username=username, groupname=plan_obj.name
+                username=username, groupname=plan_obj.group_name
             ).first()
             if existing is None:
                 RadUserGroup.query.filter_by(username=username).delete()
                 db.session.add(RadUserGroup(
-                    username=username, groupname=plan_obj.name, priority=1
+                    username=username, groupname=plan_obj.group_name, priority=1
                 ))
 
         if is_new:

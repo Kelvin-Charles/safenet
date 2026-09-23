@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "auth/_field.html" import field %}
+
+{% block title %}Forgot password - {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-5">
+        <div class="card shadow-lg border-0">
+            <div class="card-body p-5">
+                <h3 class="fw-bold mb-2">Forgot your password?</h3>
+                <p class="text-muted">Enter your account email and we'll send you a reset link.</p>
+                <form method="POST" novalidate>
+                    {{ form.hidden_tag() }}
+                    {{ field(form.email) }}
+                    <div class="d-grid"><button type="submit" class="btn btn-primary">Send reset link</button></div>
+                </form>
+                <p class="text-center mt-3 mb-0 small"><a href="{{ url_for('login') }}">Back to login</a></p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

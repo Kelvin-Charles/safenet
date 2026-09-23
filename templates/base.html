@@ -186,41 +186,35 @@
     <div class="sidebar">
         <div class="logo">
             <i class="bi bi-shield-lock"></i> SafeNet
+            {% if tenant %}<div style="font-size: .8rem; font-weight: 400; opacity: .8; margin-top: .25rem;">{{ tenant.name }}</div>{% endif %}
         </div>
+        {% macro link(endpoints, url, icon, label) %}
+            <a class="nav-link {% if request.endpoint in endpoints %}active{% endif %}" href="{{ url }}"><i class="bi {{ icon }}"></i> {{ label }}</a>
+        {% endmacro %}
+        {% set is_admin = current_user.has_role('admin') %}
         <nav class="nav flex-column mt-3">
-            <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">
-                <i class="bi bi-speedometer2"></i> Dashboard
-            </a>
-            <a class="nav-link {% if request.endpoint == 'live' %}active{% endif %}" href="{{ url_for('live') }}">
-                <i class="bi bi-broadcast"></i> Live
-            </a>
-            <a class="nav-link {% if request.endpoint in ['users', 'add_user', 'edit_user'] %}active{% endif %}" href="{{ url_for('users') }}">
-                <i class="bi bi-people"></i> Users
-            </a>
-            <a class="nav-link {% if request.endpoint in ['plans', 'add_plan', 'edit_plan'] %}active{% endif %}" href="{{ url_for('plans') }}">
-                <i class="bi bi-box"></i> Plans
-            </a>
-            <a class="nav-link {% if request.endpoint in ['vouchers', 'generate_vouchers'] %}active{% endif %}" href="{{ url_for('vouchers') }}">
-                <i class="bi bi-ticket-perforated"></i> Vouchers
-            </a>
-            <a class="nav-link {% if request.endpoint in ['packages', 'add_package', 'edit_package'] %}active{% endif %}" href="{{ url_for('packages') }}">
-                <i class="bi bi-bag"></i> Packages
-            </a>
-            <a class="nav-link {% if request.endpoint == 'payments' %}active{% endif %}" href="{{ url_for('payments') }}">
-                <i class="bi bi-phone"></i> Payments
-            </a>
-            <a class="nav-link {% if request.endpoint in ['nas_list', 'add_nas', 'edit_nas'] %}active{% endif %}" href="{{ url_for('nas_list') }}">
-                <i class="bi bi-router"></i> NAS Devices
-            </a>
-            <a class="nav-link {% if request.endpoint in ['accounting', 'accounting_detail'] %}active{% endif %}" href="{{ url_for('accounting') }}">
-                <i class="bi bi-graph-up"></i> Accounting
-            </a>
-            <a class="nav-link {% if request.endpoint == 'auth_logs' %}active{% endif %}" href="{{ url_for('auth_logs') }}">
-                <i class="bi bi-shield-check"></i> Auth Logs
-            </a>
-            <a class="nav-link {% if request.endpoint == 'radius_features' %}active{% endif %}" href="{{ url_for('radius_features') }}">
-                <i class="bi bi-gear"></i> RADIUS Features
-            </a>
+            {{ link(['dashboard'], url_for('dashboard'), 'bi-speedometer2', 'Dashboard') }}
+            {{ link(['live'], url_for('live'), 'bi-broadcast', 'Live') }}
+            {{ link(['users', 'add_user', 'edit_user'], url_for('users'), 'bi-people', 'Users') }}
+            {{ link(['vouchers', 'generate_vouchers'], url_for('vouchers'), 'bi-ticket-perforated', 'Vouchers') }}
+            {{ link(['payments'], url_for('payments'), 'bi-phone', 'Payments') }}
+            {% if is_admin %}
+            {{ link(['packages', 'add_package', 'edit_package'], url_for('packages'), 'bi-bag', 'Packages') }}
+            {{ link(['plans', 'add_plan', 'edit_plan', 'add_plan_attribute'], url_for('plans'), 'bi-box', 'Plans') }}
+            {{ link(['gateways', 'add_gateway'], url_for('gateways'), 'bi-hdd-network', 'Gateways') }}
+            {{ link(['nas_list', 'add_nas', 'edit_nas'], url_for('nas_list'), 'bi-router', 'Routers (NAS)') }}
+            {% endif %}
+            {{ link(['accounting', 'accounting_detail'], url_for('accounting'), 'bi-graph-up', 'Accounting') }}
+            {{ link(['auth_logs'], url_for('auth_logs'), 'bi-shield-check', 'Auth Logs') }}
+            {% if is_admin %}
+            <hr style="border-color: rgba(255,255,255,0.2); margin: 1rem 0;">
+            {{ link(['tenant_settings'], url_for('tenant_settings'), 'bi-sliders', 'Settings') }}
+            {{ link(['team', 'add_team_member'], url_for('team'), 'bi-person-badge', 'Team') }}
+            {{ link(['radius_features'], url_for('radius_features'), 'bi-gear', 'RADIUS Features') }}
+            {% endif %}
+            {% if current_user.is_superadmin %}
+            {{ link(['platform_tenants'], url_for('platform_tenants'), 'bi-buildings', 'Platform') }}
+            {% endif %}
             <hr style="border-color: rgba(255,255,255,0.2); margin: 1rem 0;">
             <a class="nav-link" href="{{ url_for('logout') }}">
                 <i class="bi bi-box-arrow-right"></i> Logout
@@ -242,6 +236,23 @@
         </div>
         {% endif %}
         
+        {% if current_user.is_authenticated and viewing_other_tenant %}
+        <div class="alert alert-info d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-eye"></i> You are managing <strong>{{ tenant.name }}</strong> as platform admin.</span>
+            <form method="POST" action="{{ url_for('platform_switch_back') }}" class="m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-primary" type="submit">Back to platform</button>
+            </form>
+        </div>
+        {% endif %}
+        {% if current_user.is_authenticated and tenant and tenant.status == 'trial' and tenant.trial_days_left is not none %}
+        <div class="alert {{ 'alert-danger' if tenant.trial_days_left == 0 else 'alert-light' }}">
+            <i class="bi bi-hourglass-split"></i>
+            {% if tenant.trial_days_left == 0 %}Your free trial has ended. Contact SafeNet to keep your network running.
+            {% else %}Free trial: {{ tenant.trial_days_left }} day{{ '' if tenant.trial_days_left == 1 else 's' }} left.{% endif %}
+        </div>
+        {% endif %}
+
         <!-- Flash Messages -->
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}

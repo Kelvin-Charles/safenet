@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Gateway key - {{ app_name }}{% endblock %}
+{% block page_title %}Gateway Key{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header"><i class="bi bi-key"></i> Key for "{{ gateway.name }}"</div>
+    <div class="card-body">
+        <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> Copy this key now. It is shown only once; if you lose it, create a new gateway key.</div>
+        <p>Add these lines to <code>/etc/safenet-gateway/gateway.env</code> on the gateway, then run <code>sudo systemctl restart safenet-gw-portal</code>:</p>
+        <pre class="bg-light p-3 rounded"><code>SAFENET_API_URL="{{ api_url }}"
+SAFENET_API_KEY="{{ key }}"</code></pre>
+        <a href="{{ url_for('gateways') }}" class="btn btn-primary">Done</a>
+    </div>
+</div>
+{% endblock %}

@@ -33,7 +33,7 @@
                             <strong>{{ plan.name }}</strong>
                         </td>
                         <td>
-                            <small>{{ plan.description[:50] }}{% if plan.description and plan.description|length > 50 %}...{% endif %}</small>
+                            <small>{{ (plan.description or "")[:50] }}{% if plan.description and plan.description|length > 50 %}...{% endif %}</small>
                         </td>
                         <td>
                             {% set vendor_name = dict(supported_vendors).get(plan.vendor, plan.vendor) %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "auth/_field.html" import field %}
+
+{% block title %}Add team member - {{ app_name }}{% endblock %}
+{% block page_title %}Add Team Member{% endblock %}
+
+{% block content %}
+<div class="row"><div class="col-lg-6">
+    <div class="card">
+        <div class="card-header"><i class="bi bi-person-plus"></i> New team member</div>
+        <div class="card-body">
+            <form method="POST" novalidate>
+                {{ form.hidden_tag() }}
+                {{ field(form.username) }}
+                {{ field(form.email) }}
+                {{ field(form.role, "form-select") }}
+                {{ field(form.password, help="Share it with them privately. They can change it with \"Forgot password\".") }}
+                <div class="d-flex justify-content-between">
+                    <a href="{{ url_for('team') }}" class="btn btn-outline-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary">Add member</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div></div>
+{% endblock %}
