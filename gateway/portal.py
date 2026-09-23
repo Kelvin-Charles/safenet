@@ -626,7 +626,7 @@ def _theme():
     return ui.theme(branding)
 
 
-def login_page(dst='', error='', lang='en', tab='voucher'):
+def login_page(dst='', error='', lang='en', tab=None):
     return ui.login_page(_theme(), lang, packages=portal_packages(), dst=dst, error=error, tab=tab,
                          buy_enabled=bool(SAFENET_API_URL), networks=portal_networks(), logo_base='/img/')
 
@@ -769,21 +769,22 @@ class PortalHandler(BaseHTTPRequestHandler):
         if path != '/login':
             return self._redirect(self._portal_url('/'))
 
+        verr = lambda message: self._send(200, login_page(dst, message, lang, tab='voucher'))
         if not mac:
-            return self._send(200, login_page(dst, "We couldn't identify your device. Turn Wi-Fi off and on, then try again.", lang))
+            return verr("We couldn't identify your device. Turn Wi-Fi off and on, then try again.")
         if not form.get('agree'):
-            return self._send(200, login_page(dst, 'Please accept the terms of use to continue.', lang))
+            return verr('Please accept the terms of use to continue.')
         username = form.get('username', '').strip()
         if username:
             password = form.get('password', '')
         else:
             username = password = re.sub(r'\s+', '', form.get('code', ''))
         if not username:
-            return self._send(200, login_page(dst, 'Enter your voucher code.', lang))
+            return verr('Enter your voucher code.')
 
         session, error = login(mac, ip, username, password)
         if error:
-            return self._send(200, login_page(dst, error, lang))
+            return verr(error)
         self._send(200, status_page(session, dst, lang=lang))
 
 
@@ -824,7 +825,7 @@ class PortalHandler(BaseHTTPRequestHandler):
             code = data['code']
             session, error = login(mac, ip, code, code)
             if error:
-                return self._send(200, login_page('', f'Payment received. Your voucher code is {code}. {error}', lang))
+                return self._send(200, login_page('', f'Payment received. Your voucher code is {code}. {error}', lang, tab='voucher'))
             return self._send(200, status_page(session, '', new_code=code, lang=lang))
         if status in ('failed', 'review'):
             purchases.pop(ref, None)

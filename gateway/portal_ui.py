@@ -391,7 +391,7 @@ def _terms_check(th, lang, field_id):
 # ---------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------
-def login_page(th, lang, *, packages=(), dst='', error='', tab='voucher', action='/login', buy_action='/buy',
+def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/login', buy_action='/buy',
                external=None, buy_enabled=True, preview=False, lang_url='/', networks=(), logo_base='/img/'):
     """Voucher and/or buy-package tabs.
 
@@ -400,6 +400,8 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab='voucher', action
     """
     show_buy = th['show_packages'] and buy_enabled and bool(packages)
     show_voucher = th['show_voucher'] or not show_buy
+    if tab is None:                     # buying is the default; the voucher is one tap away
+        tab = 'buy' if show_buy else 'voucher'
     if not show_voucher:
         tab = 'buy'
     elif not show_buy:
@@ -492,14 +494,14 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab='voucher', action
 
     if show_voucher and show_buy:
         body = f"""
-      <input class="tab" type="radio" name="tab" id="tab-voucher"{' checked' if tab != 'buy' else ''}>
       <input class="tab" type="radio" name="tab" id="tab-buy"{' checked' if tab == 'buy' else ''}>
+      <input class="tab" type="radio" name="tab" id="tab-voucher"{' checked' if tab != 'buy' else ''}>
       <div class="tabs" role="tablist">
-        <label for="tab-voucher">{icon('ticket', 17)} {t(lang, 'tab_voucher')}</label>
         <label for="tab-buy">{icon('phone', 17)} {t(lang, 'tab_buy')}</label>
+        <label for="tab-voucher">{icon('ticket', 17)} {t(lang, 'tab_voucher')}</label>
       </div>
-      <div class="panel panel-voucher">{voucher}</div>
-      <div class="panel panel-buy">{buy}</div>"""
+      <div class="panel panel-buy">{buy}</div>
+      <div class="panel panel-voucher">{voucher}</div>"""
     elif show_buy:
         body = f'<div class="panel only">{buy}</div>'
     else:

@@ -1283,7 +1283,7 @@ def portal():
     lang_url = url_for('portal', t=slug, **{k: request.args[k] for k in passthrough if k in request.args})
 
     if preview:
-        view = request.args.get('view', 'voucher')
+        view = request.args.get('view', 'buy')
         packages = _portal_packages(tenant) or [
             {'id': 1, 'name': '1 Hour', 'price': '500', 'currency': 'TZS', 'validity_minutes': 60},
             {'id': 2, 'name': '1 Day', 'price': '1000', 'currency': 'TZS', 'validity_minutes': 1440},
@@ -1296,12 +1296,12 @@ def portal():
                                                                              'phone': '255712345678', 'package': packages[0]['name']})
             html_out = html_out.replace('<meta http-equiv="refresh"', '<meta name="no-refresh"')
         else:
-            html_out = portal_ui.login_page(th, lang, packages=packages, tab='buy' if view == 'buy' else 'voucher',
+            html_out = portal_ui.login_page(th, lang, packages=packages, tab='voucher' if view == 'voucher' else 'buy',
                                             preview=True, lang_url=lang_url, networks=payment_networks(),
                                             logo_base=url_for('static', filename='img/'))
     else:
         if gateway:
-            html_out = portal_ui.login_page(th, lang, external=gateway, buy_enabled=False,
+            html_out = portal_ui.login_page(th, lang, external=gateway, buy_enabled=False, tab='voucher',
                                             error=request.args.get('error', '')[:200], lang_url=lang_url)
         else:
             html_out = portal_ui.instructions_page(th, lang, lang_url=lang_url)
