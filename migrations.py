@@ -156,3 +156,7 @@ def run():
     # One code, limited devices (anti-sharing)
     for table in ('vouchers', 'packages', 'payments'):
         _add_column(table, 'max_devices', 'INTEGER NOT NULL DEFAULT 1')
+
+    # Free-trial (marketing) vouchers: one per phone
+    _add_column('vouchers', 'is_free', 'BOOLEAN NOT NULL DEFAULT 0')
+    _add_column('vouchers', 'first_mac', 'VARCHAR(17)')

@@ -148,6 +148,9 @@ class VoucherGenerateForm(FlaskForm):
                         description='Leave empty to name it by date/time')
     max_devices = IntegerField('Devices per voucher', default=1, validators=[DataRequired()],
                                description='How many devices can use one code at the same time')
+    is_free = BooleanField('Free trial (marketing)',
+                           description='Given away to let people try the Wi-Fi: no price, not counted as sales, '
+                                       'and each phone can use only one free trial.')
 
     def validate_max_devices(self, field):
         if not 1 <= (field.data or 0) <= 10:

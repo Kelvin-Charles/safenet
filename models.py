@@ -359,6 +359,8 @@ class Voucher(db.Model):
     validity_minutes = db.Column(db.Integer, nullable=False)
     price = db.Column(db.Numeric(10, 2))
     max_devices = db.Column(db.Integer, nullable=False, default=1, server_default='1')   # devices online at once
+    is_free = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())  # marketing free trial
+    first_mac = db.Column(db.String(17))    # device that first used it (one free trial per phone)
     status = db.Column(db.String(16), nullable=False, default='unused')  # unused, active, disabled
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     first_used_at = db.Column(db.DateTime)

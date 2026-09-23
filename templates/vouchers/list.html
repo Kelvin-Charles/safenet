@@ -18,6 +18,12 @@
         <div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.sold_value) }}</div><div class="stat-label">{{ currency }} from used vouchers</div></div>
     </div>
 </div>
+{% if stats.free_used %}
+<div class="alert alert-light border small mb-4"><i class="bi bi-gift"></i>
+    Free trials: <strong>{{ stats.free_used }}</strong> phone{{ '' if stats.free_used == 1 else 's' }} tried the Wi-Fi,
+    <strong>{{ stats.free_bought }}</strong> bought a package afterwards
+    ({{ (100 * stats.free_bought / stats.free_used)|round|int }}%).</div>
+{% endif %}
 
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -97,7 +103,7 @@
                             {% else %}<span class="text-muted">No Plan</span>{% endif %}
                         </td>
                         <td>{{ v.validity_label }}</td>
-                        <td>{% if v.price is not none %}{{ '{:,.0f}'.format(v.price) }}{% else %}<span class="text-muted">-</span>{% endif %}</td>
+                        <td>{% if v.is_free %}<span class="badge bg-success">Free trial</span>{% elif v.price is not none %}{{ '{:,.0f}'.format(v.price) }}{% else %}<span class="text-muted">-</span>{% endif %}</td>
                         <td>
                             {% if st == 'unused' %}<span class="badge bg-primary">Unused</span>
                             {% elif st == 'active' %}<span class="badge bg-success">Active</span>

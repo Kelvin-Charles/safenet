@@ -1041,7 +1041,7 @@ def _new_group_name(plan_name):
     return name
 
 
-def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_devices=1):
+def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_devices=1, is_free=False):
     """Adds `count` vouchers (and their RADIUS rows) to the session; caller commits."""
     # Codes double as RADIUS usernames, so avoid clashes with both tables.
     taken = {c for (c,) in db.session.query(Voucher.code)}
@@ -1051,7 +1051,8 @@ def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_device
         code = _new_voucher_code(taken)
         voucher = Voucher(tenant_id=tenant if tenant is not None else tenant_id(),
                           code=code, plan_id=plan.id if plan else None, batch=batch,
-                          validity_minutes=minutes, price=price, max_devices=max_devices or 1)
+                          validity_minutes=minutes, price=None if is_free else price,
+                          max_devices=max_devices or 1, is_free=bool(is_free))
         db.session.add(voucher)
         db.session.add(RadCheck(username=code, attribute='Cleartext-Password', op=':=', value=code))
         if plan:
@@ -1096,9 +1097,29 @@ def vouchers():
         'sold_value': db.session.query(func.coalesce(func.sum(Voucher.price), 0))
                         .filter(Voucher.tenant_id == tenant_id(), Voucher.first_used_at.isnot(None)).scalar(),
     }
+    stats.update(_free_trial_stats(tenant_id()))
     return render_template('vouchers/list.html', pagination=pagination, batches=batches,
                            batch=batch, state=state, search=search, stats=stats,
                            currency=current_tenant().currency)
+
+
+def _mac_key(mac):
+    return (mac or '').strip().lower().replace('-', ':')[:17] or None
+
+
+def _free_trial_stats(tid):
+    """How many phones used a free trial, and how many of them paid for a package afterwards."""
+    tried = dict(db.session.query(Voucher.first_mac, func.min(Voucher.first_used_at))
+                 .filter(Voucher.tenant_id == tid, Voucher.is_free.is_(True), Voucher.first_mac.isnot(None))
+                 .group_by(Voucher.first_mac))
+    bought = set()
+    if tried:
+        for mac, paid_at in (db.session.query(Payment.client_mac, Payment.created_at)
+                             .filter(Payment.tenant_id == tid, Payment.status == 'paid', Payment.client_mac.isnot(None))):
+            key = _mac_key(mac)
+            if key in tried and paid_at >= tried[key]:
+                bought.add(key)
+    return {'free_used': len(tried), 'free_bought': len(bought)}
 
 
 @app.route('/vouchers/generate', methods=['GET', 'POST'])
@@ -1110,10 +1131,12 @@ def generate_vouchers():
     if form.validate_on_submit():
         plan = scoped(Plan).filter_by(id=form.plan_id.data).first() if form.plan_id.data else None
         minutes = form.validity_value.data * (1440 if form.validity_unit.data == 'days' else 60)
-        price = Decimal(form.price.data.strip()) if form.price.data else None
-        batch = (form.batch.data or '').strip() or datetime.utcnow().strftime('%Y%m%d-%H%M%S')
+        price = Decimal(form.price.data.strip()) if form.price.data and not form.is_free.data else None
+        batch = (form.batch.data or '').strip() or \
+            ('Free trial ' if form.is_free.data else '') + datetime.utcnow().strftime('%Y%m%d-%H%M%S')
 
-        _create_vouchers(form.count.data, plan, minutes, price, batch, max_devices=form.max_devices.data)
+        _create_vouchers(form.count.data, plan, minutes, price, batch, max_devices=form.max_devices.data,
+                         is_free=form.is_free.data)
         db.session.commit()
 
         flash(f'{form.count.data} vouchers created in batch "{batch}".', 'success')
@@ -1824,7 +1847,13 @@ def _gateway_authenticate(tenant, username, password, mac=None):
             return False, 'Voucher expired or disabled', None
         if mac and len(_devices_in_use(username, mac)) >= (voucher.max_devices or 1):
             return False, 'This code is already being used on another device.', None
+        device = _mac_key(mac)
+        if voucher.is_free and device and not voucher.first_used_at and Voucher.query.filter(
+                Voucher.tenant_id == tenant.id, Voucher.is_free.is_(True), Voucher.first_mac == device,
+                Voucher.id != voucher.id).first():
+            return False, 'This phone has already had a free trial. Buy a package to keep browsing.', None
         if not voucher.first_used_at:
+            voucher.first_mac = device
             voucher.first_used_at = now
             voucher.expires_at = now + timedelta(minutes=voucher.validity_minutes)
             voucher.status = 'active'

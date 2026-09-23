@@ -150,6 +150,8 @@ MESSAGES_SW = {
     'Payment not completed: ': 'Malipo hayajakamilika: ',
     'Choose your mobile-money network.': 'Chagua mtandao wako wa malipo.',
     'This code is already being used on another device.': 'Namba hii tayari inatumika kwenye kifaa kingine.',
+    'This phone has already had a free trial. Buy a package to keep browsing.':
+        'Simu hii tayari imetumia jaribio la bure. Nunua kifurushi kuendelea kutumia intaneti.',
     'The payment was not completed.': 'Malipo hayakukamilika.',
 }
 

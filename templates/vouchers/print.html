@@ -14,6 +14,7 @@
         .voucher { background: #fff; border: 1px dashed #94a3b8; border-radius: 6px; padding: 10px 12px; break-inside: avoid; }
         .brand { font-weight: 700; font-size: 14px; display: flex; justify-content: space-between; align-items: baseline; }
         .price { font-size: 13px; color: #0d6efd; }
+        .free { font-size: 11px; font-weight: 700; color: #fff; background: #15803d; border-radius: 4px; padding: 2px 6px; letter-spacing: .5px; }
         .code-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-top: 8px; }
         .code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 22px; font-weight: 700; letter-spacing: 3px; }
         .meta { font-size: 10px; color: #475569; margin-top: 6px; line-height: 1.4; }
@@ -36,7 +37,8 @@
         <div class="voucher">
             <div class="brand">
                 <span>{{ hotspot.name }}</span>
-                {% if v.price is not none %}<span class="price">{{ hotspot.currency }} {{ '{:,.0f}'.format(v.price) }}</span>{% endif %}
+                {% if v.is_free %}<span class="free">FREE TRIAL</span>
+                {% elif v.price is not none %}<span class="price">{{ hotspot.currency }} {{ '{:,.0f}'.format(v.price) }}</span>{% endif %}
             </div>
             <div class="code-label">Voucher code</div>
             <div class="code">{{ v.code }}</div>
@@ -45,6 +47,7 @@
                 {% if hotspot.ssid %}Wi-Fi: <strong>{{ hotspot.ssid }}</strong><br>{% endif %}
                 Use the code as both username and password.
                 {% if hotspot.support %}<br>Help: {{ hotspot.support }}{% endif %}
+                {% if v.is_free %}<br><strong>Enjoyed it? Buy a package on the Wi-Fi login page.</strong>{% endif %}
             </div>
         </div>
         {% endfor %}
