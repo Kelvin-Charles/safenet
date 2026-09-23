@@ -217,7 +217,8 @@ class RadAcct(db.Model):
     """Accounting data (FreeRADIUS radacct)"""
     __tablename__ = 'radacct'
     
-    radacctid = db.Column(db.BigInteger, primary_key=True, autoincrement=True)
+    # BIGINT AUTO_INCREMENT in MariaDB; SQLite (tests) only auto-numbers INTEGER keys
+    radacctid = db.Column(db.BigInteger().with_variant(db.Integer, 'sqlite'), primary_key=True, autoincrement=True)
     acctsessionid = db.Column(db.String(64), nullable=False, index=True)
     acctuniqueid = db.Column(db.String(32), nullable=False, unique=True, index=True)
     username = db.Column(db.String(64), nullable=False, index=True)

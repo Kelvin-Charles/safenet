@@ -52,10 +52,15 @@ HOTSPOT_TERMS = os.environ.get(
     'Use this network lawfully. No illegal downloads, spam or attacks on other users. '
     'Vouchers are valid from first login, cannot be refunded and must not be shared. '
     'We may log connection times and data usage for billing and security.')
+# Replaced by the tenant's settings from SafeNet when API_MODE is on
+branding = {'name': HOTSPOT_NAME, 'support': HOTSPOT_SUPPORT, 'terms': HOTSPOT_TERMS}
 
 # Cloud SafeNet web app, for selling packages (optional)
 SAFENET_API_URL = os.environ.get('SAFENET_API_URL', '').rstrip('/')
 SAFENET_API_KEY = os.environ.get('SAFENET_API_KEY', '')
+# With an API key the gateway logs guests in and reports usage over HTTPS
+# (works behind any ISP). AUTH_MODE=radius keeps the older RADIUS path.
+API_MODE = bool(SAFENET_API_URL and SAFENET_API_KEY) and os.environ.get('AUTH_MODE', 'auto') != 'radius'
 
 STATE_FILE = os.path.join(os.environ.get('STATE_DIRECTORY', '/var/lib/safenet-gateway'), 'sessions.json')
 NFT_TABLE = 'safenet_gw'
@@ -198,6 +203,45 @@ def radius_account(status, session, terminate_cause=None):
         raise RadiusError(f'unexpected accounting reply code {code}')
 
 
+def authenticate(username, password, mac, ip):
+    """Returns (accepted, message, seconds, upload, download). Raises on network errors."""
+    if API_MODE:
+        data = safenet_api('POST', '/api/gateway/auth', {'username': username, 'password': password,
+                                                        'mac': mac, 'ip': ip}, timeout=15)
+        return (bool(data.get('ok')), data.get('message') or '', data.get('session_timeout'),
+                data.get('upload'), data.get('download'))
+    accepted, reply = radius_authenticate(username, password, mac, ip)
+    return (accepted, _first_text(reply, A_REPLY_MESSAGE), _first_int(reply, A_SESSION_TIMEOUT), None, None)
+
+
+TERM_NAMES = {TERM_USER_REQUEST: 'User-Request', TERM_IDLE: 'Idle-Timeout', TERM_SESSION_TIMEOUT: 'Session-Timeout',
+              TERM_ADMIN_RESET: 'Admin-Reset', TERM_NAS_REBOOT: 'NAS-Reboot'}
+
+
+def account(status, session, terminate_cause=None):
+    if not API_MODE:
+        return radius_account(status, session, terminate_cause)
+    now = int(time.time())
+    event = {'type': {ACCT_START: 'start', ACCT_STOP: 'stop', ACCT_INTERIM_UPDATE: 'interim'}[status],
+             'session_id': session['sid'], 'username': session['user'], 'mac': session['mac'], 'ip': session['ip'],
+             'input_octets': session.get('up', 0), 'output_octets': session.get('down', 0),
+             'session_time': max(0, now - int(session['start'])), 'time': now,
+             'terminate_cause': TERM_NAMES.get(terminate_cause, 'User-Request') if terminate_cause else None}
+    safenet_api('POST', '/api/gateway/accounting', {'events': [event]}, timeout=15)
+
+
+def refresh_branding():
+    if not API_MODE:
+        return
+    try:
+        data = safenet_api('GET', '/api/gateway/config', timeout=8)
+    except Exception as e:
+        log.warning('fetching branding failed: %s', e)
+        return
+    branding.update(name=data.get('hotspot_name') or branding['name'],
+                    support=data.get('support') or '', terms=data.get('terms') or branding['terms'])
+
+
 def _first_int(attrs, kind):
     values = attrs.get(kind)
     if values and len(values[0]) == 4:
@@ -225,6 +269,35 @@ def firewall_allow(mac, ip, seconds):
                   f'delete element inet {NFT_TABLE} {name} {{ {key} }}',
                   f'add element inet {NFT_TABLE} {name} {{ {key} timeout {int(seconds)}s }}']
     _nft('\n'.join(lines) + '\n')
+
+
+_SPEED = re.compile(r'^\s*(\d+(?:\.\d+)?)\s*([kKmMgG]?)\s*$')
+
+
+def speed_kbytes(value):
+    """'10M' (bits/s, as in SafeNet plans) -> 1250 (kbytes/s); None if unlimited/invalid."""
+    m = _SPEED.match(str(value or ''))
+    if not m:
+        return None
+    bits = float(m.group(1)) * {'': 1e6, 'k': 1e3, 'm': 1e6, 'g': 1e9}[m.group(2).lower()]
+    return max(8, int(bits / 8000)) if bits > 0 else None
+
+
+def apply_rate_limits():
+    """Rebuild the per-guest speed limits from the current sessions (one transaction)."""
+    lines = [f'flush chain inet {NFT_TABLE} ratelimit']
+    with sessions_lock:
+        current = list(sessions.values())
+    for s in current:
+        up, down = speed_kbytes(s.get('up_limit')), speed_kbytes(s.get('down_limit'))
+        if up:
+            lines.append(f'add rule inet {NFT_TABLE} ratelimit ip saddr {s["ip"]} limit rate over {up} kbytes/second burst {max(up, 64)} kbytes drop')
+        if down:
+            lines.append(f'add rule inet {NFT_TABLE} ratelimit ip daddr {s["ip"]} limit rate over {down} kbytes/second burst {max(down, 64)} kbytes drop')
+    try:
+        _nft('\n'.join(lines) + '\n')
+    except subprocess.CalledProcessError as e:
+        log.error('applying speed limits failed: %s', e.stderr)
 
 
 def firewall_deny(mac, ip):
@@ -295,8 +368,9 @@ def load_sessions():
             except subprocess.CalledProcessError as e:
                 log.error('could not restore %s: %s', mac, e.stderr)
         else:
-            _background(radius_account, ACCT_STOP, s, TERM_SESSION_TIMEOUT)
+            _background(account, ACCT_STOP, s, TERM_SESSION_TIMEOUT)
     log.info('restored %d session(s)', len(sessions))
+    apply_rate_limits()
 
 
 def _background(fn, *args):
@@ -325,12 +399,18 @@ def end_session(mac, cause):
     except subprocess.CalledProcessError as e:
         log.error('firewall deny %s: %s', mac, e.stderr)
     log.info('session ended user=%s mac=%s cause=%s', s['user'], mac, cause)
-    _background(radius_account, ACCT_STOP, s, cause)
+    if s.get('up_limit') or s.get('down_limit'):
+        apply_rate_limits()
+    _background(account, ACCT_STOP, s, cause)
 
 
 def accounting_loop():
+    last_branding = time.time()
     while True:
         time.sleep(30)
+        if time.time() - last_branding > 300:
+            last_branding = time.time()
+            refresh_branding()
         try:
             allowed = _set_elements('allowed_mac')
             up = _set_elements('up_ip')
@@ -350,7 +430,7 @@ def accounting_loop():
                 end_session(mac, TERM_ADMIN_RESET)
             elif now - s.get('last_update', 0) >= ACCT_INTERIM:
                 s['last_update'] = now
-                _background(radius_account, ACCT_INTERIM_UPDATE, s)
+                _background(account, ACCT_INTERIM_UPDATE, s)
         with sessions_lock:
             save_sessions()
 
@@ -367,16 +447,16 @@ def login(mac, ip, user, password):
     if too_many_failures(mac):
         return None, 'Too many wrong attempts. Please wait a few minutes and try again.'
     try:
-        accepted, reply = radius_authenticate(user, password, mac, ip)
-    except (RadiusError, OSError) as e:
-        log.error('RADIUS auth failed: %s', e)
+        accepted, message, seconds, up_limit, down_limit = authenticate(user, password, mac, ip)
+    except (RadiusError, ApiError, OSError) as e:
+        log.error('auth failed: %s', e)
         return None, "We can't reach the login server right now. Please try again in a minute."
     if not accepted:
         failures.setdefault(mac, []).append(time.time())
         log.info('login rejected user=%s mac=%s', user, mac)
-        return None, _first_text(reply, A_REPLY_MESSAGE) or "That code isn't valid. Check it and try again."
+        return None, message or "That code isn't valid. Check it and try again."
 
-    seconds = _first_int(reply, A_SESSION_TIMEOUT) or DEFAULT_SESSION
+    seconds = seconds or DEFAULT_SESSION
     seconds = max(60, min(seconds, MAX_SESSION))
     if mac in sessions:
         end_session(mac, TERM_USER_REQUEST)
@@ -387,13 +467,16 @@ def login(mac, ip, user, password):
         return None, 'Something went wrong on our side. Please try again.'
     now = time.time()
     session = {'mac': mac, 'ip': ip, 'user': user, 'sid': secrets.token_hex(8),
-               'start': now, 'expires': now + seconds, 'up': 0, 'down': 0, 'last_update': now}
+               'start': now, 'expires': now + seconds, 'up': 0, 'down': 0, 'last_update': now,
+               'up_limit': up_limit, 'down_limit': down_limit}
     with sessions_lock:
         sessions[mac] = session
         save_sessions()
+    if up_limit or down_limit:
+        apply_rate_limits()
     failures.pop(mac, None)
     log.info('login ok user=%s mac=%s ip=%s for %ss', user, mac, ip, seconds)
-    _background(radius_account, ACCT_START, session)
+    _background(account, ACCT_START, session)
     return session, None
 
 
@@ -504,11 +587,11 @@ a.btn{display:block;text-align:center;background:var(--p);color:#fff;border-radi
 
 def page(body, head=''):
     e = html.escape
-    foot = f'<div class="foot">Need help? {e(HOTSPOT_SUPPORT)}</div>' if HOTSPOT_SUPPORT else ''
+    foot = f'<div class="foot">Need help? {e(branding["support"])}</div>' if branding['support'] else ''
     return (f'<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width, initial-scale=1">'
-            f'<title>{e(HOTSPOT_NAME)}</title>{head}<style>{CSS}</style></head><body><div class="wrap">'
-            f'<div class="brand"><h1>{e(HOTSPOT_NAME)}</h1><p>Guest Wi-Fi</p></div>'
+            f'<title>{e(branding["name"])}</title>{head}<style>{CSS}</style></head><body><div class="wrap">'
+            f'<div class="brand"><h1>{e(branding["name"])}</h1><p>Guest Wi-Fi</p></div>'
             f'<div class="card">{body}</div>{foot}</div></body></html>')
 
 
@@ -529,7 +612,7 @@ def login_page(dst='', error=''):
 <button type="submit">Connect</button>
 </form>
 {buy_section(dst)}
-<details><summary>Read the terms of use</summary><p>{e(HOTSPOT_TERMS)}</p></details>""")
+<details><summary>Read the terms of use</summary><p>{e(branding['terms'])}</p></details>""")
 
 
 def buy_section(dst=''):
@@ -747,12 +830,14 @@ class Server(ThreadingHTTPServer):
 def main():
     logging.basicConfig(level=os.environ.get('LOG_LEVEL', 'INFO'),
                         format='%(levelname)s %(message)s')
-    if not RADIUS_SERVER or not RADIUS_SECRET:
-        raise SystemExit('RADIUS_SERVER and RADIUS_SECRET must be set')
+    if not API_MODE and (not RADIUS_SERVER or not RADIUS_SECRET):
+        raise SystemExit('Set SAFENET_API_URL and SAFENET_API_KEY (or RADIUS_SERVER and RADIUS_SECRET)')
+    refresh_branding()
     load_sessions()
     threading.Thread(target=accounting_loop, daemon=True).start()
     server = Server((LAN_ADDR, PORTAL_PORT), PortalHandler)
-    log.info('portal on http://%s:%d, RADIUS %s', LAN_ADDR, PORTAL_PORT, RADIUS_SERVER)
+    log.info('portal on http://%s:%d, %s', LAN_ADDR, PORTAL_PORT,
+             f'SafeNet API {SAFENET_API_URL}' if API_MODE else f'RADIUS {RADIUS_SERVER}')
     server.serve_forever()
 
 

@@ -24,6 +24,7 @@ import ipaddress
 from decimal import Decimal
 from urllib.parse import urlparse
 import socket
+import time
 import struct
 import json
 import sys
@@ -474,6 +475,8 @@ def add_plan():
             last_reset=datetime.utcnow() if form.data_cap.data else None
         )
         db.session.add(plan)
+        db.session.flush()
+        _sync_plan_rate_limit(plan)
         db.session.commit()
         
         flash(f'Plan {form.name.data} created successfully.', 'success')
@@ -517,6 +520,7 @@ def edit_plan(plan_id):
             plan.data_cap = None
             plan.data_cap_period = None
         
+        _sync_plan_rate_limit(plan)
         db.session.commit()
         flash(f'Plan {plan.name} updated successfully.', 'success')
         return redirect(url_for('plans'))
@@ -963,6 +967,17 @@ def _radius_username_taken(username):
                 or RadCheck.query.filter_by(username=username).first())
 
 
+def _sync_plan_rate_limit(plan):
+    """Keep Mikrotik-Rate-Limit ("upload/download") in step with the plan's speeds,
+    unless the plan has its own Mikrotik-Rate-Limit attribute."""
+    if PlanAttribute.query.filter_by(plan_id=plan.id, attribute='Mikrotik-Rate-Limit').first():
+        return
+    RadGroupReply.query.filter_by(groupname=plan.group_name, attribute='Mikrotik-Rate-Limit').delete()
+    if plan.upload_speed or plan.download_speed:
+        db.session.add(RadGroupReply(groupname=plan.group_name, attribute='Mikrotik-Rate-Limit', op=':=',
+                                     value=f'{plan.upload_speed or 0}/{plan.download_speed or 0}'))
+
+
 def _new_group_name(plan_name):
     """Globally unique FreeRADIUS group for a new plan of the current tenant."""
     base = f't{tenant_id()}-{plan_name}'[:56]
@@ -1372,7 +1387,7 @@ def portal_api(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         key = request.headers.get('X-SafeNet-Key', '')
-        tenant = None
+        tenant = gw = None
         if key:
             gw = Gateway.query.filter_by(key_hash=_hash_key(key), is_active=True).first()
             if gw:
@@ -1388,6 +1403,7 @@ def portal_api(fn):
         if tenant.status == 'suspended':
             return jsonify(error='This network is suspended.'), 403
         g.api_tenant = tenant
+        g.api_gateway = gw
         return fn(*args, **kwargs)
     return wrapper
 
@@ -1484,6 +1500,124 @@ def api_portal_purchase_status(reference):
     if not payment:
         return jsonify(error='not found'), 404
     return jsonify(_payment_json(payment))
+
+
+# Gateway API (phase 2): login and accounting over HTTPS instead of RADIUS, so a
+# gateway works from any ISP and is identified by its key, not its IP address.
+def _subscriber_speeds(user, plan):
+    """(upload, download) like "5M"; a user's own limits override the plan's."""
+    up = (user.upload_speed if user else None) or (plan.upload_speed if plan else None)
+    down = (user.download_speed if user else None) or (plan.download_speed if plan else None)
+    return up or None, down or None
+
+
+def _log_auth(username, accepted):
+    db.session.add(RadPostAuth(username=username[:64], pass_field='', authdate=datetime.utcnow(),
+                               reply='Access-Accept' if accepted else 'Access-Reject'))
+
+
+def _gateway_authenticate(tenant, username, password):
+    """Same rules FreeRADIUS applies. Returns (ok, message, info)."""
+    now = datetime.utcnow()
+    voucher = Voucher.query.filter_by(code=username).with_for_update().first()
+    user = None if voucher else RadUser.query.filter_by(username=username).first()
+    owner = voucher.tenant_id if voucher else (user.tenant_id if user else None)
+    secret = RadCheck.query.filter_by(username=username, attribute='Cleartext-Password').first()
+    if owner != tenant.id or not secret or not hmac.compare_digest(secret.value.encode(), password.encode()):
+        return False, "That code isn't valid. Check it and try again.", None
+
+    if voucher:
+        if voucher.status == 'disabled' or (voucher.expires_at and voucher.expires_at <= now):
+            return False, 'Voucher expired or disabled', None
+        if not voucher.first_used_at:
+            voucher.first_used_at = now
+            voucher.expires_at = now + timedelta(minutes=voucher.validity_minutes)
+            voucher.status = 'active'
+        remaining = int((voucher.expires_at - now).total_seconds())
+        up, down = _subscriber_speeds(None, voucher.plan)
+    else:
+        if not user.is_active:
+            return False, 'This account is disabled', None
+        if user.expires_at and user.expires_at <= now:
+            return False, 'This account has expired', None
+        remaining = int((user.expires_at - now).total_seconds()) if user.expires_at else None
+        up, down = _subscriber_speeds(user, user.plan)
+    return True, '', {'session_timeout': max(60, remaining) if remaining is not None else None,
+                      'upload': up, 'download': down}
+
+
+@app.route('/api/gateway/config')
+@portal_api
+def api_gateway_config():
+    t = g.api_tenant
+    hotspot = _hotspot_settings(t)
+    return jsonify(tenant=t.slug, hotspot_name=hotspot['name'], support=hotspot['support'],
+                   terms=hotspot['terms'], currency=hotspot['currency'], acct_interim_seconds=60,
+                   gateway=g.api_gateway.name if g.api_gateway else None)
+
+
+@app.route('/api/gateway/auth', methods=['POST'])
+@portal_api
+def api_gateway_auth():
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username', '')).strip()[:64]
+    password = str(data.get('password', ''))[:128]
+    if not username:
+        return jsonify(ok=False, message='Enter your voucher code.')
+    ok, message, info = _gateway_authenticate(g.api_tenant, username, password)
+    _log_auth(username, ok)
+    db.session.commit()
+    return jsonify(ok=ok, message=message, **(info or {}))
+
+
+def _acct_nas_ip():
+    ip = (request.remote_addr or '')
+    return ip if len(ip) <= 15 else '0.0.0.0'
+
+
+@app.route('/api/gateway/accounting', methods=['POST'])
+@portal_api
+def api_gateway_accounting():
+    """Batch of session events: {"events": [{"type": "start|interim|stop", "session_id",
+    "username", "mac", "ip", "input_octets", "output_octets", "session_time",
+    "terminate_cause", "time"}]}. input = uploaded by the guest, output = downloaded."""
+    events = (request.get_json(silent=True) or {}).get('events') or []
+    owned = {n for (n,) in db.session.execute(tenant_usernames(g.api_tenant.id))}
+    where = (g.api_gateway.name if g.api_gateway else 'gateway')[:50]
+    stored = 0
+    for e in events[:500]:
+        username = str(e.get('username', ''))[:64]
+        sid = str(e.get('session_id', ''))[:64]
+        kind = e.get('type')
+        if username not in owned or not sid or kind not in ('start', 'interim', 'stop'):
+            continue
+        try:
+            at = datetime.utcfromtimestamp(int(e.get('time') or time.time()))
+        except (TypeError, ValueError, OverflowError):
+            at = datetime.utcnow()
+        uid = hashlib.md5(f'{g.api_tenant.id}:{where}:{sid}'.encode()).hexdigest()
+        row = RadAcct.query.filter_by(acctuniqueid=uid).first()
+        if row is None:
+            seconds = int(e.get('session_time') or 0)
+            row = RadAcct(acctsessionid=sid, acctuniqueid=uid, username=username, nasipaddress=_acct_nas_ip(),
+                          calledstationid=where, callingstationid=str(e.get('mac', '')).upper().replace(':', '-')[:50],
+                          framedipaddress=str(e.get('ip', ''))[:15], nasporttype='Wireless-802.11',
+                          acctstarttime=at - timedelta(seconds=seconds) if kind != 'start' else at,
+                          acctsessiontime=0, acctinputoctets=0, acctoutputoctets=0)
+            db.session.add(row)
+        if kind != 'start':
+            row.acctupdatetime = at
+            row.acctsessiontime = int(e.get('session_time') or 0)
+            row.acctinputoctets = int(e.get('input_octets') or 0)
+            row.acctoutputoctets = int(e.get('output_octets') or 0)
+        else:
+            row.acctupdatetime = at
+        if kind == 'stop':
+            row.acctstoptime = at
+            row.acctterminatecause = str(e.get('terminate_cause') or 'User-Request')[:32]
+        stored += 1
+    db.session.commit()
+    return jsonify(stored=stored)
 
 
 @app.route('/api/clickpesa/webhook', methods=['POST'])
