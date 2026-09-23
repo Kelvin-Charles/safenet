@@ -68,13 +68,38 @@ def default_tenant():
     return tenant
 
 
+def _default_tenant_id():
+    """Default tenant's id via plain SQL, so it works before the ORM's columns exist."""
+    row = db.session.execute(text('SELECT id FROM tenants WHERE slug = :s'), {'s': DEFAULT_TENANT_SLUG}).first()
+    if row:
+        return row[0]
+    db.session.execute(text("INSERT INTO tenants (name, slug, status, currency, payment_mode, created_at) "
+                            "VALUES ('SafeNet', :s, 'active', 'TZS', 'platform', :now)"),
+                       {'s': DEFAULT_TENANT_SLUG, 'now': datetime.utcnow()})
+    db.session.commit()
+    print('migrate: created default tenant')
+    return _default_tenant_id()
+
+
 def run():
-    tenant = default_tenant()
+    # Columns of tables that are read during the upgrade come first: never use
+    # ORM queries on a table before all of its model's columns exist.
+    # Payments in both modes (phase 3)
+    _add_column('tenants', 'payment_mode', "VARCHAR(16) NOT NULL DEFAULT 'platform'")
+    _add_column('tenants', 'clickpesa_client_id', 'VARCHAR(64) NULL')
+    _add_column('tenants', 'clickpesa_api_key_enc', 'TEXT NULL')
+    _add_column('tenants', 'clickpesa_checksum_key_enc', 'TEXT NULL')
+    _add_column('tenants', 'fee_percent', 'NUMERIC(5, 2) NULL')
+    _add_column('payments', 'provider_account', "VARCHAR(16) NOT NULL DEFAULT 'platform'")
+    _add_column('payments', 'fee_amount', 'NUMERIC(10, 2) NULL DEFAULT 0')
+    _add_column('payments', 'net_amount', 'NUMERIC(10, 2) NULL')
+
+    tid = _default_tenant_id()
 
     # Multi-tenancy: every owned row belongs to a tenant; existing data -> default tenant
     for table in TENANT_TABLES:
         _add_column(table, 'tenant_id', 'INTEGER NULL')
-        db.session.execute(text(f'UPDATE {table} SET tenant_id = :t WHERE tenant_id IS NULL'), {'t': tenant.id})
+        db.session.execute(text(f'UPDATE {table} SET tenant_id = :t WHERE tenant_id IS NULL'), {'t': tid})
         db.session.commit()
         _add_index(table, f'ix_{table}_tenant_id', 'tenant_id')
 
@@ -96,14 +121,5 @@ def run():
     _add_index('plans', 'uq_plans_tenant_name', 'tenant_id, name', unique=True)
     _add_index('plans', 'uq_plans_group_name', 'group_name', unique=True)
 
-    # Payments in both modes (phase 3)
-    _add_column('tenants', 'payment_mode', "VARCHAR(16) NOT NULL DEFAULT 'platform'")
-    _add_column('tenants', 'clickpesa_client_id', 'VARCHAR(64) NULL')
-    _add_column('tenants', 'clickpesa_api_key_enc', 'TEXT NULL')
-    _add_column('tenants', 'clickpesa_checksum_key_enc', 'TEXT NULL')
-    _add_column('tenants', 'fee_percent', 'NUMERIC(5, 2) NULL')
-    _add_column('payments', 'provider_account', "VARCHAR(16) NOT NULL DEFAULT 'platform'")
-    _add_column('payments', 'fee_amount', 'NUMERIC(10, 2) NULL DEFAULT 0')
-    _add_column('payments', 'net_amount', 'NUMERIC(10, 2) NULL')
     db.session.execute(text('UPDATE payments SET fee_amount = 0, net_amount = amount WHERE net_amount IS NULL'))
     db.session.commit()
