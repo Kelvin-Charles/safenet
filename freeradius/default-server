@@ -435,6 +435,17 @@ authorize {
  #
  # See "Authorization Queries" in mods-available/sql
  sql
+
+ #
+ # SafeNet vouchers: reject codes that are disabled or past their
+ # expiry (vouchers table, managed from the web UI). Times are UTC.
+ #
+ if ("%{sql:SELECT COUNT(*) FROM vouchers WHERE code = '%{User-Name}' AND (status = 'disabled' OR (expires_at IS NOT NULL AND expires_at <= UTC_TIMESTAMP()))}" != "0") {
+ update reply {
+ &Reply-Message := "Voucher expired or disabled"
+ }
+ reject
+ }
  #
  # If you are using /etc/smbpasswd, and are also doing
  # mschap authentication, the un-comment this line, and
@@ -851,6 +862,19 @@ post-auth {
 
  #
  # After authenticating the user, do another SQL query.
+ #
+ # SafeNet vouchers: start the validity clock on the first successful
+ # login, then cap every session at the time left on the voucher.
+ #
+ if ("%{sql:SELECT COUNT(*) FROM vouchers WHERE code = '%{User-Name}'}" != "0") {
+ update control {
+ &Tmp-Integer-0 := "%{sql:UPDATE vouchers SET status = 'active', first_used_at = UTC_TIMESTAMP(), expires_at = UTC_TIMESTAMP() + INTERVAL validity_minutes MINUTE WHERE code = '%{User-Name}' AND first_used_at IS NULL}"
+ }
+ update reply {
+ &Session-Timeout := "%{sql:SELECT GREATEST(TIMESTAMPDIFF(SECOND, UTC_TIMESTAMP(), expires_at), 60) FROM vouchers WHERE code = '%{User-Name}'}"
+ }
+ }
+
  #
  # See "Authentication Logging Queries" in mods-available/sql
  sql

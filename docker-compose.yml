@@ -87,6 +87,11 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD:-NEcEtmsvEc54}
       MAIL_DEFAULT_SENDER: ${MAIL_DEFAULT_SENDER:-safenet@safezonetz.com}
       BANDWIDTH_ALERT_FALLBACK_EMAIL: ${BANDWIDTH_ALERT_FALLBACK_EMAIL:-}
+      # Guest portal (/portal) and printed voucher branding
+      HOTSPOT_NAME: ${HOTSPOT_NAME:-SafeNet WiFi}
+      HOTSPOT_SSID: ${HOTSPOT_SSID:-}
+      HOTSPOT_SUPPORT: ${HOTSPOT_SUPPORT:-}
+      HOTSPOT_CURRENCY: ${HOTSPOT_CURRENCY:-TZS}
     depends_on:
       db:
         condition: service_healthy
@@ -127,6 +132,7 @@ services:
     volumes:
       - ./freeradius/clients.conf:/etc/freeradius/3.0/clients.conf:ro
       - ./freeradius/radiusd.conf:/etc/freeradius/3.0/radiusd.conf:ro
+      - ./freeradius/default-server:/etc/freeradius/3.0/sites-available/default:ro
       - ./freeradius/mods-available/sql.template:/etc/freeradius/3.0/mods-available/sql.template:ro
       - ./freeradius/docker-entrypoint.sh:/docker-entrypoint.sh:ro
       - ./freeradius/render-freeradius-sql.py:/usr/local/bin/render-freeradius-sql.py:ro

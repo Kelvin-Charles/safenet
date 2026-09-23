@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %}Vouchers - {{ app_name }}{% endblock %}
+{% block page_title %}Vouchers{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-3 col-6 mb-3">
+        <div class="stat-card"><div class="stat-value">{{ stats.unused }}</div><div class="stat-label">Unused</div></div>
+    </div>
+    <div class="col-md-3 col-6 mb-3">
+        <div class="stat-card"><div class="stat-value text-success">{{ stats.active }}</div><div class="stat-label">In use now</div></div>
+    </div>
+    <div class="col-md-3 col-6 mb-3">
+        <div class="stat-card"><div class="stat-value text-secondary">{{ stats.expired }}</div><div class="stat-label">Expired</div></div>
+    </div>
+    <div class="col-md-3 col-6 mb-3">
+        <div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.sold_value) }}</div><div class="stat-label">{{ currency }} from used vouchers</div></div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-ticket-perforated"></i> Vouchers</span>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('portal') }}" target="_blank" class="btn btn-outline-secondary">
+                <i class="bi bi-box-arrow-up-right"></i> Guest Portal
+            </a>
+            <a href="{{ url_for('generate_vouchers') }}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Generate
+            </a>
+        </div>
+    </div>
+    <div class="card-body">
+        <form method="GET" class="row g-2 mb-3">
+            <div class="col-md-4">
+                <input type="text" name="search" class="form-control" placeholder="Search code..." value="{{ search }}">
+            </div>
+            <div class="col-md-3">
+                <select name="batch" class="form-select">
+                    <option value="">All batches</option>
+                    {% for b in batches %}
+                    <option value="{{ b }}" {% if b == batch %}selected{% endif %}>{{ b }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <select name="state" class="form-select">
+                    <option value="">Any status</option>
+                    {% for s in ['unused', 'active', 'expired', 'disabled'] %}
+                    <option value="{{ s }}" {% if s == state %}selected{% endif %}>{{ s|capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2 d-grid">
+                <button class="btn btn-outline-secondary" type="submit"><i class="bi bi-funnel"></i> Filter</button>
+            </div>
+        </form>
+
+        {% if batch %}
+        <div class="alert alert-light d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span>Batch <strong>{{ batch }}</strong></span>
+            <div class="d-flex gap-2">
+                <a href="{{ url_for('print_vouchers', batch=batch) }}" target="_blank" class="btn btn-sm btn-primary">
+                    <i class="bi bi-printer"></i> Print unused
+                </a>
+                <form method="POST" action="{{ url_for('delete_unused_batch') }}" onsubmit="return confirm('Delete every unused voucher in this batch?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="batch" value="{{ batch }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> Delete unused</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if pagination.items %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Plan</th>
+                        <th>Validity</th>
+                        <th>Price</th>
+                        <th>Status</th>
+                        <th>Batch</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for v in pagination.items %}
+                    {% set st = v.state %}
+                    <tr>
+                        <td><strong class="font-monospace">{{ v.code }}</strong></td>
+                        <td>
+                            {% if v.plan %}<span class="badge vendor-badge bg-info">{{ v.plan.name }}</span>
+                            {% else %}<span class="text-muted">No Plan</span>{% endif %}
+                        </td>
+                        <td>{{ v.validity_label }}</td>
+                        <td>{% if v.price is not none %}{{ '{:,.0f}'.format(v.price) }}{% else %}<span class="text-muted">-</span>{% endif %}</td>
+                        <td>
+                            {% if st == 'unused' %}<span class="badge bg-primary">Unused</span>
+                            {% elif st == 'active' %}<span class="badge bg-success">Active</span>
+                                {% if v.remaining_label %}<small class="text-muted d-block">{{ v.remaining_label }} left</small>{% endif %}
+                            {% elif st == 'expired' %}<span class="badge bg-secondary">Expired</span>
+                            {% else %}<span class="badge bg-danger">Disabled</span>{% endif %}
+                        </td>
+                        <td><a href="{{ url_for('vouchers', batch=v.batch) }}" class="small">{{ v.batch }}</a></td>
+                        <td class="text-nowrap">
+                            <form method="POST" action="{{ url_for('toggle_voucher', voucher_id=v.id) }}" style="display:inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                {% if v.status == 'disabled' %}
+                                <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-check-circle"></i> Enable</button>
+                                {% else %}
+                                <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> Disable</button>
+                                {% endif %}
+                            </form>
+                            <form method="POST" action="{{ url_for('delete_voucher', voucher_id=v.id) }}" style="display:inline;" onsubmit="return confirm('Delete voucher {{ v.code }}?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if pagination.pages > 1 %}
+        <nav aria-label="Page navigation">
+            <ul class="pagination justify-content-center">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('vouchers', page=pagination.prev_num, batch=batch, state=state, search=search) if pagination.has_prev else '#' }}">Previous</a>
+                </li>
+                {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if page_num %}
+                        <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                            <a class="page-link" href="{{ url_for('vouchers', page=page_num, batch=batch, state=state, search=search) }}">{{ page_num }}</a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% endif %}
+                {% endfor %}
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('vouchers', page=pagination.next_num, batch=batch, state=state, search=search) if pagination.has_next else '#' }}">Next</a>
+                </li>
+            </ul>
+        </nav>
+        {% endif %}
+
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-ticket-perforated" style="font-size: 3rem;"></i>
+            <p class="mt-3">No vouchers found</p>
+            <a href="{{ url_for('generate_vouchers') }}" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Generate Your First Batch
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

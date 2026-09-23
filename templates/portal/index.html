@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ hotspot.name }}</title>
+    <style>
+        :root { --primary: #0d6efd; --text: #0f172a; --muted: #64748b; --card: #ffffff; --bg: #eef2f7; --border: #e2e8f0; }
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: var(--text);
+               background: linear-gradient(160deg, #0d6efd 0%, #0a58ca 45%, var(--bg) 45%); display: flex; justify-content: center; padding: 32px 16px; }
+        .wrap { width: 100%; max-width: 420px; }
+        .brand { color: #fff; text-align: center; margin-bottom: 20px; }
+        .brand h1 { margin: 0; font-size: 26px; }
+        .brand p { margin: 6px 0 0; opacity: .85; font-size: 14px; }
+        .card { background: var(--card); border-radius: 14px; box-shadow: 0 10px 30px rgba(15,23,42,.15); padding: 24px; }
+        label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+        input[type=text] { width: 100%; font-size: 24px; letter-spacing: 4px; text-align: center; font-family: "SF Mono", Menlo, Consolas, monospace;
+                           padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+        input[type=text]:focus { outline: 2px solid var(--primary); border-color: transparent; }
+        .terms { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: flex-start; margin: 16px 0; }
+        .terms input { margin-top: 3px; }
+        details { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+        summary { cursor: pointer; color: var(--primary); }
+        button { width: 100%; background: var(--primary); color: #fff; border: 0; border-radius: 10px; padding: 14px; font-size: 16px; font-weight: 600; cursor: pointer; }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+        .error { background: #fee2e2; color: #991b1b; border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 16px; }
+        .steps { padding-left: 20px; margin: 0; font-size: 14px; line-height: 1.6; }
+        .steps code { background: #f1f5f9; padding: 1px 6px; border-radius: 4px; }
+        .foot { text-align: center; font-size: 13px; color: var(--muted); margin-top: 16px; }
+        h2 { font-size: 17px; margin: 0 0 12px; }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="brand">
+        <h1>{{ hotspot.name }}</h1>
+        <p>Fast, simple guest Wi-Fi</p>
+    </div>
+
+    <div class="card">
+        {% if gateway %}
+        <h2>Enter your voucher</h2>
+        {% if error %}<div class="error">{{ error }}</div>{% endif %}
+        <form method="POST" action="{{ gateway.action }}" id="login">
+            <label for="code">Voucher code</label>
+            <input type="text" id="code" inputmode="numeric" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+            <input type="hidden" name="username" id="username">
+            <input type="hidden" name="password" id="password">
+            <input type="hidden" name="{{ gateway.next_field }}" value="{{ gateway.next_value }}">
+            <div class="terms">
+                <input type="checkbox" id="agree" required>
+                <label for="agree" style="font-weight:400">I accept the terms of use</label>
+            </div>
+            <details><summary>Read the terms</summary><p>{{ hotspot.terms }}</p></details>
+            <button type="submit" id="go" disabled>Connect</button>
+        </form>
+        {% else %}
+        <h2>How to connect</h2>
+        <ol class="steps">
+            <li>Buy a voucher from the counter.</li>
+            <li>Join the Wi-Fi network {% if hotspot.ssid %}<strong>{{ hotspot.ssid }}</strong>{% endif %}.</li>
+            <li>If asked for <em>EAP method</em>, choose <code>PEAP</code>; Phase 2: <code>MSCHAPV2</code>.</li>
+            <li>CA certificate: <code>Don't validate</code> (Android) or tap <em>Trust</em> (iPhone).</li>
+            <li>Identity / Username: your voucher code. Password: the same code. Leave <em>Anonymous identity</em> empty.</li>
+        </ol>
+        <details style="margin-top:16px"><summary>Terms of use</summary><p>{{ hotspot.terms }}</p></details>
+        {% endif %}
+    </div>
+
+    {% if hotspot.support %}<div class="foot">Need help? {{ hotspot.support }}</div>{% endif %}
+</div>
+{% if gateway %}
+<script>
+    (function () {
+        var code = document.getElementById('code'), agree = document.getElementById('agree'), go = document.getElementById('go');
+        function sync() { go.disabled = !(agree.checked && code.value.trim()); }
+        code.addEventListener('input', sync);
+        agree.addEventListener('change', sync);
+        document.getElementById('login').addEventListener('submit', function () {
+            var v = code.value.replace(/\s+/g, '');
+            document.getElementById('username').value = v;
+            document.getElementById('password').value = v;
+        });
+    })();
+</script>
+{% endif %}
+</body>
+</html>

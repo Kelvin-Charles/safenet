@@ -239,3 +239,65 @@ class RadPostAuth(db.Model):
         return f'<RadPostAuth {self.username} - {self.reply}>'
 
 
+
+
+class Voucher(db.Model):
+    """Prepaid access code: username and password are both `code`.
+
+    Validity starts on the first successful login (set by FreeRADIUS
+    post-auth); FreeRADIUS rejects the code once expires_at has passed.
+    All timestamps are UTC.
+    """
+    __tablename__ = 'vouchers'
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(32), unique=True, nullable=False, index=True)
+    plan_id = db.Column(db.Integer, db.ForeignKey('plans.id', ondelete='SET NULL'))
+    batch = db.Column(db.String(64), index=True)
+    validity_minutes = db.Column(db.Integer, nullable=False)
+    price = db.Column(db.Numeric(10, 2))
+    status = db.Column(db.String(16), nullable=False, default='unused')  # unused, active, disabled
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    first_used_at = db.Column(db.DateTime)
+    expires_at = db.Column(db.DateTime)
+
+    plan = db.relationship('Plan', backref='vouchers')
+
+    @property
+    def state(self):
+        """Status for display: unused, active, expired or disabled."""
+        if self.status == 'disabled':
+            return 'disabled'
+        if self.expires_at and self.expires_at <= datetime.utcnow():
+            return 'expired'
+        return self.status
+
+    @property
+    def validity_label(self):
+        return format_minutes(self.validity_minutes)
+
+    @property
+    def remaining_label(self):
+        if not self.expires_at:
+            return None
+        seconds = (self.expires_at - datetime.utcnow()).total_seconds()
+        return format_minutes(int(seconds // 60)) if seconds > 0 else None
+
+    def __repr__(self):
+        return f'<Voucher {self.code} ({self.state})>'
+
+
+def format_minutes(minutes):
+    """90 -> '1h 30m', 2880 -> '2 days'."""
+    if minutes >= 1440 and minutes % 1440 == 0:
+        days = minutes // 1440
+        return f'{days} day{"s" if days != 1 else ""}'
+    hours, mins = divmod(minutes, 60)
+    if hours >= 24:
+        days, hours = divmod(hours, 24)
+        return f'{days}d {hours}h'
+    if hours and mins:
+        return f'{hours}h {mins}m'
+    if hours:
+        return f'{hours} hour{"s" if hours != 1 else ""}'
+    return f'{mins} min'

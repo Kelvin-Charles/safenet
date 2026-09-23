@@ -197,6 +197,9 @@
             <a class="nav-link {% if request.endpoint in ['plans', 'add_plan', 'edit_plan'] %}active{% endif %}" href="{{ url_for('plans') }}">
                 <i class="bi bi-box"></i> Plans
             </a>
+            <a class="nav-link {% if request.endpoint in ['vouchers', 'generate_vouchers'] %}active{% endif %}" href="{{ url_for('vouchers') }}">
+                <i class="bi bi-ticket-perforated"></i> Vouchers
+            </a>
             <a class="nav-link {% if request.endpoint in ['nas_list', 'add_nas', 'edit_nas'] %}active{% endif %}" href="{{ url_for('nas_list') }}">
                 <i class="bi bi-router"></i> NAS Devices
             </a>

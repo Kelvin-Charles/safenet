@@ -1,11 +1,17 @@
-from flask import Flask, render_template, redirect, url_for, flash, request, jsonify
+from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, abort
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth
-from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm
+from models import db, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher
+from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm
+from flask_wtf.csrf import generate_csrf, validate_csrf
+from wtforms.validators import ValidationError
 from sqlalchemy import func, or_, desc
 import subprocess
+import secrets
+import ipaddress
+from decimal import Decimal
+from urllib.parse import urlparse
 import socket
 import struct
 import json
@@ -34,6 +40,7 @@ def inject_globals():
     return {
         'app_name': 'SafeNet RADIUS Manager',
         'supported_vendors': Config.SUPPORTED_VENDORS,
+        'csrf_token': generate_csrf,
     }
 
 
@@ -868,6 +875,208 @@ def radius_features():
                          vendor_attributes=vendor_attributes)
 
 
+# Vouchers
+VOUCHER_CODE_LENGTH = 8
+
+
+def _check_csrf():
+    try:
+        validate_csrf(request.form.get('csrf_token'))
+    except ValidationError:
+        abort(400)
+
+
+def _new_voucher_code(taken):
+    """Random numeric code (digits only: no case or O/0 confusion on phones)."""
+    while True:
+        code = ''.join(secrets.choice('0123456789') for _ in range(VOUCHER_CODE_LENGTH))
+        if code[0] != '0' and code not in taken:
+            taken.add(code)
+            return code
+
+
+@app.route('/vouchers')
+@login_required
+def vouchers():
+    page = request.args.get('page', 1, type=int)
+    batch = request.args.get('batch', '', type=str)
+    state = request.args.get('state', '', type=str)
+    search = request.args.get('search', '', type=str).strip()
+
+    now = datetime.utcnow()
+    query = Voucher.query
+    if batch:
+        query = query.filter(Voucher.batch == batch)
+    if search:
+        query = query.filter(Voucher.code.like(f'%{search}%'))
+    if state == 'unused':
+        query = query.filter(Voucher.status == 'unused')
+    elif state == 'active':
+        query = query.filter(Voucher.status == 'active', Voucher.expires_at > now)
+    elif state == 'expired':
+        query = query.filter(Voucher.status != 'disabled', Voucher.expires_at <= now)
+    elif state == 'disabled':
+        query = query.filter(Voucher.status == 'disabled')
+
+    pagination = query.order_by(Voucher.created_at.desc(), Voucher.id.desc()).paginate(
+        page=page, per_page=Config.ITEMS_PER_PAGE, error_out=False
+    )
+
+    batches = [b for (b,) in db.session.query(Voucher.batch)
+               .group_by(Voucher.batch).order_by(func.max(Voucher.created_at).desc()).limit(50)]
+    stats = {
+        'unused': Voucher.query.filter_by(status='unused').count(),
+        'active': Voucher.query.filter(Voucher.status == 'active', Voucher.expires_at > now).count(),
+        'expired': Voucher.query.filter(Voucher.status != 'disabled', Voucher.expires_at <= now).count(),
+        'sold_value': db.session.query(func.coalesce(func.sum(Voucher.price), 0))
+                        .filter(Voucher.first_used_at.isnot(None)).scalar(),
+    }
+    return render_template('vouchers/list.html', pagination=pagination, batches=batches,
+                           batch=batch, state=state, search=search, stats=stats,
+                           currency=Config.HOTSPOT_CURRENCY)
+
+
+@app.route('/vouchers/generate', methods=['GET', 'POST'])
+@login_required
+def generate_vouchers():
+    form = VoucherGenerateForm()
+    form.plan_id.choices = [(0, '-- No Plan --')] + [(p.id, p.name) for p in Plan.query.filter_by(is_active=True).all()]
+
+    if form.validate_on_submit():
+        plan = Plan.query.get(form.plan_id.data) if form.plan_id.data else None
+        minutes = form.validity_value.data * (1440 if form.validity_unit.data == 'days' else 60)
+        price = Decimal(form.price.data.strip()) if form.price.data else None
+        batch = (form.batch.data or '').strip() or datetime.utcnow().strftime('%Y%m%d-%H%M%S')
+
+        # Codes double as RADIUS usernames, so avoid clashes with both tables.
+        taken = {c for (c,) in db.session.query(Voucher.code)}
+        taken |= {u for (u,) in db.session.query(RadCheck.username).distinct()}
+
+        for _ in range(form.count.data):
+            code = _new_voucher_code(taken)
+            db.session.add(Voucher(code=code, plan_id=plan.id if plan else None, batch=batch,
+                                   validity_minutes=minutes, price=price))
+            db.session.add(RadCheck(username=code, attribute='Cleartext-Password', op=':=', value=code))
+            if plan:
+                db.session.add(RadUserGroup(username=code, groupname=plan.name, priority=1))
+        db.session.commit()
+
+        flash(f'{form.count.data} vouchers created in batch "{batch}".', 'success')
+        return redirect(url_for('vouchers', batch=batch))
+
+    return render_template('vouchers/generate.html', form=form, currency=Config.HOTSPOT_CURRENCY)
+
+
+@app.route('/vouchers/print')
+@login_required
+def print_vouchers():
+    batch = request.args.get('batch', '', type=str)
+    if not batch:
+        flash('Choose a batch to print.', 'warning')
+        return redirect(url_for('vouchers'))
+    items = Voucher.query.filter_by(batch=batch, status='unused').order_by(Voucher.id).all()
+    return render_template('vouchers/print.html', vouchers=items, batch=batch,
+                           hotspot=_hotspot_settings())
+
+
+@app.route('/vouchers/<int:voucher_id>/toggle', methods=['POST'])
+@login_required
+def toggle_voucher(voucher_id):
+    _check_csrf()
+    voucher = Voucher.query.get_or_404(voucher_id)
+    if voucher.status == 'disabled':
+        voucher.status = 'active' if voucher.first_used_at else 'unused'
+        flash(f'Voucher {voucher.code} enabled.', 'success')
+    else:
+        voucher.status = 'disabled'
+        flash(f'Voucher {voucher.code} disabled. Connected devices are cut off at their next login.', 'success')
+    db.session.commit()
+    return redirect(request.referrer or url_for('vouchers'))
+
+
+@app.route('/vouchers/<int:voucher_id>/delete', methods=['POST'])
+@login_required
+def delete_voucher(voucher_id):
+    _check_csrf()
+    voucher = Voucher.query.get_or_404(voucher_id)
+    code = voucher.code
+    RadCheck.query.filter_by(username=code).delete()
+    RadReply.query.filter_by(username=code).delete()
+    RadUserGroup.query.filter_by(username=code).delete()
+    db.session.delete(voucher)
+    db.session.commit()
+    flash(f'Voucher {code} deleted.', 'success')
+    return redirect(request.referrer or url_for('vouchers'))
+
+
+@app.route('/vouchers/delete-unused', methods=['POST'])
+@login_required
+def delete_unused_batch():
+    _check_csrf()
+    batch = request.form.get('batch', '')
+    codes = [c for (c,) in db.session.query(Voucher.code).filter_by(batch=batch, status='unused')]
+    if codes:
+        RadCheck.query.filter(RadCheck.username.in_(codes)).delete(synchronize_session=False)
+        RadReply.query.filter(RadReply.username.in_(codes)).delete(synchronize_session=False)
+        RadUserGroup.query.filter(RadUserGroup.username.in_(codes)).delete(synchronize_session=False)
+        Voucher.query.filter(Voucher.code.in_(codes)).delete(synchronize_session=False)
+        db.session.commit()
+    flash(f'Deleted {len(codes)} unused vouchers from batch "{batch}".', 'success')
+    return redirect(url_for('vouchers'))
+
+
+# Public guest portal
+def _hotspot_settings():
+    return {
+        'name': Config.HOTSPOT_NAME,
+        'ssid': Config.HOTSPOT_SSID,
+        'support': Config.HOTSPOT_SUPPORT,
+        'terms': Config.HOTSPOT_TERMS,
+        'currency': Config.HOTSPOT_CURRENCY,
+    }
+
+
+def _is_gateway_url(url):
+    """Only post codes to a local hotspot gateway or Meraki, never an arbitrary site."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+        return False
+    host = parsed.hostname.lower()
+    if host == 'meraki.com' or host.endswith('.meraki.com') or host.endswith('.network-auth.com'):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_link_local
+    except ValueError:
+        return '.' not in host or host.endswith(('.local', '.lan', '.wifi'))
+
+
+@app.route('/portal')
+def portal():
+    """Branded splash/login page for guests.
+
+    Gateways redirect here with their own login URL:
+      MikroTik external login: ?link-login-only=...&link-orig=...&error=...
+      Meraki sign-on splash:   ?login_url=...&continue_url=...
+    Without one (plain WPA2-Enterprise on the TP-Link), it shows how to connect.
+    """
+    mikrotik_login = request.args.get('link-login-only', '')
+    meraki_login = request.args.get('login_url', '')
+    gateway = None
+    if mikrotik_login and _is_gateway_url(mikrotik_login):
+        gateway = {'action': mikrotik_login, 'next_field': 'dst',
+                   'next_value': request.args.get('link-orig', '')}
+    elif meraki_login and _is_gateway_url(meraki_login):
+        gateway = {'action': meraki_login, 'next_field': 'success_url',
+                   'next_value': request.args.get('continue_url', '')}
+
+    return render_template('portal/index.html', hotspot=_hotspot_settings(), gateway=gateway,
+                           error=request.args.get('error', '')[:200])
+
+
 # Initialize database
 @app.cli.command()
 def init_db():
@@ -886,6 +1095,42 @@ def init_db():
         print(f'Admin user created: {Config.ADMIN_USERNAME}')
     
     print('Database initialized.')
+
+
+@app.cli.command('create-admin')
+@click.option('--username', '-u', prompt=True, help='Admin username')
+@click.option('--password', '-p', prompt=True, hide_input=True, confirmation_prompt=True, help='Admin password')
+@click.option('--email', '-e', prompt=True, help='Admin email')
+@click.option('--force', is_flag=True, help='Update password/email if username already exists')
+def create_admin(username, password, email, force):
+    """Create a web-panel admin (or reset password with --force)."""
+    username = (username or '').strip()
+    email = (email or '').strip()
+    if not username or not password or not email:
+        click.echo('username, password, and email are required', err=True)
+        raise SystemExit(1)
+
+    admin = Admin.query.filter_by(username=username).first()
+    if admin and not force:
+        click.echo(f'Admin "{username}" already exists. Use --force to update password/email.', err=True)
+        raise SystemExit(1)
+
+    if admin:
+        admin.email = email
+        admin.set_password(password)
+        admin.is_active = True
+        db.session.commit()
+        click.echo(f'Admin updated: {username}')
+    else:
+        # Email must be unique
+        if Admin.query.filter_by(email=email).first():
+            click.echo(f'Email "{email}" is already used by another admin.', err=True)
+            raise SystemExit(1)
+        admin = Admin(username=username, email=email, is_active=True)
+        admin.set_password(password)
+        db.session.add(admin)
+        db.session.commit()
+        click.echo(f'Admin created: {username}')
 
 
 @app.cli.command('seed-users')

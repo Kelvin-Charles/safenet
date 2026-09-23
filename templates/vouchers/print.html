@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vouchers {{ batch }} - {{ hotspot.name }}</title>
+    <style>
+        @page { size: A4; margin: 10mm; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; margin: 0; color: #0f172a; background: #f1f5f9; }
+        .toolbar { padding: 12px 16px; background: #fff; border-bottom: 1px solid #e2e8f0; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .toolbar button { background: #0d6efd; color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; font-size: 14px; cursor: pointer; }
+        .sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(62mm, 1fr)); gap: 4mm; padding: 16px; }
+        .voucher { background: #fff; border: 1px dashed #94a3b8; border-radius: 6px; padding: 10px 12px; break-inside: avoid; }
+        .brand { font-weight: 700; font-size: 14px; display: flex; justify-content: space-between; align-items: baseline; }
+        .price { font-size: 13px; color: #0d6efd; }
+        .code-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-top: 8px; }
+        .code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 22px; font-weight: 700; letter-spacing: 3px; }
+        .meta { font-size: 10px; color: #475569; margin-top: 6px; line-height: 1.4; }
+        .empty { padding: 40px; text-align: center; color: #64748b; }
+        @media print {
+            body { background: #fff; }
+            .toolbar { display: none; }
+            .sheet { padding: 0; grid-template-columns: repeat(3, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <button onclick="window.print()">Print</button>
+        <span>Batch <strong>{{ batch }}</strong> &middot; {{ vouchers|length }} unused voucher{{ '' if vouchers|length == 1 else 's' }}</span>
+    </div>
+    {% if vouchers %}
+    <div class="sheet">
+        {% for v in vouchers %}
+        <div class="voucher">
+            <div class="brand">
+                <span>{{ hotspot.name }}</span>
+                {% if v.price is not none %}<span class="price">{{ hotspot.currency }} {{ '{:,.0f}'.format(v.price) }}</span>{% endif %}
+            </div>
+            <div class="code-label">Voucher code</div>
+            <div class="code">{{ v.code }}</div>
+            <div class="meta">
+                Valid {{ v.validity_label }} from first login{% if v.plan %} &middot; {{ v.plan.name }}{% endif %}<br>
+                {% if hotspot.ssid %}Wi-Fi: <strong>{{ hotspot.ssid }}</strong><br>{% endif %}
+                Use the code as both username and password.
+                {% if hotspot.support %}<br>Help: {{ hotspot.support }}{% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">No unused vouchers in this batch.</div>
+    {% endif %}
+</body>
+</html>

@@ -40,6 +40,18 @@ class Config:
     ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
     ADMIN_EMAIL = os.getenv('ADMIN_EMAIL', 'admin@safenet.local')
     
+    # Guest Wi-Fi branding (public /portal page and printed vouchers)
+    HOTSPOT_NAME = os.getenv('HOTSPOT_NAME', 'SafeNet WiFi')
+    HOTSPOT_SSID = os.getenv('HOTSPOT_SSID', '')
+    HOTSPOT_SUPPORT = os.getenv('HOTSPOT_SUPPORT', '')  # phone/WhatsApp shown to guests
+    HOTSPOT_CURRENCY = os.getenv('HOTSPOT_CURRENCY', 'TZS')
+    HOTSPOT_TERMS = os.getenv(
+        'HOTSPOT_TERMS',
+        'Use this network lawfully. No illegal downloads, spam or attacks on other users. '
+        'Vouchers are valid from first login, cannot be refunded and must not be shared. '
+        'We may log connection times and data usage for billing and security.'
+    )
+
     # Pagination
     ITEMS_PER_PAGE = 25
     

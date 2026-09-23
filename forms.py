@@ -130,3 +130,30 @@ class SearchForm(FlaskForm):
     query = StringField('Search', validators=[Optional(), Length(max=100)])
 
 
+
+
+class VoucherGenerateForm(FlaskForm):
+    """Generate a batch of prepaid vouchers"""
+    plan_id = SelectField('Plan', coerce=int, validators=[Optional()])
+    count = IntegerField('How many', default=10, validators=[DataRequired()])
+    validity_value = IntegerField('Valid for', default=1, validators=[DataRequired()])
+    validity_unit = SelectField('Unit', choices=[
+        ('hours', 'Hours'),
+        ('days', 'Days'),
+    ], default='days', validators=[DataRequired()])
+    price = StringField('Price', validators=[Optional(), Length(max=12)],
+                        description='Printed on the voucher, e.g. 1000')
+    batch = StringField('Batch name', validators=[Optional(), Length(max=64)],
+                        description='Leave empty to name it by date/time')
+
+    def validate_count(self, field):
+        if not 1 <= (field.data or 0) <= 500:
+            raise ValidationError('Generate between 1 and 500 vouchers at a time.')
+
+    def validate_validity_value(self, field):
+        if not 1 <= (field.data or 0) <= 365:
+            raise ValidationError('Enter a value between 1 and 365.')
+
+    def validate_price(self, field):
+        if field.data and not re.match(r'^\d+(\.\d{1,2})?$', field.data.strip()):
+            raise ValidationError('Price must be a number, e.g. 1000 or 1500.50')
