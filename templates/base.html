@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{{ app_name }}{% endblock %}</title>
+    {% if current_user.is_authenticated %}<meta name="csrf-token" content="{{ csrf_token() }}">{% endif %}
     
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -210,6 +211,7 @@
             {{ link(['auth_logs'], url_for('auth_logs'), 'bi-shield-check', 'Auth Logs') }}
             {% if is_admin %}
             <hr style="border-color: rgba(255,255,255,0.2); margin: 1rem 0;">
+            {{ link(['billing', 'billing_payment'], url_for('billing'), 'bi-receipt', 'Billing') }}
             {{ link(['tenant_settings'], url_for('tenant_settings'), 'bi-sliders', 'Settings') }}
             {{ link(['team', 'add_team_member'], url_for('team'), 'bi-person-badge', 'Team') }}
             {{ link(['radius_features'], url_for('radius_features'), 'bi-gear', 'RADIUS Features') }}
@@ -217,6 +219,7 @@
             {% if current_user.is_superadmin %}
             {{ link(['platform_tenants'], url_for('platform_tenants'), 'bi-buildings', 'Platform: Tenants') }}
             {{ link(['platform_payouts'], url_for('platform_payouts'), 'bi-cash-coin', 'Platform: Payouts') }}
+            {{ link(['platform_billing'], url_for('platform_billing'), 'bi-tags', 'Platform: Billing') }}
             {% endif %}
             <hr style="border-color: rgba(255,255,255,0.2); margin: 1rem 0;">
             <a class="nav-link" href="{{ url_for('logout') }}">
@@ -248,12 +251,15 @@
             </form>
         </div>
         {% endif %}
-        {% if current_user.is_authenticated and tenant and tenant.status == 'trial' and tenant.trial_days_left is not none %}
-        <div class="alert {{ 'alert-danger' if tenant.trial_days_left == 0 else 'alert-light' }}">
-            <i class="bi bi-hourglass-split"></i>
-            {% if tenant.trial_days_left == 0 %}Your free trial has ended. Contact SafeNet to keep your network running.
-            {% else %}Free trial: {{ tenant.trial_days_left }} day{{ '' if tenant.trial_days_left == 1 else 's' }} left.{% endif %}
-        </div>
+        {% if current_user.is_authenticated and billing and not viewing_other_tenant %}
+        {% set bs = billing.state %}
+        {% if bs == 'trial' and billing.days_left is not none %}
+        <div class="alert alert-light"><i class="bi bi-hourglass-split"></i> Free trial: {{ billing.days_left }} day{{ '' if billing.days_left == 1 else 's' }} left. <a href="{{ url_for('billing') }}">Choose a plan</a></div>
+        {% elif bs == 'active' and billing.days_left is not none and billing.days_left <= 3 %}
+        <div class="alert alert-warning"><i class="bi bi-hourglass-split"></i> Your subscription ends in {{ billing.days_left }} day{{ '' if billing.days_left == 1 else 's' }}. <a href="{{ url_for('billing') }}">Renew now</a></div>
+        {% elif bs == 'grace' %}
+        <div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> Your {{ 'trial' if not tenant.paid_until else 'subscription' }} has ended. Your Wi-Fi stops on {{ billing.service_until.strftime('%d %b %Y') }} unless you <a href="{{ url_for('billing') }}">renew</a>.</div>
+        {% endif %}
         {% endif %}
 
         <!-- Flash Messages -->

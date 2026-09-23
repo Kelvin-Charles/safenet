@@ -29,6 +29,14 @@ class Tenant(db.Model):
     clickpesa_api_key_enc = db.Column(db.Text)        # secretbox-encrypted
     clickpesa_checksum_key_enc = db.Column(db.Text)   # secretbox-encrypted
     fee_percent = db.Column(db.Numeric(5, 2))         # platform fee; NULL = PLATFORM_FEE_PERCENT
+    # Subscription: paid_until = end of the paid period; service_until = when its
+    # guests lose service (end of trial or paid period + grace). NULL = no limit.
+    billing_plan_id = db.Column(db.Integer, db.ForeignKey('billing_plans.id', ondelete='SET NULL'))
+    paid_until = db.Column(db.DateTime)
+    service_until = db.Column(db.DateTime)
+    billing_notice = db.Column(db.String(32))          # last reminder sent, e.g. "pre:2026-10-01"
+
+    billing_plan = db.relationship('BillingPlan')
 
     @property
     def display_hotspot_name(self):
@@ -533,3 +541,56 @@ class SessionKick(db.Model):
     username = db.Column(db.String(64), nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     consumed_at = db.Column(db.DateTime)
+
+
+
+class BillingPlan(db.Model):
+    """What tenants pay the platform each month."""
+    __tablename__ = 'billing_plans'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), nullable=False)
+    description = db.Column(db.String(255))
+    price = db.Column(db.Numeric(10, 2), nullable=False)       # per 30 days
+    currency = db.Column(db.String(3), nullable=False, default='TZS')
+    max_routers = db.Column(db.Integer)                        # NULL = unlimited
+    max_gateways = db.Column(db.Integer)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<BillingPlan {self.name}>'
+
+
+class SubscriptionPayment(db.Model):
+    """A tenant paying the platform for months of service (ClickPesa USSD push)."""
+    __tablename__ = 'subscription_payments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    billing_plan_id = db.Column(db.Integer, db.ForeignKey('billing_plans.id', ondelete='SET NULL'))
+    plan_name = db.Column(db.String(64))
+    months = db.Column(db.Integer, nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    currency = db.Column(db.String(3), nullable=False, default='TZS')
+    phone = db.Column(db.String(16))
+    method = db.Column(db.String(16), nullable=False, default='clickpesa')   # clickpesa, manual
+    reference = db.Column(db.String(20), unique=True, nullable=False, index=True)
+    status = db.Column(db.String(16), nullable=False, default='pending')     # pending, paid, failed, review
+    provider_id = db.Column(db.String(64))
+    provider_status = db.Column(db.String(16))
+    channel = db.Column(db.String(32))
+    message = db.Column(db.String(255))
+    period_start = db.Column(db.DateTime)
+    period_end = db.Column(db.DateTime)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='SET NULL'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    checked_at = db.Column(db.DateTime)
+    paid_at = db.Column(db.DateTime)
+
+    tenant = db.relationship('Tenant')
+    billing_plan = db.relationship('BillingPlan')
+
+    def __repr__(self):
+        return f'<SubscriptionPayment {self.reference} {self.status}>'

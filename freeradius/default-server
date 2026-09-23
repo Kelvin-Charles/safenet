@@ -449,7 +449,8 @@ authorize {
  #
  # SafeNet multi-tenancy: a user or voucher only works on routers of its own
  # tenant (routers in the nas table; clients.conf entries are platform-wide),
- # and never while its tenant is suspended.
+ # and never while its tenant is suspended or its subscription has run out
+ # (service_until = end of trial / paid period + grace days).
  #
  if ("%{sql:SELECT COUNT(*) FROM nas n JOIN (SELECT tenant_id FROM radusers WHERE username = '%{User-Name}' UNION ALL SELECT tenant_id FROM vouchers WHERE code = '%{User-Name}') o ON o.tenant_id <> n.tenant_id WHERE n.nasname = '%{Packet-Src-IP-Address}' AND n.tenant_id IS NOT NULL}" != "0") {
  update reply {
@@ -457,7 +458,7 @@ authorize {
  }
  reject
  }
- if ("%{sql:SELECT COUNT(*) FROM tenants t JOIN (SELECT tenant_id FROM radusers WHERE username = '%{User-Name}' UNION ALL SELECT tenant_id FROM vouchers WHERE code = '%{User-Name}') o ON o.tenant_id = t.id WHERE t.status = 'suspended'}" != "0") {
+ if ("%{sql:SELECT COUNT(*) FROM tenants t JOIN (SELECT tenant_id FROM radusers WHERE username = '%{User-Name}' UNION ALL SELECT tenant_id FROM vouchers WHERE code = '%{User-Name}') o ON o.tenant_id = t.id WHERE t.status = 'suspended' OR (t.service_until IS NOT NULL AND t.service_until < UTC_TIMESTAMP())}" != "0") {
  update reply {
  &Reply-Message := "Service suspended"
  }

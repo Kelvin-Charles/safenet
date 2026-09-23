@@ -4,10 +4,11 @@ db.create_all() creates missing tables but never alters existing ones, and the
 FreeRADIUS tables come from database/schema.sql. Each step here checks the live
 schema first, so it is safe on a fresh database and on one upgraded many times.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import inspect, text
 
+from config import Config
 from models import db, Tenant, Admin
 
 DEFAULT_TENANT_SLUG = 'safenet'
@@ -68,6 +69,11 @@ def default_tenant():
     return tenant
 
 
+def _as_datetime(value):
+    """SQLite returns DATETIME columns from raw SQL as strings."""
+    return datetime.fromisoformat(str(value)) if not isinstance(value, datetime) else value
+
+
 def _default_tenant_id():
     """Default tenant's id via plain SQL, so it works before the ORM's columns exist."""
     row = db.session.execute(text('SELECT id FROM tenants WHERE slug = :s'), {'s': DEFAULT_TENANT_SLUG}).first()
@@ -90,6 +96,17 @@ def run():
     _add_column('tenants', 'clickpesa_api_key_enc', 'TEXT NULL')
     _add_column('tenants', 'clickpesa_checksum_key_enc', 'TEXT NULL')
     _add_column('tenants', 'fee_percent', 'NUMERIC(5, 2) NULL')
+    _add_column('tenants', 'billing_plan_id', 'INTEGER NULL')
+    _add_column('tenants', 'paid_until', 'DATETIME NULL')
+    if _add_column('tenants', 'service_until', 'DATETIME NULL'):
+        # Trials that existed before billing: service ends after the trial + grace
+        grace = timedelta(days=Config.BILLING_GRACE_DAYS)
+        for tid, trial_end in db.session.execute(text(
+                "SELECT id, trial_ends_at FROM tenants WHERE status = 'trial' AND trial_ends_at IS NOT NULL")).all():
+            db.session.execute(text('UPDATE tenants SET service_until = :u WHERE id = :i'),
+                               {'u': _as_datetime(trial_end) + grace, 'i': tid})
+        db.session.commit()
+    _add_column('tenants', 'billing_notice', 'VARCHAR(32) NULL')
     _add_column('payments', 'provider_account', "VARCHAR(16) NOT NULL DEFAULT 'platform'")
     _add_column('payments', 'fee_amount', 'NUMERIC(10, 2) NULL DEFAULT 0')
     _add_column('payments', 'net_amount', 'NUMERIC(10, 2) NULL')

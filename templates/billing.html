@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}Billing - {{ app_name }}{% endblock %}
+{% block page_title %}Billing{% endblock %}
+
+{% block content %}
+{% set st = state.state %}
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-receipt"></i> Your subscription</div>
+            <div class="card-body">
+                {% if st == 'complimentary' %}
+                <p class="mb-0"><span class="badge bg-success">Active</span> Your account has no end date.</p>
+                {% elif st == 'trial' %}
+                <p><span class="badge bg-info">Free trial</span> {{ state.days_left }} day{{ '' if state.days_left == 1 else 's' }} left (ends {{ state.end.strftime('%d %b %Y') }}).</p>
+                {% elif st == 'active' %}
+                <p><span class="badge bg-success">Active</span> Paid until <strong>{{ state.end.strftime('%d %b %Y') }}</strong> ({{ state.days_left }} days).</p>
+                {% elif st == 'grace' %}
+                <p><span class="badge bg-warning text-dark">Payment due</span> Your {{ 'trial' if not tenant.paid_until else 'subscription' }} ended on {{ state.end.strftime('%d %b %Y') }}.
+                    Your Wi-Fi keeps working until <strong>{{ state.service_until.strftime('%d %b %Y %H:%M') }} UTC</strong>. Renew before then.</p>
+                {% elif st == 'expired' %}
+                <p><span class="badge bg-danger">Expired</span> Your Wi-Fi is paused: guests can't log in and packages can't be sold. Renew to switch it back on immediately.</p>
+                {% else %}
+                <p><span class="badge bg-danger">Suspended</span> Please contact SafeNet.</p>
+                {% endif %}
+                {% if state.plan %}<p class="small text-muted mb-0">Plan: {{ state.plan.name }} · {{ state.plan.currency }} {{ '{:,.0f}'.format(state.plan.price) }} / month</p>{% endif %}
+            </div>
+        </div>
+
+        {% if st != 'complimentary' %}
+        <div class="card">
+            <div class="card-header"><i class="bi bi-phone"></i> Pay with mobile money</div>
+            <div class="card-body">
+                {% if not can_pay %}
+                <p class="text-muted mb-0">Only the account owner can pay. Please ask them to renew.</p>
+                {% elif not plans %}
+                <p class="text-muted mb-0">No plans are available yet. Please contact SafeNet.</p>
+                {% elif not payments_ready %}
+                <p class="text-muted mb-0">Online payment isn't available right now. Please contact SafeNet to renew.</p>
+                {% else %}
+                <form method="POST" action="{{ url_for('billing_pay') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <label class="form-label">Plan</label>
+                    {% for p in plans %}
+                    <label class="d-flex align-items-start gap-2 border rounded p-2 mb-2" style="cursor:pointer">
+                        <input type="radio" name="plan_id" value="{{ p.id }}" class="form-check-input mt-1" {{ 'checked' if (state.plan and state.plan.id == p.id) or (not state.plan and loop.first) }} required>
+                        <span class="flex-grow-1"><strong>{{ p.name }}</strong>{% if p.description %}<small class="d-block text-muted">{{ p.description }}</small>{% endif %}
+                            <small class="d-block text-muted">{{ 'Unlimited' if p.max_routers is none else p.max_routers }} routers · {{ 'unlimited' if p.max_gateways is none else p.max_gateways }} gateways</small></span>
+                        <span class="fw-bold">{{ p.currency }} {{ '{:,.0f}'.format(p.price) }}<small class="text-muted fw-normal">/mo</small></span>
+                    </label>
+                    {% endfor %}
+                    <div class="row g-2 mt-1">
+                        <div class="col-5">
+                            <label class="form-label">Period</label>
+                            <select name="months" class="form-select">{% for m in months %}<option value="{{ m }}">{{ m }} month{{ '' if m == 1 else 's' }}</option>{% endfor %}</select>
+                        </div>
+                        <div class="col-7">
+                            <label class="form-label">Mobile money number</label>
+                            <input type="text" name="phone" class="form-control" value="{{ default_phone }}" placeholder="07XX XXX XXX" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary mt-3 w-100"><i class="bi bi-send"></i> Send payment request</button>
+                    <p class="small text-muted mt-2 mb-0">You'll get a PIN prompt on your phone. Paying early adds time after your current period, so you never lose days.</p>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-clock-history"></i> Payment history</div>
+            <div class="card-body">
+                {% if history %}
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead><tr><th>Date</th><th>Plan</th><th>Amount</th><th>Period</th><th>Status</th></tr></thead>
+                        <tbody>
+                            {% for p in history %}
+                            <tr>
+                                <td><small>{{ p.created_at.strftime('%Y-%m-%d') }}</small><small class="d-block text-muted font-monospace">{{ p.reference }}</small></td>
+                                <td>{{ p.plan_name or '-' }} <small class="text-muted">× {{ p.months }}</small></td>
+                                <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}</td>
+                                <td><small>{% if p.period_end %}{{ p.period_start.strftime('%d %b') }} – {{ p.period_end.strftime('%d %b %Y') }}{% else %}-{% endif %}</small></td>
+                                <td>
+                                    {% if p.status == 'paid' %}<span class="badge bg-success">Paid</span>{% if p.method == 'manual' %}<small class="d-block text-muted">added by SafeNet</small>{% endif %}
+                                    {% elif p.status == 'pending' %}<a href="{{ url_for('billing_payment', reference=p.reference) }}" class="badge bg-warning text-dark text-decoration-none">Pending</a>
+                                    {% else %}<span class="badge bg-danger">{{ p.status|capitalize }}</span>{% if p.message %}<small class="d-block text-muted">{{ p.message }}</small>{% endif %}{% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No payments yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

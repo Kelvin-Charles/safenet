@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Platform billing - {{ app_name }}{% endblock %}
+{% block page_title %}Platform: Billing{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(revenue_month) }}</div><div class="stat-label">TZS subscriptions this month</div></div></div>
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value text-success">{{ '{:,.0f}'.format(revenue_all) }}</div><div class="stat-label">TZS subscriptions all time</div></div></div>
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value">{{ plans|selectattr('is_active')|list|length }}</div><div class="stat-label">Plans on sale {% if not payments_ready %}<span class="text-danger">(ClickPesa not set up)</span>{% endif %}</div></div></div>
+</div>
+
+<div class="card">
+    <div class="card-header"><i class="bi bi-tags"></i> Plans tenants can buy (price per 30 days)</div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead><tr><th>Name</th><th>Description</th><th>Price</th><th>Max routers</th><th>Max gateways</th><th>Order</th><th>On sale</th><th></th></tr></thead>
+                <tbody>
+                    {% for p in plans + [none] %}
+                    {% set f = 'plan-' ~ (p.id if p else 'new') %}
+                    <tr>
+                        <td><input form="{{ f }}" name="name" class="form-control form-control-sm" value="{{ p.name if p else '' }}" placeholder="{{ 'New plan, e.g. Starter' if not p }}" required></td>
+                        <td><input form="{{ f }}" name="description" class="form-control form-control-sm" value="{{ (p.description or '') if p else '' }}"></td>
+                        <td><input form="{{ f }}" name="price" class="form-control form-control-sm" style="width: 100px" value="{{ '%.0f'|format(p.price) if p else '' }}" placeholder="20000" required></td>
+                        <td><input form="{{ f }}" name="max_routers" type="number" min="0" class="form-control form-control-sm" style="width: 80px" value="{{ p.max_routers if p and p.max_routers is not none else '' }}" placeholder="∞"></td>
+                        <td><input form="{{ f }}" name="max_gateways" type="number" min="0" class="form-control form-control-sm" style="width: 80px" value="{{ p.max_gateways if p and p.max_gateways is not none else '' }}" placeholder="∞"></td>
+                        <td><input form="{{ f }}" name="sort_order" type="number" class="form-control form-control-sm" style="width: 70px" value="{{ p.sort_order if p else 0 }}"></td>
+                        <td><input form="{{ f }}" name="is_active" type="checkbox" class="form-check-input" value="1" {{ 'checked' if not p or p.is_active }}></td>
+                        <td><button form="{{ f }}" class="btn btn-sm {{ 'btn-outline-primary' if p else 'btn-primary' }}" type="submit">{{ 'Save' if p else 'Add' }}</button></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% for p in plans + [none] %}
+        <form id="plan-{{ p.id if p else 'new' }}" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if p %}<input type="hidden" name="id" value="{{ p.id }}">{% endif %}
+        </form>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><i class="bi bi-clock-history"></i> Subscription payments</div>
+    <div class="card-body">
+        {% if payments %}
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead><tr><th>Date</th><th>Tenant</th><th>Plan</th><th>Amount</th><th>Paid period</th><th>Status</th></tr></thead>
+                <tbody>
+                    {% for p in payments %}
+                    <tr>
+                        <td><small>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</small><small class="d-block text-muted font-monospace">{{ p.reference }}</small></td>
+                        <td>{{ p.tenant.name }}<small class="d-block text-muted">{{ p.phone or ('manual' if p.method == 'manual') }}</small></td>
+                        <td>{{ p.plan_name or '-' }} × {{ p.months }}</td>
+                        <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}</td>
+                        <td><small>{{ p.period_end.strftime('%d %b %Y') if p.period_end else '-' }}</small></td>
+                        <td>{% if p.status == 'paid' %}<span class="badge bg-success">Paid</span>{% elif p.status == 'pending' %}<span class="badge bg-warning text-dark">Pending</span>{% else %}<span class="badge bg-danger">{{ p.status|capitalize }}</span><small class="d-block text-muted">{{ p.message or '' }}</small>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No subscription payments yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

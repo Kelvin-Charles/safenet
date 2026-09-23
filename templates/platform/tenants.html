@@ -23,8 +23,12 @@
                         <td><strong>{{ t.name }}</strong><small class="text-muted d-block">{{ t.slug }} · since {{ t.created_at.strftime('%Y-%m-%d') }}{% if t.phone %} · {{ t.phone }}{% endif %}</small></td>
                         <td>{% if owner %}{{ owner.username }}<small class="text-muted d-block">{{ owner.email }}{% if not owner.email_verified_at %} · <span class="text-warning">unverified</span>{% endif %}</small>{% else %}<span class="text-muted">–</span>{% endif %}</td>
                         <td>
-                            {% if t.status == 'active' %}<span class="badge bg-success">Active</span>
-                            {% elif t.status == 'trial' %}<span class="badge bg-info">Trial</span><small class="text-muted d-block">{{ t.trial_days_left }} days left</small>
+                            {% set b = billing_of(t) %}
+                            {% if b.state == 'complimentary' %}<span class="badge bg-success">Free</span>
+                            {% elif b.state == 'active' %}<span class="badge bg-success">Paid</span><small class="text-muted d-block">until {{ b.end.strftime('%d %b %Y') }}{% if t.billing_plan %} · {{ t.billing_plan.name }}{% endif %}</small>
+                            {% elif b.state == 'trial' %}<span class="badge bg-info">Trial</span><small class="text-muted d-block">{{ b.days_left }} days left</small>
+                            {% elif b.state == 'grace' %}<span class="badge bg-warning text-dark">Payment due</span><small class="text-muted d-block">stops {{ b.service_until.strftime('%d %b') }}</small>
+                            {% elif b.state == 'expired' %}<span class="badge bg-danger">Expired</span>
                             {% else %}<span class="badge bg-danger">Suspended</span>{% endif %}
                         </td>
                         <td>{{ users.get(t.id, 0) }} / {{ vouchers.get(t.id, 0) }}</td>
@@ -49,7 +53,7 @@
                             <div class="dropdown d-inline">
                                 <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">Status</button>
                                 <ul class="dropdown-menu">
-                                    {% for action, label in [('activate', 'Activate'), ('extend', 'Extend trial'), ('verify', 'Mark email verified'), ('suspend', 'Suspend')] %}
+                                    {% for action, label in [('add_month', 'Add 1 paid month (cash)'), ('extend', 'Extend trial'), ('comp', 'Make free (no end date)'), ('resume', 'Lift suspension'), ('verify', 'Mark email verified'), ('suspend', 'Suspend')] %}
                                     {% if not (action == 'suspend' and t.slug == 'safenet') %}
                                     <li><form method="POST" action="{{ url_for('platform_tenant_status', tid=t.id) }}" {% if action == 'suspend' %}onsubmit="return confirm('Suspend {{ t.name }}? Their users will be cut off at next login.');"{% endif %}>
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

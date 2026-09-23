@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Payment - {{ app_name }}{% endblock %}
+{% block page_title %}Billing{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7 col-lg-5">
+        <div class="card text-center">
+            <div class="card-body p-5" id="box">
+                <div class="spinner-border text-primary mb-3" role="status" id="spin"></div>
+                <h4 id="title">Check your phone</h4>
+                <p id="text">Enter your mobile-money PIN to pay <strong>{{ sp.currency }} {{ '{:,.0f}'.format(sp.amount) }}</strong>
+                    for {{ sp.months }} month{{ '' if sp.months == 1 else 's' }} of {{ sp.plan_name }}. We sent the prompt to {{ sp.phone }}.</p>
+                <p class="small text-muted mb-0" id="hint">This page updates by itself.</p>
+                <a href="{{ url_for('billing') }}" class="btn btn-outline-secondary mt-3 d-none" id="back">Back to billing</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const $ = id => document.getElementById(id);
+    let tries = 0;
+    async function poll() {
+        tries++;
+        try {
+            const r = await fetch('{{ url_for("billing_payment_status", reference=sp.reference) }}', { credentials: 'same-origin' });
+            const d = await r.json();
+            if (d.status === 'paid') {
+                $('spin').remove();
+                $('title').textContent = 'Payment received, thank you!';
+                $('text').textContent = 'Your SafeNet service is paid until ' + d.paid_until + '.';
+                $('hint').remove(); $('back').classList.remove('d-none');
+                return;
+            }
+            if (d.status === 'failed' || d.status === 'review') {
+                $('spin').remove();
+                $('title').textContent = d.status === 'failed' ? 'Payment not completed' : 'Payment needs checking';
+                $('text').textContent = d.message || 'Please try again.';
+                $('hint').remove(); $('back').classList.remove('d-none');
+                return;
+            }
+        } catch (e) { /* retry */ }
+        if (tries > 80) { $('hint').textContent = "Still waiting. If you've paid, this page will update, or check Billing later."; }
+        setTimeout(poll, 3000);
+    }
+    poll();
+})();
+</script>
+{% endblock %}

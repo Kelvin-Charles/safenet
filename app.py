@@ -1,15 +1,17 @@
-from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, abort, session, g
+from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, abort, session, g, has_request_context
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway
+from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
-from sqlalchemy import func, or_, desc
+from sqlalchemy import func, or_, desc, text
 import clickpesa
 import radclient
 import threading
+import math
+import os
 import secretbox
 import migrations
 from mailer import send_mail
@@ -63,7 +65,11 @@ def inject_globals():
         'tenant': tenant,
         'viewing_other_tenant': bool(tenant and current_user.is_authenticated and tenant.id != current_user.tenant_id),
         'signup_enabled': Config.SIGNUP_ENABLED,
+        'billing': billing_state(tenant) if tenant else None,
     }
+
+
+BILLING_ENDPOINTS = {'billing', 'billing_pay', 'billing_payment', 'billing_payment_status', 'logout', 'static'}
 
 
 @app.before_request
@@ -74,6 +80,9 @@ def block_suspended_tenants():
             logout_user()
             flash('This account is suspended. Please contact support.', 'danger')
             return redirect(url_for('login'))
+        if tenant_blocked(tenant) and request.endpoint not in BILLING_ENDPOINTS:
+            flash('Your SafeNet subscription has expired and your Wi-Fi is paused. Renew to continue.', 'danger')
+            return redirect(url_for('billing'))
 
 
 # Error handlers
@@ -1739,7 +1748,10 @@ def clickpesa_webhook():
     reference = str(data.get('orderReference', ''))[:20]
     if reference and re.fullmatch(r'[A-Za-z0-9]+', reference):
         try:
-            _refresh_payment(reference, force=True)
+            if reference.startswith('SB'):
+                _refresh_subscription(reference, force=True)
+            else:
+                _refresh_payment(reference, force=True)
         except Exception:
             db.session.rollback()
             log.exception('webhook refresh %s failed', reference)
@@ -1879,6 +1891,10 @@ def _tokens(salt):
 
 
 def _link(endpoint, **values):
+    """Absolute link for emails; also works outside a request (reminder thread, CLI)."""
+    if not has_request_context():
+        with app.test_request_context(base_url=Config.PUBLIC_URL or 'http://localhost'):
+            return url_for(endpoint, _external=True, **values)
     if Config.PUBLIC_URL:
         return Config.PUBLIC_URL + url_for(endpoint, **values)
     return url_for(endpoint, _external=True, **values)
@@ -1916,6 +1932,7 @@ def signup():
             tenant = Tenant(name=form.business_name.data.strip(), slug=_unique_slug(form.business_name.data),
                             status='trial', phone=(form.phone.data or '').strip() or None,
                             trial_ends_at=datetime.utcnow() + timedelta(days=Config.TRIAL_DAYS))
+            refresh_service_until(tenant)
             db.session.add(tenant)
             db.session.flush()
             owner = Admin(username=form.username.data, email=email, tenant_id=tenant.id, role='owner')
@@ -2106,6 +2123,9 @@ def gateways():
 @role_required('admin')
 def add_gateway():
     form = GatewayForm()
+    if _plan_limit_reached(current_tenant(), 'gateways'):
+        flash('Your plan does not allow more gateways. Upgrade on the Billing page.', 'warning')
+        return redirect(url_for('gateways'))
     if not form.validate_on_submit():
         flash('Give the gateway a name.', 'danger')
         return redirect(url_for('gateways'))
@@ -2158,7 +2178,8 @@ def platform_tenants():
     return render_template('platform/tenants.html', tenants=tenants, users=count(RadUser),
                            vouchers=count(Voucher), gateways=count(Gateway), nas=count(Nas),
                            revenue=revenue, owners=owners, now=datetime.utcnow(),
-                           default_fee=Config.PLATFORM_FEE_PERCENT, balances={t.id: tenant_balance(t.id)[0] for t in tenants})
+                           default_fee=Config.PLATFORM_FEE_PERCENT, balances={t.id: tenant_balance(t.id)[0] for t in tenants},
+                           billing_of=billing_state)
 
 
 @app.route('/platform/tenants/<int:tid>/status', methods=['POST'])
@@ -2168,8 +2189,19 @@ def platform_tenant_status(tid):
     _check_csrf()
     tenant = db.get_or_404(Tenant, tid)
     action = request.form.get('action')
-    if action == 'activate':
-        tenant.status = 'active'
+    if action in ('activate', 'comp'):            # complimentary: no end date
+        tenant.status, tenant.paid_until = 'active', None
+        refresh_service_until(tenant)
+    elif action == 'resume':                      # lift a suspension, keep dates
+        tenant.status = 'active' if tenant.paid_until else 'trial'
+        refresh_service_until(tenant)
+    elif action == 'add_month':                   # e.g. paid in cash
+        start, end = extend_subscription(tenant, 1)
+        db.session.add(SubscriptionPayment(tenant_id=tenant.id, plan_name=tenant.billing_plan.name if tenant.billing_plan else None,
+                                           months=1, amount=tenant.billing_plan.price if tenant.billing_plan else 0,
+                                           method='manual', status='paid', reference='SBM' + secrets.token_hex(5).upper(),
+                                           period_start=start, period_end=end, paid_at=datetime.utcnow(),
+                                           created_by_id=current_user.id))
     elif action == 'suspend':
         if tenant.slug == migrations.DEFAULT_TENANT_SLUG:
             abort(400)
@@ -2180,7 +2212,8 @@ def platform_tenant_status(tid):
             disconnect_subscriber(tenant.id, name)
     elif action == 'extend':
         base = max(tenant.trial_ends_at or datetime.utcnow(), datetime.utcnow())
-        tenant.status, tenant.trial_ends_at = 'trial', base + timedelta(days=Config.TRIAL_DAYS)
+        tenant.status, tenant.trial_ends_at, tenant.paid_until = 'trial', base + timedelta(days=Config.TRIAL_DAYS), None
+        refresh_service_until(tenant)
     elif action == 'verify':
         for a in Admin.query.filter_by(tenant_id=tenant.id, email_verified_at=None):
             a.email_verified_at = datetime.utcnow()
@@ -2437,6 +2470,9 @@ def routers():
 @role_required('admin')
 def add_router():
     _check_csrf()
+    if _plan_limit_reached(current_tenant(), 'routers'):
+        flash('Your plan does not allow more routers. Upgrade on the Billing page.', 'warning')
+        return redirect(url_for('routers'))
     name = (request.form.get('name') or '').strip()[:64]
     vendor = request.form.get('vendor') if request.form.get('vendor') in dict(ROUTER_VENDORS) else 'mikrotik'
     if not name:
@@ -2494,6 +2530,258 @@ def delete_router(router_id):
     db.session.commit()
     flash(f'Router "{name}" removed.', 'success')
     return redirect(url_for('routers'))
+
+
+# ---------------------------------------------------------------------------
+# Subscription billing (tenants pay the platform)
+# ---------------------------------------------------------------------------
+BILLING_MONTHS = (1, 3, 6, 12)
+DAYS_PER_MONTH = 30
+
+
+def refresh_service_until(tenant):
+    """Guests keep service until the trial / paid period ends, plus the grace days."""
+    end = tenant.paid_until or (tenant.trial_ends_at if tenant.status == 'trial' else None)
+    tenant.service_until = end + timedelta(days=Config.BILLING_GRACE_DAYS) if end else None
+
+
+def billing_state(tenant, now=None):
+    """{'state': trial|active|grace|expired|suspended|complimentary, 'end', 'days_left', 'service_until'}"""
+    now = now or datetime.utcnow()
+    end = tenant.paid_until or (tenant.trial_ends_at if tenant.status == 'trial' else None)
+    if tenant.status == 'suspended':
+        state = 'suspended'
+    elif end is None:
+        state = 'complimentary' if tenant.status == 'active' else 'trial'
+    elif now < end:
+        state = 'active' if tenant.paid_until else 'trial'
+    elif tenant.service_until and now < tenant.service_until:
+        state = 'grace'
+    else:
+        state = 'expired'
+    days_left = max(0, math.ceil((end - now).total_seconds() / 86400)) if end else None
+    return {'state': state, 'end': end, 'days_left': days_left, 'service_until': tenant.service_until,
+            'plan': tenant.billing_plan}
+
+
+def extend_subscription(tenant, months, plan=None):
+    """Add paid months after today or the current paid period, whichever is later. Caller commits."""
+    now = datetime.utcnow()
+    start = max(now, tenant.paid_until or now)
+    tenant.paid_until = start + timedelta(days=DAYS_PER_MONTH * months)
+    tenant.status = 'active'
+    tenant.billing_notice = None
+    if plan:
+        tenant.billing_plan_id = plan.id
+    refresh_service_until(tenant)
+    return start, tenant.paid_until
+
+
+def _plan_limit_reached(tenant, kind):
+    plan = tenant.billing_plan
+    limit = getattr(plan, f'max_{kind}', None) if plan else None
+    if limit is None:
+        return False
+    model = Router if kind == 'routers' else Gateway
+    return model.query.filter_by(tenant_id=tenant.id).count() >= limit
+
+
+def _fulfil_subscription(sp):
+    if sp.status == 'paid':
+        return
+    sp.period_start, sp.period_end = extend_subscription(sp.tenant, sp.months, sp.billing_plan)
+    sp.status, sp.paid_at = 'paid', datetime.utcnow()
+    owner = Admin.query.filter_by(tenant_id=sp.tenant_id, role='owner').first()
+    if owner:
+        send_mail(owner.email, 'SafeNet subscription renewed',
+                  f'Thank you! We received {sp.currency} {sp.amount:,.0f} for {sp.months} month(s) of '
+                  f'{sp.plan_name or "SafeNet"}.\\nYour service is paid until {sp.period_end:%d %b %Y}.\\nReference: {sp.reference}\\n')
+
+
+def _refresh_subscription(reference, force=False):
+    sp = SubscriptionPayment.query.filter_by(reference=reference).with_for_update().first()
+    if not sp:
+        db.session.rollback()
+        return None
+    now = datetime.utcnow()
+    if sp.status == 'pending' and sp.method == 'clickpesa' and (
+            force or not sp.checked_at or (now - sp.checked_at).total_seconds() >= 3):
+        sp.checked_at = now
+        try:
+            record = clickpesa.query_payment(reference, clickpesa.platform_credentials())
+        except clickpesa.ClickPesaError as e:
+            log.warning('ClickPesa query %s failed: %s', reference, e)
+            record = None
+        if record:
+            status = (record.get('status') or '').upper()
+            sp.provider_status, sp.channel = status, record.get('channel') or sp.channel
+            sp.message = (record.get('message') or sp.message or '')[:255] or None
+            if status in ('SUCCESS', 'SETTLED'):
+                collected = record.get('collectedAmount')
+                if collected is not None and Decimal(str(collected)) < sp.amount:
+                    sp.status, sp.message = 'review', f'Collected {collected}, expected {sp.amount}'
+                else:
+                    _fulfil_subscription(sp)
+            elif status == 'FAILED':
+                sp.status = 'failed'
+    db.session.commit()
+    return sp
+
+
+@app.route('/billing')
+@login_required
+def billing():
+    tenant = current_tenant()
+    plans = BillingPlan.query.filter_by(is_active=True).order_by(BillingPlan.sort_order, BillingPlan.price).all()
+    history = SubscriptionPayment.query.filter_by(tenant_id=tenant.id).order_by(SubscriptionPayment.id.desc()).limit(24).all()
+    return render_template('billing.html', plans=plans, history=history, months=BILLING_MONTHS,
+                           can_pay=current_user.has_role('owner'), grace=Config.BILLING_GRACE_DAYS,
+                           payments_ready=clickpesa.is_configured(), state=billing_state(tenant),
+                           default_phone=tenant.phone or '')
+
+
+@app.route('/billing/pay', methods=['POST'])
+@login_required
+@role_required('owner')
+def billing_pay():
+    _check_csrf()
+    tenant = current_tenant()
+    plan = BillingPlan.query.filter_by(id=request.form.get('plan_id', type=int), is_active=True).first()
+    months = request.form.get('months', type=int)
+    phone = _normalize_tz_phone(request.form.get('phone', ''))
+    if not plan or months not in BILLING_MONTHS:
+        flash('Choose a plan and a period.', 'danger')
+        return redirect(url_for('billing'))
+    if not phone:
+        flash('Enter a valid mobile money number, e.g. 0712 345 678.', 'danger')
+        return redirect(url_for('billing'))
+    if not clickpesa.is_configured():
+        flash('Online payment is not available right now. Please contact SafeNet.', 'danger')
+        return redirect(url_for('billing'))
+    sp = SubscriptionPayment(tenant_id=tenant.id, billing_plan_id=plan.id, plan_name=plan.name, months=months,
+                             amount=plan.price * months, currency=plan.currency, phone=phone,
+                             reference='SB' + secrets.token_hex(6).upper(), created_by_id=current_user.id)
+    db.session.add(sp)
+    db.session.commit()
+    creds = clickpesa.platform_credentials()
+    try:
+        if not clickpesa.preview_ussd_push(sp.amount, phone, sp.reference, creds):
+            raise clickpesa.ClickPesaError('No mobile-money method available for this number')
+        tx = clickpesa.initiate_ussd_push(sp.amount, phone, sp.reference, creds) or {}
+        sp.provider_id, sp.channel = tx.get('id'), tx.get('channel')
+        sp.provider_status = (tx.get('status') or '').upper() or None
+        if sp.provider_status == 'FAILED':
+            sp.status = 'failed'
+    except clickpesa.ClickPesaError as e:
+        sp.status, sp.message = 'failed', str(e)[:255]
+    db.session.commit()
+    if sp.status == 'failed':
+        flash(f"We couldn't send the payment request: {sp.message or 'try again'}.", 'danger')
+        return redirect(url_for('billing'))
+    return redirect(url_for('billing_payment', reference=sp.reference))
+
+
+@app.route('/billing/payments/<reference>')
+@login_required
+def billing_payment(reference):
+    sp = SubscriptionPayment.query.filter_by(reference=reference, tenant_id=tenant_id()).first_or_404()
+    return render_template('billing_payment.html', sp=sp)
+
+
+@app.route('/billing/payments/<reference>/status')
+@login_required
+def billing_payment_status(reference):
+    if not SubscriptionPayment.query.filter_by(reference=reference, tenant_id=tenant_id()).first():
+        abort(404)
+    sp = _refresh_subscription(reference)
+    return jsonify(status=sp.status, message=sp.message or '',
+                   paid_until=sp.period_end.strftime('%d %b %Y') if sp.period_end else None)
+
+
+def send_billing_reminders(now=None):
+    """Email owners 3 days before their trial/subscription ends and when it has ended."""
+    now = now or datetime.utcnow()
+    sent = 0
+    for tenant in Tenant.query.filter(Tenant.status.in_(('trial', 'active'))):
+        state = billing_state(tenant, now)
+        end = state['end']
+        if not end:
+            continue
+        if state['state'] in ('grace', 'expired'):
+            key, subject = f'exp:{end:%Y-%m-%d}', 'Your SafeNet subscription has ended'
+            body = (f'Your SafeNet {"trial" if not tenant.paid_until else "subscription"} for {tenant.name} ended on '
+                    f'{end:%d %b %Y}. Your Wi-Fi keeps working until {tenant.service_until:%d %b %Y}; renew before then '
+                    f'at {_link("billing")} to avoid interruption.\n')
+        elif end - now <= timedelta(days=3):
+            key, subject = f'pre:{end:%Y-%m-%d}', 'Your SafeNet subscription ends soon'
+            body = (f'Your SafeNet {"trial" if not tenant.paid_until else "subscription"} for {tenant.name} ends on '
+                    f'{end:%d %b %Y}. Renew at {_link("billing")} to keep your Wi-Fi running.\n')
+        else:
+            continue
+        if tenant.billing_notice == key:
+            continue
+        owner = Admin.query.filter_by(tenant_id=tenant.id, role='owner').first()
+        if owner and send_mail(owner.email, subject, body):
+            sent += 1
+        tenant.billing_notice = key
+    db.session.commit()
+    return sent
+
+
+def _billing_reminder_loop():
+    """Hourly; one gunicorn worker at a time (MariaDB named lock)."""
+    while True:
+        time.sleep(3600)
+        with app.app_context():
+            try:
+                got = db.session.execute(text("SELECT GET_LOCK('safenet_billing', 0)")).scalar()
+                if got:
+                    try:
+                        send_billing_reminders()
+                    finally:
+                        db.session.execute(text("SELECT RELEASE_LOCK('safenet_billing')"))
+            except Exception:
+                db.session.rollback()
+                log.exception('billing reminders failed')
+
+
+if Config.BILLING_REMINDERS and 'gunicorn' in os.path.basename(sys.argv[0]):
+    threading.Thread(target=_billing_reminder_loop, daemon=True).start()
+
+
+@app.route('/platform/billing', methods=['GET', 'POST'])
+@login_required
+@superadmin_required
+def platform_billing():
+    if request.method == 'POST':
+        _check_csrf()
+        plan = db.get_or_404(BillingPlan, request.form.get('id', type=int)) if request.form.get('id') else BillingPlan()
+        try:
+            plan.name = request.form['name'].strip()[:64]
+            plan.description = (request.form.get('description') or '').strip()[:255] or None
+            plan.price = Decimal(request.form['price'])
+            plan.max_routers = request.form.get('max_routers', type=int)
+            plan.max_gateways = request.form.get('max_gateways', type=int)
+            plan.sort_order = request.form.get('sort_order', type=int) or 0
+            plan.is_active = bool(request.form.get('is_active'))
+            if not plan.name or plan.price < 0:
+                raise ValueError
+        except (KeyError, ValueError, ArithmeticError):
+            db.session.rollback()
+            flash('Enter a name and a valid monthly price.', 'danger')
+            return redirect(url_for('platform_billing'))
+        db.session.add(plan)
+        db.session.commit()
+        flash(f'Billing plan "{plan.name}" saved.', 'success')
+        return redirect(url_for('platform_billing'))
+    plans = BillingPlan.query.order_by(BillingPlan.sort_order, BillingPlan.price).all()
+    payments = SubscriptionPayment.query.order_by(SubscriptionPayment.id.desc()).limit(100).all()
+    month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    paid = SubscriptionPayment.query.filter_by(status='paid')
+    total = lambda q: Decimal(str(q.with_entities(func.coalesce(func.sum(SubscriptionPayment.amount), 0)).scalar()))
+    return render_template('platform/billing.html', plans=plans, payments=payments,
+                           revenue_month=total(paid.filter(SubscriptionPayment.paid_at >= month_start)),
+                           revenue_all=total(paid), payments_ready=clickpesa.is_configured())
 
 
 # Initialize database
@@ -2559,6 +2847,12 @@ def create_admin(username, password, email, force, superadmin):
         db.session.add(admin)
         db.session.commit()
         click.echo(f'Admin created: {username}')
+
+
+@app.cli.command('billing-reminders')
+def billing_reminders_command():
+    """Send due trial/subscription reminder emails now."""
+    click.echo(f'Sent {send_billing_reminders()} reminder(s).')
 
 
 @app.cli.command('seed-users')

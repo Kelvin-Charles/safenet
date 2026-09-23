@@ -60,6 +60,9 @@ class Config:
 
     # Platform-collected payments: default fee kept by the platform, minimum payout
     PLATFORM_FEE_PERCENT = float(os.getenv('PLATFORM_FEE_PERCENT', '0'))
+    # Tenant subscriptions: days of service after a trial/paid period ends
+    BILLING_GRACE_DAYS = int(os.getenv('BILLING_GRACE_DAYS', '3'))
+    BILLING_REMINDERS = os.getenv('BILLING_REMINDERS', 'true').lower() == 'true'
     MIN_WITHDRAWAL = int(os.getenv('MIN_WITHDRAWAL', '5000'))
     # Fernet key for secrets stored in the database (derived from SECRET_KEY if empty)
     DATA_ENCRYPTION_KEY = os.getenv('DATA_ENCRYPTION_KEY', '')
