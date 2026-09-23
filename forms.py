@@ -245,3 +245,23 @@ class TeamMemberForm(FlaskForm):
 class GatewayForm(FlaskForm):
     name = StringField('Gateway name', validators=[DataRequired(), Length(max=64)],
                        description='e.g. "Main branch - dev server"')
+
+
+class PaymentSettingsForm(FlaskForm):
+    payment_mode = SelectField('Who receives package payments?', choices=[
+        ('platform', 'SafeNet collects for me, I withdraw my balance'),
+        ('own', 'Straight into my own ClickPesa account'),
+    ])
+    client_id = StringField('ClickPesa Client ID', validators=[Optional(), Length(max=64)])
+    api_key = PasswordField('ClickPesa API key', validators=[Optional(), Length(max=200)],
+                            description='Leave empty to keep the saved key.')
+    checksum_key = PasswordField('Checksum key (only if enabled in ClickPesa)', validators=[Optional(), Length(max=200)],
+                                 description='Leave empty to keep the saved key.')
+    clear_checksum = BooleanField('Remove the saved checksum key')
+
+
+class WithdrawalForm(FlaskForm):
+    amount = IntegerField('Amount', validators=[DataRequired()])
+    phone = StringField('Mobile money number', validators=[DataRequired(), Length(max=20)])
+    account_name = StringField('Account name', validators=[Optional(), Length(max=100)],
+                               description='Name registered on the mobile money number')

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "auth/_field.html" import field %}
+
+{% block title %}Payment settings - {{ app_name }}{% endblock %}
+{% block page_title %}Payment Settings{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-phone"></i> Mobile money (ClickPesa)</div>
+            <div class="card-body">
+                <form method="POST" novalidate>
+                    {{ form.hidden_tag() }}
+                    {{ field(form.payment_mode, "form-select") }}
+                    <div class="border rounded p-3 mb-3">
+                        <p class="small text-muted">Only needed for "my own ClickPesa account". Find the keys in ClickPesa under Settings → Developers.</p>
+                        {{ field(form.client_id) }}
+                        {{ field(form.api_key, placeholder=("•••••••• saved" if has_api_key else "")) }}
+                        {{ field(form.checksum_key, placeholder=("•••••••• saved" if has_checksum else "")) }}
+                        {% if has_checksum %}<div class="form-check mb-2">{{ form.clear_checksum(class="form-check-input") }} {{ form.clear_checksum.label(class="form-check-label") }}</div>{% endif %}
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> Save</button>
+                </form>
+                <form method="POST" action="{{ url_for('test_payment_settings') }}" class="mt-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-plug"></i> Test my ClickPesa keys</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-info-circle"></i> How it works</div>
+            <div class="card-body small">
+                <p><strong>SafeNet collects:</strong> guests pay into SafeNet's ClickPesa account. SafeNet keeps {{ fee_percent }} % and you withdraw the rest from Earnings to your mobile money.
+                    {% if not platform_ready %}<span class="text-danger">(Not available right now.)</span>{% endif %}</p>
+                <p><strong>Your own ClickPesa:</strong> guests pay you directly; SafeNet keeps no fee. In ClickPesa, set the webhook for
+                    "PAYMENT RECEIVED" and "PAYMENT FAILED" to:</p>
+                <code class="d-block text-break">{{ webhook_url }}</code>
+                <p class="mt-2 mb-0">Your keys are stored encrypted and only used to request and check your guests' payments.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

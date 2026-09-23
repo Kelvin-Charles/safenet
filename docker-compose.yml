@@ -69,7 +69,9 @@ services:
       MERAKI_COA_SECRET: ${MERAKI_COA_SECRET:-JRIIT-fr33.}
       FLASK_APP: app.py
       FLASK_ENV: ${FLASK_ENV:-production}
-      SECRET_KEY: ${SECRET_KEY:-change-this-to-a-random-secret-key}
+      # Signs logins and emailed links: must be a long random value in .env
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
       DB_HOST: 127.0.0.1
       DB_PORT: 3302
       DB_NAME: ${DB_NAME:-radius}
@@ -101,6 +103,8 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:-https://radius.safezonetz.com}
       SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}
       TRIAL_DAYS: ${TRIAL_DAYS:-14}
+      PLATFORM_FEE_PERCENT: ${PLATFORM_FEE_PERCENT:-0}
+      MIN_WITHDRAWAL: ${MIN_WITHDRAWAL:-5000}
     depends_on:
       db:
         condition: service_healthy

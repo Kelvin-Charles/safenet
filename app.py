@@ -2,12 +2,13 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway
-from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm
+from models import db, Withdrawal, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway
+from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
 from sqlalchemy import func, or_, desc
 import clickpesa
+import secretbox
 import migrations
 from mailer import send_mail
 from tenancy import current_tenant, tenant_id, scoped, owned_or_404, tenant_usernames, role_required, superadmin_required
@@ -1205,7 +1206,7 @@ def _split_minutes(minutes):
 def packages():
     items = scoped(Package).order_by(Package.sort_order, Package.price).all()
     return render_template('packages/list.html', packages=items,
-                           clickpesa_ready=clickpesa.is_configured(),
+                           clickpesa_ready=clickpesa.is_configured(_tenant_credentials(current_tenant())),
                            portal_api_ready=bool(scoped(Gateway).filter_by(is_active=True).count() or Config.PORTAL_API_KEY))
 
 
@@ -1287,6 +1288,34 @@ def _normalize_tz_phone(raw):
     return digits if re.fullmatch(r'255[67]\d{8}', digits) else None
 
 
+def _own_credentials(tenant):
+    return clickpesa.Credentials(tenant.clickpesa_client_id or '', secretbox.decrypt(tenant.clickpesa_api_key_enc),
+                                 secretbox.decrypt(tenant.clickpesa_checksum_key_enc))
+
+
+def _tenant_credentials(tenant):
+    """ClickPesa account that receives this tenant's package sales."""
+    return _own_credentials(tenant) if tenant.payment_mode == 'own' else clickpesa.platform_credentials()
+
+
+def _payment_credentials(payment):
+    return _own_credentials(payment.tenant) if payment.provider_account == 'own' else clickpesa.platform_credentials()
+
+
+def _fee_percent(tenant):
+    return Decimal(str(tenant.fee_percent if tenant.fee_percent is not None else Config.PLATFORM_FEE_PERCENT))
+
+
+def tenant_balance(tid):
+    """(balance, earned, withdrawn) of platform-collected sales for a tenant."""
+    earned = db.session.query(func.coalesce(func.sum(Payment.net_amount), 0)).filter(
+        Payment.tenant_id == tid, Payment.status == 'paid', Payment.provider_account == 'platform').scalar()
+    withdrawn = db.session.query(func.coalesce(func.sum(Withdrawal.amount), 0)).filter(
+        Withdrawal.tenant_id == tid, Withdrawal.status.in_(('requested', 'paid'))).scalar()
+    earned, withdrawn = Decimal(str(earned)), Decimal(str(withdrawn))
+    return earned - withdrawn, earned, withdrawn
+
+
 def _fulfil_payment(payment):
     """Paid: issue a voucher for the package (once)."""
     if payment.voucher_id:
@@ -1312,7 +1341,7 @@ def _refresh_payment(reference, force=False):
     if payment.status == 'pending' and due:
         payment.checked_at = now
         try:
-            record = clickpesa.query_payment(reference)
+            record = clickpesa.query_payment(reference, _payment_credentials(payment))
         except clickpesa.ClickPesaError as e:
             log.warning('ClickPesa query %s failed: %s', reference, e)
             record = None
@@ -1363,7 +1392,7 @@ def payments():
     }
     return render_template('payments/list.html', pagination=pagination, stats=stats, status=status,
                            search=search, currency=current_tenant().currency,
-                           clickpesa_ready=clickpesa.is_configured())
+                           clickpesa_ready=clickpesa.is_configured(_tenant_credentials(current_tenant())))
 
 
 @app.route('/payments/<int:payment_id>/refresh', methods=['POST'])
@@ -1433,7 +1462,7 @@ def api_portal_packages():
         'id': p.id, 'name': p.name, 'description': p.description or '',
         'price': f'{p.price:.0f}', 'currency': p.currency,
         'validity_minutes': p.validity_minutes, 'validity': p.validity_label,
-    } for p in items], payments_enabled=clickpesa.is_configured())
+    } for p in items], payments_enabled=clickpesa.is_configured(_tenant_credentials(g.api_tenant)))
 
 
 @app.route('/api/portal/purchase', methods=['POST'])
@@ -1447,7 +1476,9 @@ def api_portal_purchase():
     phone = _normalize_tz_phone(str(data.get('phone', '')))
     if not phone:
         return jsonify(error='Enter a valid mobile number, e.g. 0712 345 678.'), 400
-    if not clickpesa.is_configured():
+    tenant = g.api_tenant
+    creds = _tenant_credentials(tenant)
+    if not clickpesa.is_configured(creds):
         return jsonify(error='Mobile payments are not available right now.'), 503
     recent = Payment.query.filter(Payment.phone == phone, Payment.status == 'pending',
                                   Payment.created_at >= datetime.utcnow() - timedelta(seconds=90)).count()
@@ -1460,21 +1491,24 @@ def api_portal_purchase():
         package_id=package.id, package_name=package.name, plan_id=package.plan_id,
         validity_minutes=package.validity_minutes, phone=phone,
         amount=package.price, currency=package.currency,
+        provider_account=tenant.payment_mode,
+        fee_amount=(package.price * _fee_percent(tenant) / 100).quantize(Decimal('0.01')) if tenant.payment_mode == 'platform' else Decimal(0),
         nas_identifier=str(data.get('nas', ''))[:64] or None,
         client_mac=str(data.get('mac', ''))[:17] or None,
         client_ip=str(data.get('ip', ''))[:45] or None,
     )
+    payment.net_amount = payment.amount - payment.fee_amount
     db.session.add(payment)
     db.session.commit()
     try:
-        available = clickpesa.preview_ussd_push(payment.amount, phone, payment.reference)
+        available = clickpesa.preview_ussd_push(payment.amount, phone, payment.reference, creds)
         if not available:
             payment.status = 'failed'
             payment.message = 'No mobile-money method available for this number'
             db.session.commit()
             return jsonify({**_payment_json(payment),
                             'error': "Mobile money for this number isn't available right now. Try another number or a voucher."}), 502
-        tx = clickpesa.initiate_ussd_push(payment.amount, phone, payment.reference) or {}
+        tx = clickpesa.initiate_ussd_push(payment.amount, phone, payment.reference, creds) or {}
         payment.provider_id = tx.get('id')
         payment.provider_status = (tx.get('status') or '').upper() or None
         payment.channel = tx.get('channel')
@@ -2033,7 +2067,8 @@ def platform_tenants():
     owners = {a.tenant_id: a for a in Admin.query.filter_by(role='owner').order_by(Admin.id.desc())}
     return render_template('platform/tenants.html', tenants=tenants, users=count(RadUser),
                            vouchers=count(Voucher), gateways=count(Gateway), nas=count(Nas),
-                           revenue=revenue, owners=owners, now=datetime.utcnow())
+                           revenue=revenue, owners=owners, now=datetime.utcnow(),
+                           default_fee=Config.PLATFORM_FEE_PERCENT, balances={t.id: tenant_balance(t.id)[0] for t in tenants})
 
 
 @app.route('/platform/tenants/<int:tid>/status', methods=['POST'])
@@ -2079,6 +2114,188 @@ def platform_switch(tid):
 def platform_switch_back():
     _check_csrf()
     session.pop('tenant_id', None)
+    return redirect(url_for('platform_tenants'))
+
+
+# ---------------------------------------------------------------------------
+# Earnings, payment settings and withdrawals (phase 3)
+# ---------------------------------------------------------------------------
+@app.route('/earnings')
+@login_required
+@role_required('admin')
+def earnings():
+    tenant = current_tenant()
+    tid = tenant.id
+    paid = scoped(Payment).filter(Payment.status == 'paid')
+    total = lambda col, q=paid: Decimal(str(q.with_entities(func.coalesce(func.sum(col), 0)).scalar()))
+    platform_paid = paid.filter(Payment.provider_account == 'platform')
+    balance, earned, withdrawn = tenant_balance(tid)
+    stats = {
+        'gross': total(Payment.amount),
+        'own_gross': total(Payment.amount, paid.filter(Payment.provider_account == 'own')),
+        'platform_gross': total(Payment.amount, platform_paid),
+        'fees': total(Payment.fee_amount, platform_paid),
+        'earned': earned, 'withdrawn': withdrawn, 'balance': balance,
+        'cash': Decimal(str(scoped(Voucher).filter(Voucher.first_used_at.isnot(None), Voucher.batch != 'online-payments')
+                            .with_entities(func.coalesce(func.sum(Voucher.price), 0)).scalar())),
+    }
+    withdrawals = scoped(Withdrawal).order_by(Withdrawal.created_at.desc()).limit(50).all()
+    form = WithdrawalForm(phone=tenant.phone or '')
+    return render_template('earnings.html', stats=stats, withdrawals=withdrawals, form=form,
+                           fee_percent=_fee_percent(tenant), min_withdrawal=Config.MIN_WITHDRAWAL,
+                           can_withdraw=current_user.has_role('owner'))
+
+
+@app.route('/earnings/withdraw', methods=['POST'])
+@login_required
+@role_required('owner')
+def request_withdrawal():
+    form = WithdrawalForm()
+    if not form.validate_on_submit():
+        flash(' '.join(e for errs in form.errors.values() for e in errs) or 'Check the form.', 'danger')
+        return redirect(url_for('earnings'))
+    phone = _normalize_tz_phone(form.phone.data)
+    if not phone:
+        flash('Enter a valid mobile money number, e.g. 0712 345 678.', 'danger')
+        return redirect(url_for('earnings'))
+    tenant = Tenant.query.filter_by(id=tenant_id()).with_for_update().one()   # one request at a time
+    amount = Decimal(str(form.amount.data))
+    balance, _, _ = tenant_balance(tenant.id)
+    if amount < Config.MIN_WITHDRAWAL:
+        db.session.rollback()
+        flash(f'The minimum withdrawal is {tenant.currency} {Config.MIN_WITHDRAWAL:,}.', 'danger')
+        return redirect(url_for('earnings'))
+    if amount > balance:
+        db.session.rollback()
+        flash(f'You can withdraw up to {tenant.currency} {balance:,.0f}.', 'danger')
+        return redirect(url_for('earnings'))
+    w = Withdrawal(tenant_id=tenant.id, amount=amount, phone=phone, account_name=(form.account_name.data or '').strip() or None,
+                   requested_by_id=current_user.id)
+    db.session.add(w)
+    db.session.commit()
+    for admin in Admin.query.filter_by(is_superadmin=True, is_active=True):
+        send_mail(admin.email, f'Withdrawal request: {tenant.name} {tenant.currency} {amount:,.0f}',
+                  f'{tenant.name} asked to withdraw {tenant.currency} {amount:,.0f} to {phone}'
+                  f'{" (" + w.account_name + ")" if w.account_name else ""}.\n\nProcess it at {_link("platform_payouts")}\n')
+    flash(f'Withdrawal of {tenant.currency} {amount:,.0f} requested. You will get an email when it is paid.', 'success')
+    return redirect(url_for('earnings'))
+
+
+@app.route('/settings/payments', methods=['GET', 'POST'])
+@login_required
+@role_required('owner')
+def payment_settings():
+    tenant = current_tenant()
+    form = PaymentSettingsForm(payment_mode=tenant.payment_mode, client_id=tenant.clickpesa_client_id)
+    if form.validate_on_submit():
+        mode = form.payment_mode.data
+        if form.client_id.data is not None:
+            tenant.clickpesa_client_id = form.client_id.data.strip() or None
+        if form.api_key.data:
+            tenant.clickpesa_api_key_enc = secretbox.encrypt(form.api_key.data.strip())
+        if form.checksum_key.data:
+            tenant.clickpesa_checksum_key_enc = secretbox.encrypt(form.checksum_key.data.strip())
+        if form.clear_checksum.data:
+            tenant.clickpesa_checksum_key_enc = None
+        if mode == 'own' and not clickpesa.is_configured(_own_credentials(tenant)):
+            db.session.rollback()
+            flash('Enter your ClickPesa Client ID and API key to receive payments directly.', 'danger')
+            return redirect(url_for('payment_settings'))
+        tenant.payment_mode = mode
+        db.session.commit()
+        flash('Payment settings saved.', 'success')
+        return redirect(url_for('payment_settings'))
+    return render_template('payment_settings.html', form=form, has_api_key=bool(tenant.clickpesa_api_key_enc),
+                           has_checksum=bool(tenant.clickpesa_checksum_key_enc), fee_percent=_fee_percent(tenant),
+                           webhook_url=_link('clickpesa_webhook'), platform_ready=clickpesa.is_configured())
+
+
+@app.route('/settings/payments/test', methods=['POST'])
+@login_required
+@role_required('owner')
+def test_payment_settings():
+    _check_csrf()
+    tenant = current_tenant()
+    creds = _own_credentials(tenant)
+    if not clickpesa.is_configured(creds):
+        flash('Save your ClickPesa Client ID and API key first.', 'warning')
+    else:
+        try:
+            clickpesa.test_credentials(creds)
+            flash('ClickPesa accepted your keys.', 'success')
+        except clickpesa.ClickPesaError as e:
+            flash(f'ClickPesa rejected the keys: {e}', 'danger')
+    return redirect(url_for('payment_settings'))
+
+
+@app.route('/platform/payouts')
+@login_required
+@superadmin_required
+def platform_payouts():
+    status = request.args.get('status', 'requested')
+    query = Withdrawal.query
+    if status:
+        query = query.filter_by(status=status)
+    items = query.order_by(Withdrawal.created_at.desc()).limit(200).all()
+    fees = db.session.query(func.coalesce(func.sum(Payment.fee_amount), 0)).filter(
+        Payment.status == 'paid', Payment.provider_account == 'platform').scalar()
+    owed = {t.id: tenant_balance(t.id)[0] for t in Tenant.query.all()}
+    return render_template('platform/payouts.html', withdrawals=items, status=status, fees=fees,
+                           owed=owed, tenants=Tenant.query.all())
+
+
+@app.route('/platform/payouts/<int:wid>', methods=['POST'])
+@login_required
+@superadmin_required
+def process_payout(wid):
+    _check_csrf()
+    w = Withdrawal.query.filter_by(id=wid).with_for_update().first_or_404()
+    if w.status != 'requested':
+        flash('This withdrawal was already processed.', 'warning')
+        return redirect(url_for('platform_payouts'))
+    action = request.form.get('action')
+    reference = (request.form.get('reference') or '').strip()[:64]
+    note = (request.form.get('note') or '').strip()[:255]
+    if action == 'paid':
+        if not reference:
+            db.session.rollback()
+            flash('Enter the payout transaction reference.', 'danger')
+            return redirect(url_for('platform_payouts'))
+        w.status, w.reference = 'paid', reference
+    elif action == 'reject':
+        w.status = 'rejected'
+    else:
+        abort(400)
+    w.note = note or None
+    w.processed_by_id, w.processed_at = current_user.id, datetime.utcnow()
+    db.session.commit()
+    owner = Admin.query.filter_by(tenant_id=w.tenant_id, role='owner').first()
+    if owner:
+        body = (f'Your withdrawal of {w.tenant.currency} {w.amount:,.0f} to {w.phone} was sent. Reference: {reference}.\n'
+                if w.status == 'paid' else
+                f'Your withdrawal of {w.tenant.currency} {w.amount:,.0f} was not approved{": " + note if note else ""}. '
+                f'The amount is back in your balance.\n')
+        send_mail(owner.email, f'Withdrawal {w.status}', body)
+    flash(f'Withdrawal marked {w.status}.', 'success')
+    return redirect(url_for('platform_payouts'))
+
+
+@app.route('/platform/tenants/<int:tid>/fee', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_tenant_fee(tid):
+    _check_csrf()
+    tenant = db.get_or_404(Tenant, tid)
+    raw = (request.form.get('fee_percent') or '').strip()
+    try:
+        tenant.fee_percent = None if raw == '' else Decimal(raw)
+        if tenant.fee_percent is not None and not (0 <= tenant.fee_percent <= 50):
+            raise ValueError
+    except (ArithmeticError, ValueError):
+        flash('Enter a fee between 0 and 50 %, or leave it empty for the default.', 'danger')
+        return redirect(url_for('platform_tenants'))
+    db.session.commit()
+    flash(f'{tenant.name}: platform fee set to {_fee_percent(tenant)} %.', 'success')
     return redirect(url_for('platform_tenants'))
 
 

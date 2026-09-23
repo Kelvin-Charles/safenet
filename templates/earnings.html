@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% from "auth/_field.html" import field %}
+
+{% block title %}Earnings - {{ app_name }}{% endblock %}
+{% block page_title %}Earnings{% endblock %}
+
+{% block content %}
+{% set cur = tenant.currency %}
+<div class="row mb-3">
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.gross) }}</div><div class="stat-label">{{ cur }} mobile-money sales</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.cash) }}</div><div class="stat-label">{{ cur }} cash vouchers used</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.withdrawn) }}</div><div class="stat-label">{{ cur }} withdrawn / pending</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value text-success">{{ '{:,.0f}'.format(stats.balance) }}</div><div class="stat-label">{{ cur }} available to withdraw</div></div></div>
+</div>
+
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-wallet2"></i> How you are paid</div>
+            <div class="card-body small">
+                {% if tenant.payment_mode == 'own' %}
+                <p>Package payments go <strong>straight into your own ClickPesa account</strong>
+                    ({{ cur }} {{ '{:,.0f}'.format(stats.own_gross) }} so far). Nothing to withdraw here.</p>
+                {% else %}
+                <p>SafeNet collects package payments for you and keeps a <strong>{{ fee_percent }} %</strong> fee.
+                    Sales so far: {{ cur }} {{ '{:,.0f}'.format(stats.platform_gross) }}, fees {{ cur }} {{ '{:,.0f}'.format(stats.fees) }},
+                    your share {{ cur }} {{ '{:,.0f}'.format(stats.earned) }}.</p>
+                {% endif %}
+                {% if current_user.has_role('owner') %}<a href="{{ url_for('payment_settings') }}">Change payment settings</a>{% endif %}
+            </div>
+        </div>
+
+        {% if can_withdraw and (stats.balance > 0 or tenant.payment_mode == 'platform') %}
+        <div class="card">
+            <div class="card-header"><i class="bi bi-cash-coin"></i> Withdraw</div>
+            <div class="card-body">
+                {% if stats.balance >= min_withdrawal %}
+                <form method="POST" action="{{ url_for('request_withdrawal') }}" novalidate>
+                    {{ form.hidden_tag() }}
+                    {{ field(form.amount, help="Minimum " ~ cur ~ " " ~ '{:,}'.format(min_withdrawal) ~ ", up to " ~ '{:,.0f}'.format(stats.balance)) }}
+                    {{ field(form.phone) }}
+                    {{ field(form.account_name) }}
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> Request withdrawal</button>
+                </form>
+                {% else %}
+                <p class="text-muted mb-0">You can withdraw once your balance reaches {{ cur }} {{ '{:,}'.format(min_withdrawal) }}.</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-clock-history"></i> Withdrawals</div>
+            <div class="card-body">
+                {% if withdrawals %}
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead><tr><th>Requested</th><th>Amount</th><th>To</th><th>Status</th></tr></thead>
+                        <tbody>
+                            {% for w in withdrawals %}
+                            <tr>
+                                <td><small>{{ w.created_at.strftime('%Y-%m-%d %H:%M') }}</small></td>
+                                <td>{{ cur }} {{ '{:,.0f}'.format(w.amount) }}</td>
+                                <td><small>{{ w.phone }}{% if w.account_name %}<span class="d-block text-muted">{{ w.account_name }}</span>{% endif %}</small></td>
+                                <td>
+                                    {% if w.status == 'paid' %}<span class="badge bg-success">Paid</span><small class="d-block text-muted">Ref {{ w.reference }}</small>
+                                    {% elif w.status == 'requested' %}<span class="badge bg-warning text-dark">Pending</span>
+                                    {% else %}<span class="badge bg-danger">Rejected</span>{% if w.note %}<small class="d-block text-muted">{{ w.note }}</small>{% endif %}{% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No withdrawals yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

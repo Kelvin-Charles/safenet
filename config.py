@@ -58,6 +58,12 @@ class Config:
     CLICKPESA_CHECKSUM_KEY = os.getenv('CLICKPESA_CHECKSUM_KEY', '')  # only if checksum is enabled
     CLICKPESA_BASE_URL = os.getenv('CLICKPESA_BASE_URL', 'https://api.clickpesa.com')
 
+    # Platform-collected payments: default fee kept by the platform, minimum payout
+    PLATFORM_FEE_PERCENT = float(os.getenv('PLATFORM_FEE_PERCENT', '0'))
+    MIN_WITHDRAWAL = int(os.getenv('MIN_WITHDRAWAL', '5000'))
+    # Fernet key for secrets stored in the database (derived from SECRET_KEY if empty)
+    DATA_ENCRYPTION_KEY = os.getenv('DATA_ENCRYPTION_KEY', '')
+
     # Shared key captive-portal gateways send in X-SafeNet-Key (empty = API disabled)
     PORTAL_API_KEY = os.getenv('PORTAL_API_KEY', '')
 

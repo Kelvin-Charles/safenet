@@ -22,6 +22,13 @@ class Tenant(db.Model):
     currency = db.Column(db.String(3), nullable=False, default='TZS')
     terms = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # Package sales: 'platform' = paid into the platform's ClickPesa, tenant withdraws
+    # its balance; 'own' = paid straight into the tenant's ClickPesa account.
+    payment_mode = db.Column(db.String(16), nullable=False, default='platform')
+    clickpesa_client_id = db.Column(db.String(64))
+    clickpesa_api_key_enc = db.Column(db.Text)        # secretbox-encrypted
+    clickpesa_checksum_key_enc = db.Column(db.Text)   # secretbox-encrypted
+    fee_percent = db.Column(db.Numeric(5, 2))         # platform fee; NULL = PLATFORM_FEE_PERCENT
 
     @property
     def display_hotspot_name(self):
@@ -419,11 +426,15 @@ class Payment(db.Model):
     client_mac = db.Column(db.String(17))
     client_ip = db.Column(db.String(45))
     voucher_id = db.Column(db.Integer, db.ForeignKey('vouchers.id', ondelete='SET NULL'))
+    provider_account = db.Column(db.String(16), nullable=False, default='platform')  # whose ClickPesa: platform/own
+    fee_amount = db.Column(db.Numeric(10, 2), default=0)      # kept by the platform
+    net_amount = db.Column(db.Numeric(10, 2))                 # owed to the tenant
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     checked_at = db.Column(db.DateTime)
     paid_at = db.Column(db.DateTime)
 
+    tenant = db.relationship('Tenant')
     package = db.relationship('Package')
     plan = db.relationship('Plan')
     voucher = db.relationship('Voucher')
@@ -446,3 +457,29 @@ def format_minutes(minutes):
     if hours:
         return f'{hours} hour{"s" if hours != 1 else ""}'
     return f'{mins} min'
+
+
+
+class Withdrawal(db.Model):
+    """A tenant's request to be paid out its platform-collected balance."""
+    __tablename__ = 'withdrawals'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    phone = db.Column(db.String(16), nullable=False)          # mobile money number to pay
+    account_name = db.Column(db.String(100))
+    status = db.Column(db.String(16), nullable=False, default='requested', index=True)  # requested, paid, rejected
+    reference = db.Column(db.String(64))                      # payout transaction id
+    note = db.Column(db.String(255))
+    requested_by_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='SET NULL'))
+    processed_by_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='SET NULL'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime)
+
+    tenant = db.relationship('Tenant')
+    requested_by = db.relationship('Admin', foreign_keys=[requested_by_id])
+    processed_by = db.relationship('Admin', foreign_keys=[processed_by_id])
+
+    def __repr__(self):
+        return f'<Withdrawal {self.id} {self.status}>'

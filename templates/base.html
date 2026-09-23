@@ -199,6 +199,7 @@
             {{ link(['vouchers', 'generate_vouchers'], url_for('vouchers'), 'bi-ticket-perforated', 'Vouchers') }}
             {{ link(['payments'], url_for('payments'), 'bi-phone', 'Payments') }}
             {% if is_admin %}
+            {{ link(['earnings'], url_for('earnings'), 'bi-wallet2', 'Earnings') }}
             {{ link(['packages', 'add_package', 'edit_package'], url_for('packages'), 'bi-bag', 'Packages') }}
             {{ link(['plans', 'add_plan', 'edit_plan', 'add_plan_attribute'], url_for('plans'), 'bi-box', 'Plans') }}
             {{ link(['gateways', 'add_gateway'], url_for('gateways'), 'bi-hdd-network', 'Gateways') }}
@@ -213,7 +214,8 @@
             {{ link(['radius_features'], url_for('radius_features'), 'bi-gear', 'RADIUS Features') }}
             {% endif %}
             {% if current_user.is_superadmin %}
-            {{ link(['platform_tenants'], url_for('platform_tenants'), 'bi-buildings', 'Platform') }}
+            {{ link(['platform_tenants'], url_for('platform_tenants'), 'bi-buildings', 'Platform: Tenants') }}
+            {{ link(['platform_payouts'], url_for('platform_payouts'), 'bi-cash-coin', 'Platform: Payouts') }}
             {% endif %}
             <hr style="border-color: rgba(255,255,255,0.2); margin: 1rem 0;">
             <a class="nav-link" href="{{ url_for('logout') }}">

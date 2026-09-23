@@ -15,7 +15,7 @@
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-hover align-middle">
-                <thead><tr><th>Tenant</th><th>Owner</th><th>Status</th><th>Users / Vouchers</th><th>Devices</th><th>Online sales</th><th></th></tr></thead>
+                <thead><tr><th>Tenant</th><th>Owner</th><th>Status</th><th>Users / Vouchers</th><th>Devices</th><th>Online sales</th><th>Payments</th><th></th></tr></thead>
                 <tbody>
                     {% for t in tenants %}
                     {% set owner = owners.get(t.id) %}
@@ -30,6 +30,17 @@
                         <td>{{ users.get(t.id, 0) }} / {{ vouchers.get(t.id, 0) }}</td>
                         <td>{{ gateways.get(t.id, 0) }} gw · {{ nas.get(t.id, 0) }} NAS</td>
                         <td>{{ t.currency }} {{ '{:,.0f}'.format(revenue.get(t.id, 0)) }}</td>
+                        <td>
+                            {% if t.payment_mode == 'own' %}<span class="badge bg-secondary">Own ClickPesa</span>
+                            {% else %}
+                            <form method="POST" action="{{ url_for('platform_tenant_fee', tid=t.id) }}" class="d-flex gap-1 align-items-center">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="text" name="fee_percent" class="form-control form-control-sm" style="width: 70px" value="{{ t.fee_percent if t.fee_percent is not none else '' }}" placeholder="{{ default_fee }}" title="Platform fee %">
+                                <button class="btn btn-sm btn-outline-secondary" type="submit" title="Save fee">%</button>
+                            </form>
+                            <small class="text-muted">owed {{ '{:,.0f}'.format(balances.get(t.id, 0)) }}</small>
+                            {% endif %}
+                        </td>
                         <td class="text-nowrap">
                             <form method="POST" action="{{ url_for('platform_switch', tid=t.id) }}" style="display:inline;">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

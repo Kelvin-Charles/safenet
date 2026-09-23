@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Payouts - {{ app_name }}{% endblock %}
+{% block page_title %}Platform: Payouts{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value text-success">{{ '{:,.0f}'.format(fees) }}</div><div class="stat-label">Platform fees earned (TZS)</div></div></div>
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(owed.values()|sum) }}</div><div class="stat-label">Owed to tenants (unwithdrawn)</div></div></div>
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value text-warning">{{ withdrawals|selectattr('status', 'equalto', 'requested')|list|length }}</div><div class="stat-label">Waiting to be paid</div></div></div>
+</div>
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-cash-coin"></i> Withdrawal requests</span>
+        <div class="btn-group btn-group-sm">
+            {% for s, label in [('requested', 'Pending'), ('paid', 'Paid'), ('rejected', 'Rejected'), ('', 'All')] %}
+            <a class="btn btn-outline-secondary {{ 'active' if status == s }}" href="{{ url_for('platform_payouts', status=s) }}">{{ label }}</a>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted">Send the money from your ClickPesa or mobile money account first, then mark the request paid with the transaction reference. The tenant is emailed either way.</p>
+        {% if withdrawals %}
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead><tr><th>Tenant</th><th>Amount</th><th>Pay to</th><th>Requested</th><th>Status / action</th></tr></thead>
+                <tbody>
+                    {% for w in withdrawals %}
+                    <tr>
+                        <td><strong>{{ w.tenant.name }}</strong><small class="d-block text-muted">balance {{ '{:,.0f}'.format(owed.get(w.tenant_id, 0)) }}</small></td>
+                        <td>{{ w.tenant.currency }} {{ '{:,.0f}'.format(w.amount) }}</td>
+                        <td>{{ w.phone }}{% if w.account_name %}<small class="d-block text-muted">{{ w.account_name }}</small>{% endif %}</td>
+                        <td><small>{{ w.created_at.strftime('%Y-%m-%d %H:%M') }}{% if w.requested_by %}<span class="d-block text-muted">by {{ w.requested_by.username }}</span>{% endif %}</small></td>
+                        <td>
+                            {% if w.status == 'requested' %}
+                            <form method="POST" action="{{ url_for('process_payout', wid=w.id) }}" class="d-flex flex-wrap gap-1">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="text" name="reference" class="form-control form-control-sm" style="max-width: 160px" placeholder="Transaction ref">
+                                <input type="text" name="note" class="form-control form-control-sm" style="max-width: 160px" placeholder="Note (optional)">
+                                <button name="action" value="paid" class="btn btn-sm btn-success" type="submit">Mark paid</button>
+                                <button name="action" value="reject" class="btn btn-sm btn-outline-danger" type="submit" onclick="return confirm('Reject this withdrawal? The amount goes back to their balance.');">Reject</button>
+                            </form>
+                            {% elif w.status == 'paid' %}<span class="badge bg-success">Paid</span> <small class="text-muted">ref {{ w.reference }} · {{ w.processed_at.strftime('%Y-%m-%d') }}</small>
+                            {% else %}<span class="badge bg-danger">Rejected</span> <small class="text-muted">{{ w.note or '' }}</small>{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">Nothing here.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
