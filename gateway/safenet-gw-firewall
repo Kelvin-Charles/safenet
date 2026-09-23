@@ -63,6 +63,14 @@ table inet safenet_gw {
         counter drop
     }
 
+    # Hotspot-sharing block, filled by the portal when the tenant enables it: a
+    # guest's own phone/laptop hotspot lowers the TTL by one (64->63, 128->127),
+    # so packets with those TTLs come from devices behind someone else's device.
+    # Requires the access point to bridge (AP mode), as it does in this setup.
+    chain antishare {
+        type filter hook prerouting priority -160; policy accept;
+    }
+
     # Per-guest speed limits, rebuilt by the portal (drop traffic over the plan's rate)
     chain ratelimit {
     }

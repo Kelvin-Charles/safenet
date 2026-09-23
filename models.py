@@ -46,6 +46,8 @@ class Tenant(db.Model):
     portal_logo = db.deferred(db.Column(db.LargeBinary(length=16777215)))   # MEDIUMBLOB; loaded only when needed
     portal_logo_type = db.Column(db.String(32))
     portal_logo_at = db.Column(db.DateTime)
+    # Drop traffic forwarded by a guest's own hotspot (TTL 63/127) at the gateway
+    block_tethering = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
 
     billing_plan = db.relationship('BillingPlan')
 
@@ -356,6 +358,7 @@ class Voucher(db.Model):
     batch = db.Column(db.String(64), index=True)
     validity_minutes = db.Column(db.Integer, nullable=False)
     price = db.Column(db.Numeric(10, 2))
+    max_devices = db.Column(db.Integer, nullable=False, default=1, server_default='1')   # devices online at once
     status = db.Column(db.String(16), nullable=False, default='unused')  # unused, active, disabled
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     first_used_at = db.Column(db.DateTime)
@@ -405,6 +408,7 @@ class Package(db.Model):
     price = db.Column(db.Numeric(10, 2), nullable=False)
     currency = db.Column(db.String(3), nullable=False, default='TZS')
     validity_minutes = db.Column(db.Integer, nullable=False)
+    max_devices = db.Column(db.Integer, nullable=False, default=1, server_default='1')
     is_active = db.Column(db.Boolean, default=True)
     show_on_portal = db.Column(db.Boolean, default=True)
     sort_order = db.Column(db.Integer, default=0)
@@ -433,6 +437,7 @@ class Payment(db.Model):
     # Copied from the package at purchase time
     plan_id = db.Column(db.Integer, db.ForeignKey('plans.id', ondelete='SET NULL'))
     validity_minutes = db.Column(db.Integer, nullable=False)
+    max_devices = db.Column(db.Integer, nullable=False, default=1, server_default='1')
     phone = db.Column(db.String(16), nullable=False, index=True)
     amount = db.Column(db.Numeric(10, 2), nullable=False)
     currency = db.Column(db.String(3), nullable=False, default='TZS')

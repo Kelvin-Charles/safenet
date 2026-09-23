@@ -1041,7 +1041,7 @@ def _new_group_name(plan_name):
     return name
 
 
-def _create_vouchers(count, plan, minutes, price, batch, tenant=None):
+def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_devices=1):
     """Adds `count` vouchers (and their RADIUS rows) to the session; caller commits."""
     # Codes double as RADIUS usernames, so avoid clashes with both tables.
     taken = {c for (c,) in db.session.query(Voucher.code)}
@@ -1051,7 +1051,7 @@ def _create_vouchers(count, plan, minutes, price, batch, tenant=None):
         code = _new_voucher_code(taken)
         voucher = Voucher(tenant_id=tenant if tenant is not None else tenant_id(),
                           code=code, plan_id=plan.id if plan else None, batch=batch,
-                          validity_minutes=minutes, price=price)
+                          validity_minutes=minutes, price=price, max_devices=max_devices or 1)
         db.session.add(voucher)
         db.session.add(RadCheck(username=code, attribute='Cleartext-Password', op=':=', value=code))
         if plan:
@@ -1113,7 +1113,7 @@ def generate_vouchers():
         price = Decimal(form.price.data.strip()) if form.price.data else None
         batch = (form.batch.data or '').strip() or datetime.utcnow().strftime('%Y%m%d-%H%M%S')
 
-        _create_vouchers(form.count.data, plan, minutes, price, batch)
+        _create_vouchers(form.count.data, plan, minutes, price, batch, max_devices=form.max_devices.data)
         db.session.commit()
 
         flash(f'{form.count.data} vouchers created in batch "{batch}".', 'success')
@@ -1411,6 +1411,7 @@ def _fill_package(package, form):
     package.plan_id = form.plan_id.data or None
     package.price = Decimal(form.price.data.strip())
     package.validity_minutes = _minutes_from(form.validity_value.data, form.validity_unit.data)
+    package.max_devices = form.max_devices.data
     package.sort_order = form.sort_order.data or 0
     package.is_active = form.is_active.data
     package.show_on_portal = form.show_on_portal.data
@@ -1542,7 +1543,7 @@ def _fulfil_payment(payment):
     if payment.voucher_id:
         return
     voucher = _create_vouchers(1, payment.plan, payment.validity_minutes, payment.amount, 'online-payments',
-                               tenant=payment.tenant_id)[0]
+                               tenant=payment.tenant_id, max_devices=payment.max_devices)[0]
     db.session.flush()
     payment.voucher_id = voucher.id
     payment.status = 'paid'
@@ -1728,7 +1729,7 @@ def api_portal_purchase():
         tenant_id=g.api_tenant.id,
         reference='SN' + secrets.token_hex(6).upper(),
         package_id=package.id, package_name=package.name, plan_id=package.plan_id,
-        validity_minutes=package.validity_minutes, phone=phone,
+        validity_minutes=package.validity_minutes, max_devices=package.max_devices or 1, phone=phone,
         amount=package.price, currency=package.currency,
         provider_account=tenant.payment_mode,
         fee_amount=(package.price * _fee_percent(tenant) / 100).quantize(Decimal('0.01')) if tenant.payment_mode == 'platform' else Decimal(0),
@@ -1798,7 +1799,17 @@ def _log_auth(username, accepted):
                                reply='Access-Accept' if accepted else 'Access-Reject'))
 
 
-def _gateway_authenticate(tenant, username, password):
+def _devices_in_use(username, mac):
+    """Other devices with a live session on this code (updated in the last 10 minutes)."""
+    me = (mac or '').upper().replace(':', '-')
+    recent = datetime.utcnow() - timedelta(minutes=10)
+    rows = db.session.query(RadAcct.callingstationid).filter(
+        RadAcct.username == username, RadAcct.acctstoptime.is_(None),
+        func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime) >= recent).distinct()
+    return {m for (m,) in rows if m and m.upper() != me}
+
+
+def _gateway_authenticate(tenant, username, password, mac=None):
     """Same rules FreeRADIUS applies. Returns (ok, message, info)."""
     now = datetime.utcnow()
     voucher = Voucher.query.filter_by(code=username).with_for_update().first()
@@ -1811,6 +1822,8 @@ def _gateway_authenticate(tenant, username, password):
     if voucher:
         if voucher.status == 'disabled' or (voucher.expires_at and voucher.expires_at <= now):
             return False, 'Voucher expired or disabled', None
+        if mac and len(_devices_in_use(username, mac)) >= (voucher.max_devices or 1):
+            return False, 'This code is already being used on another device.', None
         if not voucher.first_used_at:
             voucher.first_used_at = now
             voucher.expires_at = now + timedelta(minutes=voucher.validity_minutes)
@@ -1836,6 +1849,7 @@ def api_gateway_config():
     cfg = portal_config(t)
     return jsonify(tenant=t.slug, hotspot_name=hotspot['name'], support=hotspot['support'],
                    terms=hotspot['terms'], currency=hotspot['currency'], acct_interim_seconds=60,
+                   block_tethering=t.block_tethering,
                    gateway=g.api_gateway.name if g.api_gateway else None,
                    portal={k: cfg.get(k) for k in ('color', 'style', 'title', 'message', 'language',
                                                    'show_voucher', 'show_packages', 'logo_version')})
@@ -1855,7 +1869,7 @@ def api_gateway_auth():
     password = str(data.get('password', ''))[:128]
     if not username:
         return jsonify(ok=False, message='Enter your voucher code.')
-    ok, message, info = _gateway_authenticate(g.api_tenant, username, password)
+    ok, message, info = _gateway_authenticate(g.api_tenant, username, password, str(data.get('mac') or '')[:17])
     _log_auth(username, ok)
     db.session.commit()
     return jsonify(ok=ok, message=message, **(info or {}))
@@ -2237,6 +2251,7 @@ def tenant_settings():
         tenant.support_phone = (form.support_phone.data or '').strip() or None
         tenant.currency = form.currency.data.strip().upper()
         tenant.terms = (form.terms.data or '').strip() or None
+        tenant.block_tethering = form.block_tethering.data
         db.session.commit()
         flash('Settings saved.', 'success')
         return redirect(url_for('tenant_settings'))

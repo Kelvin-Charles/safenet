@@ -245,6 +245,7 @@ def refresh_branding():
         log.warning('fetching branding failed: %s', e)
         return
     portal = data.get('portal') or {}
+    apply_antishare(data.get('block_tethering', True))
     branding.update(name=data.get('hotspot_name') or branding['name'],
                     support=data.get('support') or '', terms=data.get('terms') or branding['terms'],
                     **{k: portal.get(k) for k in ('color', 'style', 'title', 'message', 'language',
@@ -319,6 +320,27 @@ def apply_rate_limits():
         _nft('\n'.join(lines) + '\n')
     except subprocess.CalledProcessError as e:
         log.error('applying speed limits failed: %s', e.stderr)
+
+
+LAN_IFS = os.environ.get('LAN_IFS', 'wlp3s0').split()
+_antishare = {'enabled': None}
+
+
+def apply_antishare(enabled):
+    """Drop traffic shared through a guest's own hotspot (TTL 63/127) when enabled."""
+    enabled = bool(enabled)
+    if _antishare['enabled'] == enabled:
+        return
+    lines = [f'flush chain inet {NFT_TABLE} antishare']
+    if enabled and LAN_IFS:
+        ifs = ', '.join(f'"{i}"' for i in LAN_IFS)
+        lines.append(f'add rule inet {NFT_TABLE} antishare iifname {{ {ifs} }} ip ttl {{ 63, 127 }} counter drop')
+    try:
+        _nft('\n'.join(lines) + '\n')
+        _antishare['enabled'] = enabled
+        log.info('hotspot-sharing block %s', 'on' if enabled else 'off')
+    except (subprocess.CalledProcessError, OSError) as e:
+        log.error('applying hotspot-sharing block failed: %s', getattr(e, 'stderr', None) or e)
 
 
 def firewall_deny(mac, ip):
@@ -850,6 +872,7 @@ def main():
                         format='%(levelname)s %(message)s')
     if not API_MODE and (not RADIUS_SERVER or not RADIUS_SECRET):
         raise SystemExit('Set SAFENET_API_URL and SAFENET_API_KEY (or RADIUS_SERVER and RADIUS_SECRET)')
+    apply_antishare(os.environ.get('BLOCK_TETHERING', 'yes').lower() in ('yes', 'true', '1'))
     refresh_branding()
     load_sessions()
     threading.Thread(target=accounting_loop, daemon=True).start()

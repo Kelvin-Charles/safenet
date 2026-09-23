@@ -23,6 +23,7 @@
 /radius add service=hotspot,login,ppp address={{ config.WG_SERVER_IP }} secret="{{ router.nas.secret if router.nas else '' }}" src-address={{ router.tunnel_ip }} authentication-port=1812 accounting-port=1813 timeout=3s comment="SafeNet"
 /radius incoming set accept=yes
 /ip hotspot profile set [find] use-radius=yes radius-accounting=yes radius-interim-update=1m
+/ip hotspot user profile set [find] shared-users=1
 /ppp aaa set use-radius=yes accounting=yes interim-update=1m</pre>
         <button class="btn btn-outline-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('script').innerText).then(() => this.textContent = 'Copied')"><i class="bi bi-clipboard"></i> Copy script</button>
         <p class="small text-muted mt-3 mb-0">Check: <code>/interface wireguard peers print</code> should show a recent "last-handshake", and this page will say "Connected" within a minute. Speed limits from your plans are sent to the router as <code>Mikrotik-Rate-Limit</code>.</p>

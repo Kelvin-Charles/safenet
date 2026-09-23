@@ -118,6 +118,7 @@ def run():
     _add_column('tenants', 'portal_logo', 'MEDIUMBLOB NULL' if db.engine.dialect.name == 'mysql' else 'BLOB NULL')
     _add_column('tenants', 'portal_logo_type', 'VARCHAR(32) NULL')
     _add_column('tenants', 'portal_logo_at', 'DATETIME NULL')
+    _add_column('tenants', 'block_tethering', 'BOOLEAN NOT NULL DEFAULT 1')
     _add_column('payments', 'provider_account', "VARCHAR(16) NOT NULL DEFAULT 'platform'")
     _add_column('payments', 'fee_amount', 'NUMERIC(10, 2) NULL DEFAULT 0')
     _add_column('payments', 'net_amount', 'NUMERIC(10, 2) NULL')
@@ -151,3 +152,7 @@ def run():
 
     db.session.execute(text('UPDATE payments SET fee_amount = 0, net_amount = amount WHERE net_amount IS NULL'))
     db.session.commit()
+
+    # One code, limited devices (anti-sharing)
+    for table in ('vouchers', 'packages', 'payments'):
+        _add_column(table, 'max_devices', 'INTEGER NOT NULL DEFAULT 1')

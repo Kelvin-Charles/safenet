@@ -22,6 +22,8 @@
                         <div class="col-md-4">{{ field(form.currency) }}</div>
                     </div>
                     {{ field(form.terms, rows=5, help="Leave empty to use the standard terms.") }}
+                    <div class="form-check mb-1">{{ form.block_tethering(class="form-check-input") }} {{ form.block_tethering.label(class="form-check-label") }}</div>
+                    <p class="small text-muted">{{ form.block_tethering.description }} Works on SafeNet gateways; each voucher also has a device limit.</p>
                     <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> Save</button>
                 </form>
             </div>

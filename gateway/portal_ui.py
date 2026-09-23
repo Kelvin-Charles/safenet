@@ -149,6 +149,7 @@ MESSAGES_SW = {
     'A payment request was just sent to this number. Check your phone, or wait a minute.': 'Ombi la malipo limetumwa sasa hivi kwa namba hii. Angalia simu yako au subiri dakika moja.',
     'Payment not completed: ': 'Malipo hayajakamilika: ',
     'Choose your mobile-money network.': 'Chagua mtandao wako wa malipo.',
+    'This code is already being used on another device.': 'Namba hii tayari inatumika kwenye kifaa kingine.',
     'The payment was not completed.': 'Malipo hayakukamilika.',
 }
 

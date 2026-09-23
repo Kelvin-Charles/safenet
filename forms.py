@@ -146,6 +146,12 @@ class VoucherGenerateForm(FlaskForm):
                         description='Printed on the voucher, e.g. 1000')
     batch = StringField('Batch name', validators=[Optional(), Length(max=64)],
                         description='Leave empty to name it by date/time')
+    max_devices = IntegerField('Devices per voucher', default=1, validators=[DataRequired()],
+                               description='How many devices can use one code at the same time')
+
+    def validate_max_devices(self, field):
+        if not 1 <= (field.data or 0) <= 10:
+            raise ValidationError('Choose between 1 and 10 devices.')
 
     def validate_count(self, field):
         if not 1 <= (field.data or 0) <= 500:
@@ -175,6 +181,8 @@ class PackageForm(FlaskForm):
     ], default='hours', validators=[DataRequired()])
     sort_order = IntegerField('Display order', default=0, validators=[Optional()],
                               description='Lower numbers are shown first')
+    max_devices = IntegerField('Devices allowed', default=1, validators=[DataRequired()],
+                               description='How many devices can use one purchase at the same time')
     is_active = BooleanField('Active', default=True)
     show_on_portal = BooleanField('Show on captive portal', default=True)
 
@@ -186,6 +194,10 @@ class PackageForm(FlaskForm):
     def validate_validity_value(self, field):
         if not 1 <= (field.data or 0) <= 100000:
             raise ValidationError('Enter a positive duration.')
+
+    def validate_max_devices(self, field):
+        if not 1 <= (field.data or 0) <= 10:
+            raise ValidationError('Choose between 1 and 10 devices.')
 
 
 class SignupForm(FlaskForm):
@@ -229,6 +241,8 @@ class TenantSettingsForm(FlaskForm):
     support_phone = StringField('Support phone / WhatsApp', validators=[Optional(), Length(max=32)])
     currency = StringField('Currency', validators=[DataRequired(), Length(min=3, max=3)])
     terms = TextAreaField('Terms of use for guests', validators=[Optional(), Length(max=4000)])
+    block_tethering = BooleanField('Block hotspot sharing',
+                                   description="Guests can't share their internet with other devices through their phone or laptop hotspot.")
 
 
 class TeamMemberForm(FlaskForm):
