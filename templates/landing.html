@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SafeNet · Wi-Fi billing and hotspot management</title>
+    <meta name="description" content="Sell Wi-Fi with vouchers and mobile money, brand your login page and watch every guest live. Works with MikroTik, TP-Link and the SafeNet gateway. {{ trial_days }}-day free trial.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css">
+    <style>
+        :root { --ink: #111113; --ink-2: #3f3f46; --muted: #71717a; --line: #e4e4e7; --soft: #f4f4f5; --paper: #ffffff; --grey: #c7c7cc; }
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body { margin: 0; font-family: 'Poppins', system-ui, sans-serif; color: var(--ink); background: var(--paper); line-height: 1.6; }
+        a { color: inherit; text-decoration: none; }
+        .wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
+        .eyebrow { font-size: 12px; letter-spacing: 6px; text-transform: uppercase; font-weight: 500; }
+        h1, h2, h3 { line-height: 1.2; margin: 0; }
+
+        /* Buttons with the offset outline from the design */
+        .btn { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; padding: 12px 24px; border: 1.5px solid var(--ink); cursor: pointer; transition: transform .15s, box-shadow .15s; }
+        .btn-dark { background: var(--ink); color: #fff; box-shadow: 4px 4px 0 0 var(--paper), 4px 4px 0 1.5px var(--ink); }
+        .btn-light { background: var(--paper); color: var(--ink); box-shadow: 4px 4px 0 0 var(--ink); }
+        .btn:hover { transform: translate(2px, 2px); box-shadow: 2px 2px 0 0 var(--ink); }
+        .btn-dark:hover { box-shadow: 2px 2px 0 0 var(--paper), 2px 2px 0 1.5px var(--ink); }
+        .btn-sm { padding: 8px 16px; font-size: 13px; }
+        .on-dark .btn-light { box-shadow: 4px 4px 0 0 var(--paper); border-color: var(--paper); }
+
+        /* Nav */
+        header { position: sticky; top: 0; background: rgba(255,255,255,.95); backdrop-filter: blur(6px); z-index: 10; border-bottom: 1px solid transparent; }
+        header.scrolled { border-bottom-color: var(--line); }
+        .nav { display: flex; align-items: center; justify-content: space-between; height: 76px; gap: 24px; }
+        .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+        .brand .mark { width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: #fff; display: grid; place-items: center; font-size: 17px; }
+        .brand small { font-size: 10px; font-weight: 500; color: var(--muted); letter-spacing: .5px; }
+        .links { display: flex; gap: 32px; font-size: 15px; color: var(--ink-2); }
+        .links a:hover, .links a.active { color: var(--ink); }
+        .actions { display: flex; align-items: center; gap: 20px; font-size: 15px; }
+        .menu-btn { display: none; background: none; border: 0; font-size: 26px; cursor: pointer; color: var(--ink); }
+
+        /* Hero */
+        .hero { display: grid; grid-template-columns: 1fr 1.05fr; gap: 40px; align-items: center; padding-top: 56px; padding-bottom: 40px; }
+        .hero h1 { font-size: clamp(36px, 5vw, 56px); font-weight: 600; letter-spacing: -.5px; }
+        .hero p { color: var(--ink-2); font-size: 16px; max-width: 470px; margin: 20px 0 32px; }
+        .hero .cta { display: flex; gap: 24px; flex-wrap: wrap; }
+        .hero .note { font-size: 13px; color: var(--muted); margin-top: 22px; }
+        .hero svg { width: 100%; height: auto; }
+
+        .works-with { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 18px 32px; padding-top: 34px; padding-bottom: 60px; color: #52525b; }
+        .works-with span { display: inline-flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 600; letter-spacing: -.3px; }
+        .works-with i { font-size: 22px; }
+
+        /* Features (dark) */
+        .features { background: var(--ink); color: #fff; padding: 72px 0 80px; text-align: center; }
+        .features h2 { font-size: clamp(26px, 3.4vw, 36px); font-weight: 600; margin: 14px 0 12px; }
+        .features .lead { color: #d4d4d8; max-width: 620px; margin: 0 auto 44px; font-size: 15px; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; text-align: left; }
+        .card { background: var(--paper); color: var(--ink); padding: 26px 24px; }
+        .card i { font-size: 30px; display: block; margin-bottom: 14px; }
+        .card h3 { font-size: 20px; font-weight: 500; margin-bottom: 8px; }
+        .card p { margin: 0; color: var(--muted); font-size: 14px; }
+
+        /* How it works */
+        .how { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; padding-top: 90px; padding-bottom: 90px; }
+        .how h2 { font-size: clamp(26px, 3.4vw, 38px); font-weight: 600; }
+        .steps { list-style: none; padding: 0; margin: 26px 0 32px; counter-reset: step; }
+        .steps li { position: relative; padding-left: 52px; margin-bottom: 20px; counter-increment: step; }
+        .steps li::before { content: counter(step); position: absolute; left: 0; top: 2px; width: 34px; height: 34px; border: 1.5px solid var(--ink); display: grid; place-items: center; font-weight: 600; font-size: 14px; }
+        .steps strong { display: block; font-weight: 600; }
+        .steps span { color: var(--muted); font-size: 14px; }
+        .how svg { width: 100%; height: auto; }
+
+        /* Pricing */
+        .pricing { background: var(--soft); padding: 80px 0; }
+        .center { text-align: center; }
+        .pricing h2 { font-size: clamp(26px, 3.4vw, 36px); font-weight: 600; margin: 12px 0 8px; }
+        .pricing .lead { color: var(--muted); font-size: 14px; margin: 0 0 40px; }
+        .table-wrap { overflow-x: auto; padding: 12px 4px 24px; }
+        table.plans { border-collapse: separate; border-spacing: 0; min-width: 720px; width: 100%; }
+        table.plans th, table.plans td { padding: 14px 18px; text-align: center; font-size: 14px; }
+        table.plans thead th { vertical-align: bottom; font-weight: 500; font-size: 17px; }
+        table.plans thead th .price { display: block; font-size: 26px; font-weight: 700; margin-top: 4px; }
+        table.plans thead th .price small { font-size: 12px; font-weight: 500; color: var(--muted); }
+        table.plans thead th:first-child { text-align: left; font-size: 24px; font-weight: 600; }
+        table.plans tbody th { background: var(--ink); color: #e4e4e7; text-align: left; font-weight: 400; font-size: 13px; width: 26%; border-bottom: 1px solid #3f3f46; }
+        table.plans tbody td { background: var(--paper); border-bottom: 1px solid var(--line); }
+        table.plans tbody tr:last-child th, table.plans tbody tr:last-child td { border-bottom: 0; }
+        table.plans .hl { background: var(--ink) !important; color: #fff; border-bottom-color: #3f3f46 !important; }
+        table.plans thead .hl { border-radius: 8px 8px 0 0; }
+        table.plans tfoot td { padding: 16px 12px 20px; }
+        table.plans tfoot td.hl { border-radius: 0 0 8px 8px; }
+        .ok { font-size: 18px; }
+        .no { color: #a1a1aa; font-size: 18px; }
+        .tag { display: inline-block; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; border: 1px solid currentColor; padding: 1px 8px; margin-bottom: 6px; }
+        .swipe { display: none; text-align: center; font-size: 12px; color: var(--muted); margin: -24px 0 0; }
+        .empty-plans { max-width: 520px; margin: 0 auto; background: var(--paper); border: 1.5px solid var(--ink); padding: 32px; text-align: center; box-shadow: 6px 6px 0 var(--ink); }
+
+        /* FAQ */
+        .faq { display: grid; grid-template-columns: .8fr 1.2fr; gap: 56px; padding-top: 90px; padding-bottom: 90px; }
+        .faq h2 { font-size: 30px; font-weight: 700; letter-spacing: .5px; }
+        .faq p.lead { color: var(--muted); font-size: 14px; margin: 14px 0 22px; }
+        .search { display: flex; gap: 8px; margin-bottom: 18px; }
+        .search input { flex: 1; font: inherit; font-size: 14px; padding: 11px 14px; border: 1.5px solid var(--grey); outline: none; }
+        .search input:focus { border-color: var(--ink); }
+        details { background: var(--paper); box-shadow: 0 2px 14px rgba(0,0,0,.06); margin-bottom: 14px; }
+        summary { list-style: none; cursor: pointer; padding: 18px 22px; font-weight: 500; font-size: 15px; display: flex; justify-content: space-between; gap: 12px; }
+        summary::-webkit-details-marker { display: none; }
+        summary::after { content: '+'; font-size: 22px; line-height: 1; }
+        details[open] summary::after { content: '−'; }
+        details p { margin: 0; padding: 0 22px 20px; color: var(--muted); font-size: 14px; }
+
+        /* CTA band */
+        .band { background: var(--ink); color: #fff; text-align: center; padding: 56px 24px; margin-bottom: 70px; }
+        .band h2 { font-size: clamp(24px, 3vw, 32px); font-weight: 600; margin: 12px 0 10px; }
+        .band p { color: #d4d4d8; font-size: 14px; max-width: 520px; margin: 0 auto 28px; }
+        .band .cta { display: flex; gap: 22px; justify-content: center; flex-wrap: wrap; }
+        .band .btn-dark { background: var(--paper); color: var(--ink); box-shadow: 4px 4px 0 0 var(--ink), 4px 4px 0 1.5px var(--paper); border-color: var(--paper); }
+
+        /* Footer */
+        footer .cols { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1.2fr; gap: 32px; padding-bottom: 36px; border-bottom: 1px solid var(--line); }
+        footer h4 { margin: 0 0 16px; font-size: 16px; font-weight: 500; }
+        footer ul { list-style: none; padding: 0; margin: 0; font-size: 14px; color: var(--ink-2); }
+        footer li { margin-bottom: 10px; }
+        footer li a:hover { color: var(--ink); text-decoration: underline; }
+        footer .about { color: var(--ink-2); font-size: 15px; max-width: 260px; margin: 16px 0; }
+        footer .copy { text-align: center; font-size: 12px; color: var(--muted); padding: 20px 0 28px; }
+
+        @media (max-width: 900px) {
+            .links, .actions .login { display: none; }
+            .menu-btn { display: block; }
+            header.open .links { display: flex; flex-direction: column; position: absolute; top: 76px; left: 0; right: 0; background: var(--paper); padding: 16px 24px 24px; gap: 16px; border-bottom: 1px solid var(--line); }
+            .hero, .how, .faq { grid-template-columns: 1fr; }
+            .hero { padding-top: 32px; }
+            .hero, .how, .faq { gap: 36px; }
+            .how, .faq { padding-top: 64px; padding-bottom: 64px; }
+            .how svg { order: 2; }
+            .grid { grid-template-columns: 1fr 1fr; }
+            footer .cols { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 760px) { .swipe { display: block; } }
+        @media (max-width: 560px) {
+            .grid { grid-template-columns: 1fr; }
+            .actions .btn { padding: 8px 14px; font-size: 13px; }
+            .works-with { justify-content: center; }
+            .works-with span { font-size: 16px; }
+        }
+    </style>
+</head>
+<body>
+<header id="top">
+    <div class="wrap nav">
+        <a href="#top" class="brand"><span class="mark"><i class="bi bi-wifi"></i></span> SafeNet <small>.WIFI</small></a>
+        <nav class="links">
+            <a href="#top" class="active">Home</a>
+            <a href="#features">Features</a>
+            <a href="#how">How it works</a>
+            <a href="#pricing">Pricing</a>
+            <a href="#faq">FAQ</a>
+        </nav>
+        <div class="actions">
+            {% if current_user.is_authenticated %}
+            <a href="{{ url_for('dashboard') }}" class="btn btn-light btn-sm">Dashboard</a>
+            {% else %}
+            <a href="{{ url_for('login') }}" class="login">Log in</a>
+            {% if signup_enabled %}<a href="{{ url_for('signup') }}" class="btn btn-light btn-sm">Sign up</a>{% endif %}
+            {% endif %}
+            <button class="menu-btn" aria-label="Menu" onclick="document.getElementById('top').classList.toggle('open')"><i class="bi bi-list"></i></button>
+        </div>
+    </div>
+</header>
+
+<main>
+    <section class="wrap hero">
+        <div>
+            <h1>The Smart Way to Sell Wi-Fi to Your Customers</h1>
+            <p>SafeNet gives cafés, hostels, shops and internet providers a branded login page, vouchers and mobile-money packages, and a live view of every guest, on the router you already have.</p>
+            <div class="cta">
+                {% if signup_enabled %}<a href="{{ url_for('signup') }}" class="btn btn-dark">Get started</a>{% endif %}
+                <a href="#pricing" class="btn btn-light">See pricing</a>
+            </div>
+            <div class="note"><i class="bi bi-check2"></i> {{ trial_days }}-day free trial &nbsp; <i class="bi bi-check2"></i> No card needed &nbsp; <i class="bi bi-check2"></i> No contract</div>
+        </div>
+        <svg viewBox="0 0 560 440" role="img" aria-label="A Wi-Fi tower sending signal to people online">
+            <g fill="none" stroke="#111113" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M170 160c20-60 110-90 170-60 50 25 100 10 110 60 12 58-40 70-30 120 8 40-60 70-120 50-50-17-70 20-120-10-45-27-30-80-20-110 7-22 3-35 10-50z" fill="#d4d4d8" stroke="none"/>
+                <ellipse cx="300" cy="392" rx="240" ry="26" fill="#111113" stroke="none"/>
+                <!-- tower -->
+                <path d="M300 92 L252 380 M300 92 L348 380"/>
+                <path d="M285 180h30M275 240h50M265 300h70M258 350h84"/>
+                <path d="M285 180l40 60M315 180l-40 60M275 240l60 60M325 240l-60 60M265 300l77 50M335 300l-77 50"/>
+                <circle cx="300" cy="86" r="7" fill="#111113"/>
+                <path d="M282 70a26 26 0 0 1 36 0M272 58a40 40 0 0 1 56 0M262 46a54 54 0 0 1 76 0"/>
+                <!-- clouds -->
+                <path d="M86 150h56a14 14 0 0 0-10-24 18 18 0 0 0-34-4 14 14 0 0 0-12 28z" fill="#111113"/>
+                <path d="M418 70h56a14 14 0 0 0-10-24 18 18 0 0 0-34-4 14 14 0 0 0-12 28z" fill="#111113"/>
+                <path d="M452 196h50a12 12 0 0 0-9-21 16 16 0 0 0-30-4 12 12 0 0 0-11 25z" fill="#111113"/>
+                <!-- server stack + person with laptop -->
+                <rect x="86" y="300" width="96" height="24" rx="4" fill="#fff"/>
+                <rect x="86" y="328" width="96" height="24" rx="4" fill="#fff"/>
+                <rect x="86" y="356" width="96" height="24" rx="4" fill="#fff"/>
+                <path d="M98 312h52M98 340h52M98 368h52"/>
+                <circle cx="166" cy="312" r="3" fill="#111113"/><circle cx="166" cy="340" r="3" fill="#111113"/><circle cx="166" cy="368" r="3" fill="#111113"/>
+                <circle cx="134" cy="222" r="15" fill="#fff"/>
+                <path d="M120 214c8-14 30-10 30 4" fill="#111113"/>
+                <path d="M134 237v10M110 296c0-30 8-48 24-48s24 18 24 48" fill="#fff"/>
+                <path d="M98 298c10-12 26-14 36-4 10-10 26-8 36 4" />
+                <rect x="112" y="262" width="44" height="30" rx="3" fill="#111113"/>
+                <path d="M104 292h60"/>
+                <!-- phone with voucher -->
+                <rect x="420" y="250" width="74" height="130" rx="12" fill="#fff"/>
+                <path d="M446 262h22"/>
+                <rect x="432" y="286" width="50" height="28" rx="4" fill="#111113"/>
+                <path d="M438 330h38M438 344h26"/>
+                <circle cx="457" cy="364" r="6"/>
+                <text x="457" y="305" text-anchor="middle" font-family="Poppins, sans-serif" font-size="10" font-weight="600" fill="#fff" stroke="none">4829 1175</text>
+                <path d="M400 232a30 30 0 0 1 40-16M390 214a50 50 0 0 1 64-26" />
+                <!-- leaves -->
+                <path d="M224 386c-8-40-30-58-44-66M206 350c-14-2-22 6-24 14M214 330c10-12 22-12 28-6" />
+                <path d="M384 386c6-34 22-50 36-60M392 350c12 0 20 8 22 16"/>
+            </g>
+        </svg>
+    </section>
+
+    <div class="wrap works-with" aria-label="Works with">
+        <span><i class="bi bi-phone"></i>M-Pesa</span>
+        <span><i class="bi bi-phone-vibrate"></i>Mixx by Yas</span>
+        <span><i class="bi bi-wallet2"></i>Airtel Money</span>
+        <span><i class="bi bi-cash-coin"></i>HaloPesa</span>
+        <span><i class="bi bi-router"></i>MikroTik</span>
+        <span><i class="bi bi-wifi"></i>TP-Link</span>
+    </div>
+
+    <section class="features" id="features">
+        <div class="wrap">
+            <div class="eyebrow">Features</div>
+            <h2>Everything a Wi-Fi Business Needs</h2>
+            <p class="lead">Stop writing passwords on paper. SafeNet sells your internet, collects the money and shows you who is online, while your guests just connect and pay.</p>
+            <div class="grid">
+                <div class="card"><i class="bi bi-ticket-perforated"></i><h3>Vouchers</h3><p>Print codes for 1 hour, 1 day or a month. Time starts at first login, so unsold codes never expire.</p></div>
+                <div class="card"><i class="bi bi-phone"></i><h3>Mobile-money packages</h3><p>Guests pick a package, get a PIN prompt on their phone and are online in seconds, with the code sent by SMS.</p></div>
+                <div class="card"><i class="bi bi-window"></i><h3>Your own login page</h3><p>Your name, your support number and your terms on the page every guest sees when they connect.</p></div>
+                <div class="card"><i class="bi bi-broadcast"></i><h3>Live dashboard</h3><p>See who is online, how much data they use, today's sales and every login, updating every few seconds.</p></div>
+                <div class="card"><i class="bi bi-x-circle"></i><h3>Instant control</h3><p>Disable a code or press Disconnect and the guest is cut off right away. Speed limits follow each plan.</p></div>
+                <div class="card"><i class="bi bi-shield-lock"></i><h3>Routers anywhere</h3><p>Connect MikroTik routers over a private VPN, or use the SafeNet gateway with the access point you have.</p></div>
+            </div>
+        </div>
+    </section>
+
+    <section class="wrap how" id="how">
+        <svg viewBox="0 0 480 360" role="img" aria-label="A person online next to a Wi-Fi router">
+            <g fill="none" stroke="#111113" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M60 110a110 110 0 0 1 150 0M85 138a72 72 0 0 1 100 0M110 166a36 36 0 0 1 50 0"/>
+                <circle cx="135" cy="192" r="8" fill="#111113"/>
+                <path d="M300 10v70M330 10v126M360 10v50M390 10v96" stroke-dasharray="5 6" stroke-width="1.6"/>
+                <path d="M300 86c-9 0-15 7-15 15 0 11 15 24 15 24s15-13 15-24c0-8-6-15-15-15z" fill="#111113"/><circle cx="300" cy="100" r="4" fill="#fff" stroke="none"/>
+                <rect x="316" y="140" width="30" height="22" rx="2"/><path d="M316 142l15 11 15-11"/>
+                <path d="M364 78h34a9 9 0 0 0-6-16 12 12 0 0 0-22-3 9 9 0 0 0-6 19z"/>
+                <circle cx="390" cy="118" r="12"/><path d="M386 112h6a3 3 0 0 1 0 6h-6a3 3 0 0 0 0 6h7M390 108v3M390 125v3"/>
+                <!-- router -->
+                <path d="M110 250l-10-80M270 250l10-80" stroke-width="5"/>
+                <rect x="70" y="250" width="240" height="44" rx="6" fill="#fff"/>
+                <circle cx="96" cy="272" r="4" fill="#111113"/><circle cx="112" cy="272" r="4" fill="#111113"/><circle cx="128" cy="272" r="4" fill="#111113"/>
+                <path d="M200 272h80"/>
+                <!-- person sitting on router -->
+                <circle cx="196" cy="160" r="14" fill="#fff"/>
+                <path d="M182 152c6-14 28-12 28 2" fill="#111113"/>
+                <path d="M196 174c-18 0-22 22-22 50v26h44v-26c0-28-4-50-22-50z" fill="#fff"/>
+                <rect x="178" y="214" width="46" height="30" rx="3" fill="#111113"/>
+                <path d="M184 250l-8 60M208 250l14 60M170 312h14M216 312h16"/>
+                <!-- plant -->
+                <path d="M400 330v-80M400 260c-20-10-30-30-28-44M400 280c18-10 30-26 30-42M400 300c-16-4-28-16-30-28"/>
+                <rect x="376" y="310" width="48" height="36" rx="4" fill="#fff"/>
+                <path d="M40 346h400"/>
+            </g>
+        </svg>
+        <div>
+            <div class="eyebrow">How it works</div>
+            <h2 style="margin-top: 12px">Up and Running in an Afternoon</h2>
+            <ol class="steps">
+                <li><strong>Create your account</strong><span>{{ trial_days }} days free. Add your business name, support number and prices.</span></li>
+                <li><strong>Connect your router</strong><span>Paste one script into a MikroTik, or place the SafeNet gateway in front of your TP-Link or any access point.</span></li>
+                <li><strong>Start selling</strong><span>Print vouchers for the counter and let guests buy packages with mobile money. Money goes to your own ClickPesa account or we collect it for you.</span></li>
+            </ol>
+            <div class="cta" style="display:flex; gap:22px; flex-wrap:wrap">
+                {% if signup_enabled %}<a href="{{ url_for('signup') }}" class="btn btn-dark btn-sm">Join now</a>{% endif %}
+                <a href="#faq" class="btn btn-light btn-sm">Learn more</a>
+            </div>
+        </div>
+    </section>
+
+    <section class="pricing" id="pricing">
+        <div class="wrap">
+            <div class="center">
+                <div class="eyebrow" style="color: var(--muted)">Package</div>
+                <h2>Choose Your Perfect Plan</h2>
+                <p class="lead">Every plan includes all features and starts with a {{ trial_days }}-day free trial. Prices are per month.</p>
+            </div>
+            {% if plans %}
+            {% set hl = (plans|length // 2) if plans|length > 2 else plans|length - 1 %}
+            <p class="swipe"><i class="bi bi-arrow-left-right"></i> Swipe to compare plans</p>
+            <div class="table-wrap">
+                <table class="plans">
+                    <thead>
+                        <tr>
+                            <th>Choose plan</th>
+                            {% for p in plans %}
+                            <th class="{{ 'hl' if loop.index0 == hl }}">
+                                {% if loop.index0 == hl and plans|length > 1 %}<span class="tag">Popular</span><br>{% endif %}
+                                {{ p.name }}
+                                <span class="price">{{ p.currency }} {{ '{:,.0f}'.format(p.price) }}<small> / month</small></span>
+                            </th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% macro yes() %}<i class="bi bi-check-circle-fill ok" aria-label="Included"></i>{% endmacro %}
+                        <tr><th scope="row">Routers (MikroTik over VPN)</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ 'Unlimited' if p.max_routers is none else p.max_routers }}</td>{% endfor %}</tr>
+                        <tr><th scope="row">SafeNet gateways</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ 'Unlimited' if p.max_gateways is none else p.max_gateways }}</td>{% endfor %}</tr>
+                        <tr><th scope="row">Vouchers and users</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">Unlimited</td>{% endfor %}</tr>
+                        <tr><th scope="row">Mobile-money packages</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
+                        <tr><th scope="row">Branded login page</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
+                        <tr><th scope="row">Live dashboard and reports</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
+                        <tr><th scope="row">SMS code for paying guests</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
+                        <tr><th scope="row">Team accounts</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td></td>
+                            {% for p in plans %}
+                            <td class="{{ 'hl' if loop.index0 == hl }}">
+                                {% if signup_enabled %}<a href="{{ url_for('signup') }}" class="btn btn-sm {{ 'btn-light' if loop.index0 == hl else 'btn-dark' }}">Start free trial</a>{% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-plans">
+                <h3 style="font-size: 20px; margin-bottom: 8px">Start with a free trial</h3>
+                <p style="color: var(--muted); font-size: 14px; margin: 0 0 20px">Use every feature free for {{ trial_days }} days. Ask us about plans for your business.</p>
+                {% if signup_enabled %}<a href="{{ url_for('signup') }}" class="btn btn-dark">Create free account</a>{% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="wrap faq" id="faq">
+        <div>
+            <h2>FAQ</h2>
+            <p class="lead">Answers to what hotspot owners ask us most. Can't find yours? {% if support_phone %}Call or WhatsApp {{ support_phone }}.{% else %}Email us.{% endif %}</p>
+            <div class="search">
+                <input type="search" id="faq-search" placeholder="Search your question" aria-label="Search the FAQ">
+            </div>
+            {% if contact_email %}<a href="mailto:{{ contact_email }}" class="btn btn-dark btn-sm">Ask a question <i class="bi bi-arrow-up-right"></i></a>{% endif %}
+        </div>
+        <div id="faq-list">
+            <details open>
+                <summary>What equipment do I need?</summary>
+                <p>A MikroTik router (RouterOS 7) works on its own: paste the setup script we give you. With a TP-Link or any other access point, add a small Linux computer as the SafeNet gateway between it and your internet line.</p>
+            </details>
+            <details>
+                <summary>How do my customers pay?</summary>
+                <p>They buy a voucher code from you in cash, or choose a package on the login page and pay with M-Pesa, Mixx by Yas, Airtel Money or HaloPesa. They get a PIN prompt, and once it's paid they are online and receive the code by SMS.</p>
+            </details>
+            <details>
+                <summary>When do I receive the money?</summary>
+                <p>Choose in Settings: payments go straight into your own ClickPesa account, or SafeNet collects them and you withdraw your balance to your mobile money number whenever you like.</p>
+            </details>
+            <details>
+                <summary>What happens after the free trial?</summary>
+                <p>Pick a plan and pay by mobile money from the Billing page. If you don't renew, your Wi-Fi keeps working for a few grace days and then pauses until you pay. Your data stays safe.</p>
+            </details>
+            <details>
+                <summary>Can I stop someone's internet?</summary>
+                <p>Yes. Disable their voucher or press Disconnect on the Live page and they are cut off within seconds. You can also set speed limits for each plan.</p>
+            </details>
+            <details>
+                <summary>Can my staff use it too?</summary>
+                <p>Add team members as staff (users, vouchers and live view) or admins (also packages, routers and settings). Only the owner can withdraw money or pay the subscription.</p>
+            </details>
+            <p id="faq-none" style="display:none; color: var(--muted)">No matching question. Try another word.</p>
+        </div>
+    </section>
+
+    <div class="wrap">
+        <section class="band on-dark">
+            <div class="eyebrow">Get started</div>
+            <h2>Start Selling Wi-Fi Today</h2>
+            <p>Create your account in two minutes and try every feature free for {{ trial_days }} days.</p>
+            <div class="cta">
+                {% if signup_enabled %}<a href="{{ url_for('signup') }}" class="btn btn-dark">Create free account <i class="bi bi-arrow-up-right"></i></a>{% endif %}
+                <a href="{{ url_for('login') }}" class="btn btn-light">Log in</a>
+            </div>
+        </section>
+    </div>
+</main>
+
+<footer>
+    <div class="wrap">
+        <div class="cols">
+            <div>
+                <a href="#top" class="brand"><span class="mark"><i class="bi bi-wifi"></i></span> SafeNet <small>.WIFI</small></a>
+                <p class="about">Wi-Fi billing and hotspot management for businesses in Tanzania.</p>
+            </div>
+            <div>
+                <h4>Product</h4>
+                <ul><li><a href="#features">Features</a></li><li><a href="#how">How it works</a></li><li><a href="#pricing">Pricing</a></li><li><a href="#faq">FAQ</a></li></ul>
+            </div>
+            <div>
+                <h4>Account</h4>
+                <ul><li><a href="{{ url_for('login') }}">Log in</a></li>{% if signup_enabled %}<li><a href="{{ url_for('signup') }}">Sign up</a></li>{% endif %}<li><a href="{{ url_for('forgot_password') }}">Forgot password</a></li></ul>
+            </div>
+            <div>
+                <h4>Get in touch</h4>
+                <ul>
+                    {% if support_phone %}<li><a href="tel:{{ support_phone|replace(' ', '') }}"><i class="bi bi-telephone"></i> {{ support_phone }}</a></li>{% endif %}
+                    {% if contact_email %}<li><a href="mailto:{{ contact_email }}"><i class="bi bi-envelope"></i> {{ contact_email }}</a></li>{% endif %}
+                    <li><i class="bi bi-geo-alt"></i> Tanzania</li>
+                </ul>
+            </div>
+        </div>
+        <div class="copy">© {{ year }} SafeNet · SafeZone Tanzania. All rights reserved.</div>
+    </div>
+</footer>
+
+<script>
+    (function () {
+        var header = document.getElementById('top');
+        window.addEventListener('scroll', function () { header.classList.toggle('scrolled', window.scrollY > 10); }, { passive: true });
+        document.querySelectorAll('.links a').forEach(function (a) { a.addEventListener('click', function () { header.classList.remove('open'); }); });
+        var input = document.getElementById('faq-search'), items = document.querySelectorAll('#faq-list details');
+        input.addEventListener('input', function () {
+            var q = input.value.trim().toLowerCase(), shown = 0;
+            items.forEach(function (d) {
+                var hit = !q || d.textContent.toLowerCase().indexOf(q) !== -1;
+                d.style.display = hit ? '' : 'none';
+                if (hit) { shown++; if (q) d.open = true; }
+            });
+            document.getElementById('faq-none').style.display = shown ? 'none' : '';
+        });
+    })();
+</script>
+</body>
+</html>

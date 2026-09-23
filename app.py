@@ -143,6 +143,16 @@ def logout():
 
 # Dashboard
 @app.route('/')
+def landing():
+    """Public home page of the SafeNet platform (pricing from Platform: Billing)."""
+    plans = BillingPlan.query.filter_by(is_active=True).order_by(BillingPlan.sort_order, BillingPlan.price).all()
+    home = Tenant.query.filter_by(slug=migrations.DEFAULT_TENANT_SLUG).first()
+    return render_template('landing.html', plans=plans, trial_days=Config.TRIAL_DAYS,
+                           support_phone=(home.support_phone if home else None) or Config.HOTSPOT_SUPPORT,
+                           contact_email=Config.MAIL_USERNAME or Config.ADMIN_EMAIL,
+                           signup_enabled=Config.SIGNUP_ENABLED, year=datetime.utcnow().year)
+
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
