@@ -8,6 +8,10 @@ install -d -m 755 /opt/safenet-gateway
 install -d -m 700 /etc/safenet-gateway
 install -m 755 portal.py safenet-gw-firewall safenet-gw-dnsmasq-conf /opt/safenet-gateway/
 install -m 644 portal_ui.py portal.css /opt/safenet-gateway/
+install -d -m 755 /opt/safenet-gateway/img
+for logo in ../static/img/*.png ../static/img/*.jpg; do
+    [ -f "$logo" ] && install -m 644 "$logo" /opt/safenet-gateway/img/
+done
 install -m 644 systemd/safenet-gw-*.service /etc/systemd/system/
 if [[ ! -f /etc/safenet-gateway/gateway.env ]]; then
     install -m 600 gateway.env.example /etc/safenet-gateway/gateway.env

@@ -104,6 +104,23 @@ details.more[open] summary { margin-bottom: 12px; }
 .pkg:has(input:focus-visible) { outline: 2px solid var(--brand); outline-offset: 2px; }
 .empty { text-align: center; color: var(--muted); font-size: 14px; padding: 18px 8px; }
 
+/* Mobile-money network tiles */
+.nets { display: grid; grid-template-columns: repeat(var(--n, 3), 1fr); gap: 10px; }
+.net, .field label.net { position: relative; display: flex; margin: 0; font-size: inherit; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px 9px;
+       border: 1.5px solid var(--line); border-radius: 14px; cursor: pointer; text-align: center; background: #fff;
+       transition: border-color .15s, background .15s, opacity .15s; }
+.net input { position: absolute; opacity: 0; pointer-events: none; }
+.net img { width: 100%; max-width: 92px; height: 46px; object-fit: contain; border-radius: 8px; }
+.net span { font-size: 12px; font-weight: 650; color: var(--ink-2); line-height: 1.2; }
+.net .net-min { font-size: 11px; color: var(--muted); margin-top: -3px; }
+.net .tick { position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; border-radius: 50%; background: var(--brand);
+             color: var(--on-brand); display: none; place-items: center; box-shadow: 0 0 0 3px #fff; }
+.net.on, .net:has(input:checked) { border-color: var(--brand); background: var(--tint); }
+.net.on .tick, .net:has(input:checked) .tick { display: grid; }
+.net:has(input:focus-visible) { outline: 2px solid var(--brand); outline-offset: 2px; }
+.net.off { opacity: .45; cursor: not-allowed; filter: grayscale(.6); }
+@media (max-width: 360px) { .nets { gap: 7px; } .net span { font-size: 11px; } }
+
 /* Messages and states */
 .alert { display: flex; gap: 10px; align-items: flex-start; background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; border-radius: 13px;
          padding: 12px 14px; font-size: 14px; line-height: 1.45; margin-bottom: 16px; }

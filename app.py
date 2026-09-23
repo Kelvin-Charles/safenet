@@ -149,6 +149,7 @@ def landing():
     plans = BillingPlan.query.filter_by(is_active=True).order_by(BillingPlan.sort_order, BillingPlan.price).all()
     home = Tenant.query.filter_by(slug=migrations.DEFAULT_TENANT_SLUG).first()
     return render_template('landing.html', plans=plans, trial_days=Config.TRIAL_DAYS,
+                           networks=[n['name'] for n in payment_networks()],
                            support_phone=(home.support_phone if home else None) or Config.HOTSPOT_SUPPORT,
                            contact_email=Config.MAIL_USERNAME or Config.ADMIN_EMAIL,
                            signup_enabled=Config.SIGNUP_ENABLED, year=datetime.utcnow().year)
@@ -1296,7 +1297,8 @@ def portal():
             html_out = html_out.replace('<meta http-equiv="refresh"', '<meta name="no-refresh"')
         else:
             html_out = portal_ui.login_page(th, lang, packages=packages, tab='buy' if view == 'buy' else 'voucher',
-                                            preview=True, lang_url=lang_url)
+                                            preview=True, lang_url=lang_url, networks=payment_networks(),
+                                            logo_base=url_for('static', filename='img/'))
     else:
         if gateway:
             html_out = portal_ui.login_page(th, lang, external=gateway, buy_enabled=False,
@@ -1463,6 +1465,38 @@ def delete_package(package_id):
 
 # Payments
 log = logging.getLogger('safenet')
+
+
+def payment_networks():
+    return portal_ui.parse_networks(Config.PAYMENT_NETWORKS)
+
+
+def check_network(phone, network_id, amount, currency='TZS'):
+    """Error message if this number/network/amount can't be paid, else None."""
+    networks = payment_networks()
+    if not networks:
+        return None
+    by_id = {n['id']: n for n in networks}
+    known = portal_ui.network_for_phone(phone)
+    if network_id is None:                      # no choice made (e.g. Billing): judge by the number
+        network_id = known
+        if network_id and network_id not in by_id:
+            return (f"{portal_ui.NETWORKS[network_id]['name']} numbers can't pay yet. "
+                    f"Use {', '.join(n['name'] for n in networks)}.")
+        if network_id is None:
+            return None
+    net = by_id.get(network_id)
+    if not net:
+        return 'Choose your mobile-money network.'
+    if known and known != network_id:
+        other = portal_ui.NETWORKS[known]['name']
+        if known in by_id:
+            return f"That looks like a {other} number. Choose {other}, or enter your {net['name']} number."
+        return f"That is a {other} number, and {other} isn't available yet. Use a {net['name']} number."
+    if net['min_amount'] and amount < net['min_amount']:
+        return (f"{net['name']} payments start from {currency} {net['min_amount']:,}. "
+                f"Choose a bigger package or another network.")
+    return None
 
 
 def _normalize_tz_phone(raw):
@@ -1662,7 +1696,8 @@ def api_portal_packages():
         'id': p.id, 'name': p.name, 'description': p.description or '',
         'price': f'{p.price:.0f}', 'currency': p.currency,
         'validity_minutes': p.validity_minutes, 'validity': p.validity_label,
-    } for p in items], payments_enabled=clickpesa.is_configured(_tenant_credentials(g.api_tenant)))
+    } for p in items], payments_enabled=clickpesa.is_configured(_tenant_credentials(g.api_tenant)),
+                   networks=payment_networks())
 
 
 @app.route('/api/portal/purchase', methods=['POST'])
@@ -1680,6 +1715,10 @@ def api_portal_purchase():
     creds = _tenant_credentials(tenant)
     if not clickpesa.is_configured(creds):
         return jsonify(error='Mobile payments are not available right now.'), 503
+    # Gateways send the network the guest picked; older ones don't, then the number decides
+    problem = check_network(phone, str(data.get('network') or '') or None, package.price, package.currency)
+    if problem:
+        return jsonify(error=problem), 400
     recent = Payment.query.filter(Payment.phone == phone, Payment.status == 'pending',
                                   Payment.created_at >= datetime.utcnow() - timedelta(seconds=90)).count()
     if recent:
@@ -1702,6 +1741,15 @@ def api_portal_purchase():
     db.session.commit()
     try:
         available = clickpesa.preview_ussd_push(payment.amount, phone, payment.reference, creds)
+        chosen = str(data.get('network') or '')
+        offered = {portal_ui.network_for_method(m) for m in available}
+        if available and chosen and chosen not in offered:
+            payment.status = 'failed'
+            payment.message = f'{chosen} not offered by ClickPesa for this number ({", ".join(available)})'
+            db.session.commit()
+            name = portal_ui.NETWORKS.get(chosen, {}).get('name', 'That network')
+            return jsonify({**_payment_json(payment),
+                            'error': f"{name} isn't available for this number right now. Try another network."}), 502
         if not available:
             payment.status = 'failed'
             payment.message = 'No mobile-money method available for this number'
@@ -2823,6 +2871,10 @@ def billing_pay():
         return redirect(url_for('billing'))
     if not phone:
         flash('Enter a valid mobile money number, e.g. 0712 345 678.', 'danger')
+        return redirect(url_for('billing'))
+    problem = check_network(phone, None, plan.price * months)
+    if problem:
+        flash(problem, 'danger')
         return redirect(url_for('billing'))
     if not clickpesa.is_configured():
         flash('Online payment is not available right now. Please contact SafeNet.', 'danger')

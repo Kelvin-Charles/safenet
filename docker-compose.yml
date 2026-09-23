@@ -103,6 +103,7 @@ services:
       CLICKPESA_API_KEY: ${CLICKPESA_API_KEY:-}
       CLICKPESA_CHECKSUM_KEY: ${CLICKPESA_CHECKSUM_KEY:-}
       PORTAL_API_KEY: ${PORTAL_API_KEY:-}
+      PAYMENT_NETWORKS: ${PAYMENT_NETWORKS:-mixx:1000,airtel,halopesa}
       # Multi-tenant signup
       PUBLIC_URL: ${PUBLIC_URL:-https://radius.safezonetz.com}
       SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}

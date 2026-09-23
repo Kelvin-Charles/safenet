@@ -567,7 +567,8 @@ def safenet_fetch(path, timeout=15):
         return resp.read(512 * 1024), resp.headers.get('Content-Type', 'application/octet-stream')
 
 
-_packages_cache = {'at': 0.0, 'items': []}
+_packages_cache = {'at': 0.0, 'items': [], 'networks': []}
+IMG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'img')   # network logos (from static/img)
 
 
 def portal_packages():
@@ -578,11 +579,17 @@ def portal_packages():
         try:
             data = safenet_api('GET', '/api/portal/packages', timeout=8)
             items = data.get('packages', []) if data.get('payments_enabled') else []
+            networks = data.get('networks') or []
         except ApiError as e:
             log.warning('fetching packages failed: %s', e)
-            items = _packages_cache['items']
-        _packages_cache.update(at=time.time(), items=items)
+            items, networks = _packages_cache['items'], _packages_cache['networks']
+        _packages_cache.update(at=time.time(), items=items, networks=networks)
     return _packages_cache['items']
+
+
+def portal_networks():
+    portal_packages()
+    return _packages_cache['networks']
 
 
 purchases = {}          # reference -> {mac, ip, phone, amount, package, created}
@@ -591,7 +598,7 @@ MAX_PURCHASES = 3       # payment requests per device per 10 minutes
 PURCHASE_WAIT = 240     # seconds to keep checking before offering "check again"
 
 
-def start_purchase(mac, ip, package_id, phone):
+def start_purchase(mac, ip, package_id, phone, network=None):
     """Returns (reference, error)."""
     now = time.time()
     recent = [t for t in purchase_attempts.get(mac, []) if now - t < 600]
@@ -600,7 +607,8 @@ def start_purchase(mac, ip, package_id, phone):
     purchase_attempts[mac] = recent + [now]
     try:
         data = safenet_api('POST', '/api/portal/purchase', {
-            'package_id': package_id, 'phone': phone, 'mac': mac, 'ip': ip, 'nas': NAS_IDENTIFIER})
+            'package_id': package_id, 'phone': phone, 'mac': mac, 'ip': ip, 'nas': NAS_IDENTIFIER,
+            'network': network})
     except ApiError as e:
         log.info('purchase failed mac=%s: %s', mac, e)
         return None, str(e) if 'unreachable' not in str(e) else "We can't reach the payment server right now. Please try again."
@@ -620,7 +628,7 @@ def _theme():
 
 def login_page(dst='', error='', lang='en', tab='voucher'):
     return ui.login_page(_theme(), lang, packages=portal_packages(), dst=dst, error=error, tab=tab,
-                         buy_enabled=bool(SAFENET_API_URL))
+                         buy_enabled=bool(SAFENET_API_URL), networks=portal_networks(), logo_base='/img/')
 
 
 def status_page(session, dst='', new_code=None, lang='en'):
@@ -699,6 +707,8 @@ class PortalHandler(BaseHTTPRequestHandler):
         query = parse_qs(url.query)
         if url.path == '/logo':
             return self._logo()
+        if url.path.startswith('/img/'):
+            return self._network_logo(url.path[5:])
         lang = self._lang(query)
         if url.path == '/buy/wait':
             return self._buy_wait(query.get('ref', [''])[0], bool(query.get('again')), lang)
@@ -710,6 +720,23 @@ class PortalHandler(BaseHTTPRequestHandler):
         if session and session['ip'] == ip and session['expires'] > time.time():
             return self._send(200, status_page(session, dst, lang=lang))
         self._send(200, login_page(dst, lang=lang))
+
+    def _network_logo(self, name):
+        # Only the known network logo files, never an arbitrary path
+        if name not in {n['logo'] for n in ui.NETWORKS.values()}:
+            return self._send(404, '')
+        try:
+            with open(os.path.join(IMG_DIR, name), 'rb') as f:
+                content = f.read()
+        except OSError:
+            return self._send(404, '')
+        self.send_response(200)
+        self.send_header('Content-Type', 'image/jpeg' if name.endswith('.jpg') else 'image/png')
+        self.send_header('Cache-Control', 'public, max-age=604800')
+        self.send_header('Content-Length', str(len(content)))
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(content)
 
     def _logo(self):
         try:
@@ -773,7 +800,10 @@ class PortalHandler(BaseHTTPRequestHandler):
         phone = re.sub(r'\D', '', form.get('phone', ''))
         if len(phone) == 9:                      # typed after the +255 prefix
             phone = '255' + phone
-        ref, error = start_purchase(mac, ip, package_id, phone)
+        network = form.get('network', '')[:16] or None
+        if portal_networks() and not network:
+            return err('Choose your mobile-money network.')
+        ref, error = start_purchase(mac, ip, package_id, phone, network)
         if error:
             return err(error)
         self._redirect(self._portal_url('/buy/wait', ref=ref))

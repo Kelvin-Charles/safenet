@@ -19,6 +19,49 @@ LANGS = ('en', 'sw')
 
 e = html.escape
 
+# Mobile-money networks. Which ones are offered (and their minimum amount) is
+# configured in SafeNet (PAYMENT_NETWORKS); logos live in static/img (the
+# gateway serves its own copy under /img/).
+NETWORKS = {
+    'mpesa':    {'name': 'M-Pesa', 'operator': 'Vodacom', 'logo': 'mpesa.png', 'prefixes': ('74', '75', '76'),
+                 'match': ('MPESA', 'M-PESA', 'VODA')},
+    'mixx':     {'name': 'Mixx by Yas', 'operator': 'Yas', 'logo': 'yas-1024x724.jpg', 'prefixes': ('65', '67', '71', '77'),
+                 'match': ('TIGO', 'MIXX', 'YAS')},
+    'airtel':   {'name': 'Airtel Money', 'operator': 'Airtel', 'logo': 'airtel.png', 'prefixes': ('68', '69', '78'),
+                 'match': ('AIRTEL',)},
+    'halopesa': {'name': 'HaloPesa', 'operator': 'Halotel', 'logo': 'halopesa.png', 'prefixes': ('61', '62'),
+                 'match': ('HALO',)},
+}
+
+
+def parse_networks(spec):
+    """'mixx:1000,airtel,halopesa' -> [{'id', 'name', 'min_amount'}] in that order (unknown ids skipped)."""
+    out = []
+    for part in (spec or '').split(','):
+        key, _, minimum = part.strip().partition(':')
+        if key in NETWORKS and not any(n['id'] == key for n in out):
+            out.append({'id': key, 'name': NETWORKS[key]['name'], 'min_amount': int(minimum) if minimum.isdigit() else 0})
+    return out
+
+
+def network_for_phone(phone):
+    """Network id for a 255XXXXXXXXX / 0XXXXXXXXX number, or None if the prefix is unknown."""
+    digits = re.sub(r'\D', '', phone or '')
+    local = digits[3:] if digits.startswith('255') else digits.lstrip('0')
+    for key, info in NETWORKS.items():
+        if local[:2] in info['prefixes']:
+            return key
+    return None
+
+
+def network_for_method(method):
+    """Map a ClickPesa method name (e.g. 'TIGO-PESA') to a network id."""
+    name = (method or '').upper().replace(' ', '')
+    for key, info in NETWORKS.items():
+        if any(m.replace(' ', '') in name for m in info['match']):
+            return key
+    return None
+
 # ---------------------------------------------------------------------------
 # Text (English / Kiswahili)
 # ---------------------------------------------------------------------------
@@ -31,7 +74,8 @@ T = {
         'code': 'Voucher code', 'code_ph': '12345678',
         'have_account': 'I have a username and password', 'username': 'Username', 'password': 'Password',
         'accept': 'I accept the', 'terms': 'terms of use', 'connect': 'Connect',
-        'buy_title': 'Choose a package', 'buy_lead': 'Pay with M-Pesa, Mixx by Yas, Airtel Money or HaloPesa.',
+        'buy_title': 'Choose a package', 'buy_lead': 'Pick a package, then your mobile-money network.',
+        'network': 'Your mobile-money network', 'min_from': 'From {amount}', 'choose_network': 'Choose your network first',
         'phone': 'Mobile money number', 'pay': 'Pay {price}', 'pay_hint': "You'll get a PIN prompt on your phone. Once paid, you're connected automatically and the code is sent to you by SMS.",
         'no_packages': 'No packages are on sale right now. Ask at the counter for a voucher.',
         'check_phone': 'Check your phone', 'wait_lead': 'Enter your mobile-money PIN to pay {amount} for {package}.',
@@ -61,7 +105,8 @@ T = {
         'code': 'Namba ya vocha', 'code_ph': '12345678',
         'have_account': 'Nina jina la mtumiaji na nenosiri', 'username': 'Jina la mtumiaji', 'password': 'Nenosiri',
         'accept': 'Nakubali', 'terms': 'masharti ya matumizi', 'connect': 'Unganisha',
-        'buy_title': 'Chagua kifurushi', 'buy_lead': 'Lipa kwa M-Pesa, Mixx by Yas, Airtel Money au HaloPesa.',
+        'buy_title': 'Chagua kifurushi', 'buy_lead': 'Chagua kifurushi, kisha mtandao wako wa malipo.',
+        'network': 'Mtandao wako wa malipo', 'min_from': 'Kuanzia {amount}', 'choose_network': 'Chagua mtandao kwanza',
         'phone': 'Namba ya simu ya malipo', 'pay': 'Lipa {price}', 'pay_hint': 'Utapokea ujumbe wa kuweka PIN kwenye simu yako. Ukishalipa utaunganishwa moja kwa moja na namba ya vocha itatumwa kwa SMS.',
         'no_packages': 'Hakuna vifurushi vinavyouzwa kwa sasa. Uliza vocha kaunta.',
         'check_phone': 'Angalia simu yako', 'wait_lead': 'Weka PIN yako kulipia {amount} kwa {package}.',
@@ -103,6 +148,7 @@ MESSAGES_SW = {
     'Enter a valid mobile number, e.g. 0712 345 678.': 'Weka namba sahihi ya simu, mfano 0712 345 678.',
     'A payment request was just sent to this number. Check your phone, or wait a minute.': 'Ombi la malipo limetumwa sasa hivi kwa namba hii. Angalia simu yako au subiri dakika moja.',
     'Payment not completed: ': 'Malipo hayajakamilika: ',
+    'Choose your mobile-money network.': 'Chagua mtandao wako wa malipo.',
     'The payment was not completed.': 'Malipo hayakukamilika.',
 }
 
@@ -310,6 +356,20 @@ document.querySelectorAll('form[data-busy]').forEach(function(f){{f.addEventList
   f.querySelectorAll('input,select,button.linkbtn').forEach(function(x){{x.setAttribute('readonly','');}});
 }});}});
 window.addEventListener('pageshow',function(ev){{if(ev.persisted)location.reload();}});
+(function(){{
+  var nets=document.querySelectorAll('.net');if(!nets.length)return;
+  function price(){{var p=document.querySelector('.pkg input:checked');return p?parseFloat(p.dataset.price)||0:0;}}
+  function paint(){{nets.forEach(function(n){{var r=n.querySelector('input');n.classList.toggle('on',r.checked);}});}}
+  function limits(){{var pr=price();nets.forEach(function(n){{var r=n.querySelector('input'),low=pr<(parseInt(n.dataset.min)||0);
+    n.classList.toggle('off',low);r.disabled=low;if(low&&r.checked)r.checked=false;}});paint();}}
+  nets.forEach(function(n){{n.querySelector('input').addEventListener('change',paint);}});
+  document.querySelectorAll('.pkg input').forEach(function(r){{r.addEventListener('change',limits);}});
+  var ph=document.getElementById('phone');
+  if(ph)ph.addEventListener('input',function(){{var d=ph.value.replace(/\\D/g,'');if(d.indexOf('255')===0)d=d.slice(3);d=d.replace(/^0/,'');
+    if(d.length<2)return;nets.forEach(function(n){{var r=n.querySelector('input');
+      if(!r.disabled&&(' '+n.dataset.prefixes+' ').indexOf(' '+d.slice(0,2)+' ')>=0){{r.checked=true;}}}});paint();}});
+  limits();
+}})();
 </script>
 </body>
 </html>"""
@@ -332,7 +392,7 @@ def _terms_check(th, lang, field_id):
 # Pages
 # ---------------------------------------------------------------------------
 def login_page(th, lang, *, packages=(), dst='', error='', tab='voucher', action='/login', buy_action='/buy',
-               external=None, buy_enabled=True, preview=False, lang_url='/'):
+               external=None, buy_enabled=True, preview=False, lang_url='/', networks=(), logo_base='/img/'):
     """Voucher and/or buy-package tabs.
 
     external: {'action': url, 'next_field': name, 'next_value': value} to post the
@@ -390,11 +450,28 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab='voucher', action
             desc = f' · {e(p["description"])}' if p.get('description') else ''
             options.append(
                 f'<label class="pkg{" on" if i == 0 else ""}"><input type="radio" name="package_id" value="{int(p["id"])}" '
-                f'data-label="{e(t(lang, "pay", price=price))}" required{" checked" if i == 0 else ""}>'
+                f'data-label="{e(t(lang, "pay", price=price))}" data-price="{e(str(p.get("price", "0")))}" required{" checked" if i == 0 else ""}>'
                 f'<span class="ic">{icon("clock", 21)}</span>'
                 f'<span class="nm"><b>{e(p["name"])}</b><small>{valid}{desc}</small></span>'
                 f'<span class="pr">{e(price)}</span><span class="tick">{icon("check", 14, 3)}</span></label>')
         first_price = money(packages[0].get('currency', 'TZS'), packages[0].get('price'))
+        net_tiles = ''
+        if networks:
+            tiles = []
+            for n in networks:
+                info = NETWORKS.get(n['id'])
+                if not info:
+                    continue
+                minimum = int(n.get('min_amount') or 0)
+                note = (f'<small class="net-min">{e(t(lang, "min_from", amount=money(packages[0].get("currency", "TZS"), minimum)))}</small>'
+                        if minimum else '')
+                tiles.append(
+                    f'<label class="net" data-min="{minimum}" data-prefixes="{" ".join(info["prefixes"])}">'
+                    f'<input type="radio" name="network" value="{e(n["id"])}" required>'
+                    f'<img src="{e(logo_base + info["logo"])}" alt="{e(info["name"])}" loading="lazy">'
+                    f'<span>{e(info["name"])}</span>{note}<span class="tick">{icon("check", 13, 3)}</span></label>')
+            net_tiles = (f'<div class="field"><label>{t(lang, "network")}</label>'
+                         f'<div class="nets" style="--n:{min(len(tiles), 4)}">{"".join(tiles)}</div></div>')
         buy = f"""
       <h2>{t(lang, 'buy_title')}</h2>
       <p class="lead">{t(lang, 'buy_lead')}</p>
@@ -402,6 +479,7 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab='voucher', action
       <form method="post" action="{e(buy_action)}" data-busy="{e(t(lang, 'busy_pay'))}" data-busy-hint="{e(t(lang, 'busy_pay_hint'))}">
         <input type="hidden" name="dst" value="{e(dst)}">
         <div class="pkgs">{''.join(options)}</div>
+        {net_tiles}
         <div class="field">
           <label for="phone">{t(lang, 'phone')}</label>
           <div class="phone"><span>+255</span><input class="input" type="tel" id="phone" name="phone" inputmode="tel" autocomplete="tel"

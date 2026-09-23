@@ -73,6 +73,10 @@ class Config:
     WG_SERVER_IP = os.getenv('WG_SERVER_IP', '10.200.0.1')           # hub's tunnel address = RADIUS server
     WG_SUBNET = os.getenv('WG_SUBNET', '10.200.0.0/16')
 
+    # Mobile-money networks the platform ClickPesa account accepts, in display
+    # order, with an optional minimum amount: e.g. "mpesa,mixx:1000,airtel,halopesa"
+    PAYMENT_NETWORKS = os.getenv('PAYMENT_NETWORKS', 'mixx:1000,airtel,halopesa')
+
     # Shared key captive-portal gateways send in X-SafeNet-Key (empty = API disabled)
     PORTAL_API_KEY = os.getenv('PORTAL_API_KEY', '')
 

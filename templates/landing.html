@@ -224,10 +224,7 @@
     </section>
 
     <div class="wrap works-with" aria-label="Works with">
-        <span><i class="bi bi-phone"></i>M-Pesa</span>
-        <span><i class="bi bi-phone-vibrate"></i>Mixx by Yas</span>
-        <span><i class="bi bi-wallet2"></i>Airtel Money</span>
-        <span><i class="bi bi-cash-coin"></i>HaloPesa</span>
+        {% for n in networks %}<span><i class="bi bi-phone"></i>{{ n }}</span>{% endfor %}
         <span><i class="bi bi-router"></i>MikroTik</span>
         <span><i class="bi bi-wifi"></i>TP-Link</span>
     </div>
@@ -363,7 +360,7 @@
             </details>
             <details>
                 <summary>How do my customers pay?</summary>
-                <p>They buy a voucher code from you in cash, or choose a package on the login page and pay with M-Pesa, Mixx by Yas, Airtel Money or HaloPesa. They get a PIN prompt, and once it's paid they are online and receive the code by SMS.</p>
+                <p>They buy a voucher code from you in cash, or choose a package on the login page and pay with {{ networks|join(', ') if networks else 'mobile money' }}. They get a PIN prompt, and once it's paid they are online and receive the code by SMS.</p>
             </details>
             <details>
                 <summary>When do I receive the money?</summary>
