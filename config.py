@@ -52,6 +52,15 @@ class Config:
         'We may log connection times and data usage for billing and security.'
     )
 
+    # ClickPesa mobile-money collection (Settings -> Developers in ClickPesa)
+    CLICKPESA_CLIENT_ID = os.getenv('CLICKPESA_CLIENT_ID', '')
+    CLICKPESA_API_KEY = os.getenv('CLICKPESA_API_KEY', '')
+    CLICKPESA_CHECKSUM_KEY = os.getenv('CLICKPESA_CHECKSUM_KEY', '')  # only if checksum is enabled
+    CLICKPESA_BASE_URL = os.getenv('CLICKPESA_BASE_URL', 'https://api.clickpesa.com')
+
+    # Shared key captive-portal gateways send in X-SafeNet-Key (empty = API disabled)
+    PORTAL_API_KEY = os.getenv('PORTAL_API_KEY', '')
+
     # Pagination
     ITEMS_PER_PAGE = 25
     

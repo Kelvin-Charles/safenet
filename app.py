@@ -2,13 +2,19 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher
-from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm
+from models import db, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment
+from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
 from sqlalchemy import func, or_, desc
+import clickpesa
 import subprocess
 import secrets
+import hmac
+import logging
+import re
+from functools import wraps
+from datetime import timedelta
 import ipaddress
 from decimal import Decimal
 from urllib.parse import urlparse
@@ -895,6 +901,24 @@ def _new_voucher_code(taken):
             return code
 
 
+def _create_vouchers(count, plan, minutes, price, batch):
+    """Adds `count` vouchers (and their RADIUS rows) to the session; caller commits."""
+    # Codes double as RADIUS usernames, so avoid clashes with both tables.
+    taken = {c for (c,) in db.session.query(Voucher.code)}
+    taken |= {u for (u,) in db.session.query(RadCheck.username).distinct()}
+    created = []
+    for _ in range(count):
+        code = _new_voucher_code(taken)
+        voucher = Voucher(code=code, plan_id=plan.id if plan else None, batch=batch,
+                          validity_minutes=minutes, price=price)
+        db.session.add(voucher)
+        db.session.add(RadCheck(username=code, attribute='Cleartext-Password', op=':=', value=code))
+        if plan:
+            db.session.add(RadUserGroup(username=code, groupname=plan.name, priority=1))
+        created.append(voucher)
+    return created
+
+
 @app.route('/vouchers')
 @login_required
 def vouchers():
@@ -948,17 +972,7 @@ def generate_vouchers():
         price = Decimal(form.price.data.strip()) if form.price.data else None
         batch = (form.batch.data or '').strip() or datetime.utcnow().strftime('%Y%m%d-%H%M%S')
 
-        # Codes double as RADIUS usernames, so avoid clashes with both tables.
-        taken = {c for (c,) in db.session.query(Voucher.code)}
-        taken |= {u for (u,) in db.session.query(RadCheck.username).distinct()}
-
-        for _ in range(form.count.data):
-            code = _new_voucher_code(taken)
-            db.session.add(Voucher(code=code, plan_id=plan.id if plan else None, batch=batch,
-                                   validity_minutes=minutes, price=price))
-            db.session.add(RadCheck(username=code, attribute='Cleartext-Password', op=':=', value=code))
-            if plan:
-                db.session.add(RadUserGroup(username=code, groupname=plan.name, priority=1))
+        _create_vouchers(form.count.data, plan, minutes, price, batch)
         db.session.commit()
 
         flash(f'{form.count.data} vouchers created in batch "{batch}".', 'success')
@@ -1075,6 +1089,414 @@ def portal():
 
     return render_template('portal/index.html', hotspot=_hotspot_settings(), gateway=gateway,
                            error=request.args.get('error', '')[:200])
+
+
+# Packages (sold on the captive portal)
+def _minutes_from(value, unit):
+    return value * {'minutes': 1, 'hours': 60, 'days': 1440}[unit]
+
+
+def _split_minutes(minutes):
+    for unit, size in (('days', 1440), ('hours', 60)):
+        if minutes % size == 0:
+            return minutes // size, unit
+    return minutes, 'minutes'
+
+
+@app.route('/packages')
+@login_required
+def packages():
+    items = Package.query.order_by(Package.sort_order, Package.price).all()
+    return render_template('packages/list.html', packages=items,
+                           clickpesa_ready=clickpesa.is_configured(),
+                           portal_api_ready=bool(Config.PORTAL_API_KEY))
+
+
+def _package_form():
+    form = PackageForm()
+    form.plan_id.choices = [(0, '-- No speed limit --')] + [(p.id, p.name) for p in Plan.query.filter_by(is_active=True).all()]
+    return form
+
+
+def _fill_package(package, form):
+    package.name = form.name.data.strip()
+    package.description = (form.description.data or '').strip() or None
+    package.plan_id = form.plan_id.data or None
+    package.price = Decimal(form.price.data.strip())
+    package.validity_minutes = _minutes_from(form.validity_value.data, form.validity_unit.data)
+    package.sort_order = form.sort_order.data or 0
+    package.is_active = form.is_active.data
+    package.show_on_portal = form.show_on_portal.data
+
+
+@app.route('/packages/add', methods=['GET', 'POST'])
+@login_required
+def add_package():
+    form = _package_form()
+    if form.validate_on_submit():
+        package = Package(currency=Config.HOTSPOT_CURRENCY)
+        _fill_package(package, form)
+        db.session.add(package)
+        db.session.commit()
+        flash(f'Package "{package.name}" created.', 'success')
+        return redirect(url_for('packages'))
+    return render_template('packages/form.html', form=form, title='New Package')
+
+
+@app.route('/packages/<int:package_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_package(package_id):
+    package = Package.query.get_or_404(package_id)
+    form = _package_form()
+    if request.method == 'GET':
+        form.process(obj=package)
+        form.plan_id.data = package.plan_id or 0
+        form.price.data = f'{package.price:.0f}' if package.price == int(package.price) else str(package.price)
+        form.validity_value.data, form.validity_unit.data = _split_minutes(package.validity_minutes)
+    if form.validate_on_submit():
+        _fill_package(package, form)
+        db.session.commit()
+        flash(f'Package "{package.name}" updated.', 'success')
+        return redirect(url_for('packages'))
+    return render_template('packages/form.html', form=form, title='Edit Package', package=package)
+
+
+@app.route('/packages/<int:package_id>/delete', methods=['POST'])
+@login_required
+def delete_package(package_id):
+    _check_csrf()
+    package = Package.query.get_or_404(package_id)
+    name = package.name
+    db.session.delete(package)
+    db.session.commit()
+    flash(f'Package "{name}" deleted. Past payments keep their records.', 'success')
+    return redirect(url_for('packages'))
+
+
+# Payments
+log = logging.getLogger('safenet')
+
+
+def _normalize_tz_phone(raw):
+    """0712 345 678 / +255 712 345 678 / 712345678 -> 255712345678, else None."""
+    digits = re.sub(r'\D', '', raw or '')
+    if len(digits) == 10 and digits.startswith('0'):
+        digits = '255' + digits[1:]
+    elif len(digits) == 9:
+        digits = '255' + digits
+    return digits if re.fullmatch(r'255[67]\d{8}', digits) else None
+
+
+def _fulfil_payment(payment):
+    """Paid: issue a voucher for the package (once)."""
+    if payment.voucher_id:
+        return
+    voucher = _create_vouchers(1, payment.plan, payment.validity_minutes, payment.amount, 'online-payments')[0]
+    db.session.flush()
+    payment.voucher_id = voucher.id
+    payment.status = 'paid'
+    payment.paid_at = datetime.utcnow()
+    log.info('payment %s paid: voucher %s', payment.reference, voucher.code)
+
+
+def _refresh_payment(reference, force=False):
+    """Checks a pending payment with ClickPesa. Locks the row so a payment is
+    fulfilled exactly once even if the webhook and the portal poll race."""
+    payment = Payment.query.filter_by(reference=reference).with_for_update().first()
+    if not payment:
+        db.session.rollback()
+        return None
+    now = datetime.utcnow()
+    due = force or not payment.checked_at or (now - payment.checked_at).total_seconds() >= 3
+    if payment.status == 'pending' and due:
+        payment.checked_at = now
+        try:
+            record = clickpesa.query_payment(reference)
+        except clickpesa.ClickPesaError as e:
+            log.warning('ClickPesa query %s failed: %s', reference, e)
+            record = None
+        if record:
+            status = (record.get('status') or '').upper()
+            payment.provider_status = status
+            payment.channel = record.get('channel') or payment.channel
+            payment.message = (record.get('message') or payment.message or '')[:255] or None
+            if status in ('SUCCESS', 'SETTLED'):
+                collected = record.get('collectedAmount')
+                if collected is not None and Decimal(str(collected)) < payment.amount:
+                    payment.status = 'review'
+                    payment.message = f'Collected {collected}, expected {payment.amount}'
+                else:
+                    _fulfil_payment(payment)
+            elif status == 'FAILED':
+                payment.status = 'failed'
+    db.session.commit()
+    return payment
+
+
+@app.route('/payments')
+@login_required
+def payments():
+    page = request.args.get('page', 1, type=int)
+    status = request.args.get('status', '', type=str)
+    search = request.args.get('search', '', type=str).strip()
+    query = Payment.query
+    if status:
+        query = query.filter(Payment.status == status)
+    if search:
+        query = query.filter(or_(Payment.phone.like(f'%{search}%'), Payment.reference.like(f'%{search}%')))
+    pagination = query.order_by(Payment.created_at.desc()).paginate(
+        page=page, per_page=Config.ITEMS_PER_PAGE, error_out=False)
+
+    now = datetime.utcnow()
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    month = today.replace(day=1)
+    paid_total = lambda since=None: db.session.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+        Payment.status == 'paid', *( [Payment.paid_at >= since] if since else [])).scalar()
+    stats = {
+        'today': paid_total(today),
+        'month': paid_total(month),
+        'all_time': paid_total(),
+        'paid_count': Payment.query.filter_by(status='paid').count(),
+        'pending': Payment.query.filter_by(status='pending').count(),
+    }
+    return render_template('payments/list.html', pagination=pagination, stats=stats, status=status,
+                           search=search, currency=Config.HOTSPOT_CURRENCY,
+                           clickpesa_ready=clickpesa.is_configured())
+
+
+@app.route('/payments/<int:payment_id>/refresh', methods=['POST'])
+@login_required
+def refresh_payment(payment_id):
+    _check_csrf()
+    payment = Payment.query.get_or_404(payment_id)
+    payment = _refresh_payment(payment.reference, force=True)
+    flash(f'Payment {payment.reference}: {payment.status}.', 'info')
+    return redirect(request.referrer or url_for('payments'))
+
+
+# Captive-portal gateway API (JSON, authenticated with X-SafeNet-Key)
+def portal_api(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        key = request.headers.get('X-SafeNet-Key', '')
+        if not Config.PORTAL_API_KEY or not hmac.compare_digest(key.encode(), Config.PORTAL_API_KEY.encode()):
+            return jsonify(error='unauthorized'), 401
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def _payment_json(payment):
+    data = {
+        'reference': payment.reference,
+        'status': payment.status,
+        'package': payment.package_name,
+        'amount': f'{payment.amount:.0f}',
+        'currency': payment.currency,
+        'phone': payment.phone,
+        'validity_minutes': payment.validity_minutes,
+        'message': payment.message or '',
+    }
+    if payment.status == 'paid' and payment.voucher:
+        data['code'] = payment.voucher.code
+    return data
+
+
+@app.route('/api/portal/packages')
+@portal_api
+def api_portal_packages():
+    items = Package.query.filter_by(is_active=True, show_on_portal=True).order_by(
+        Package.sort_order, Package.price).all()
+    return jsonify(packages=[{
+        'id': p.id, 'name': p.name, 'description': p.description or '',
+        'price': f'{p.price:.0f}', 'currency': p.currency,
+        'validity_minutes': p.validity_minutes, 'validity': p.validity_label,
+    } for p in items], payments_enabled=clickpesa.is_configured())
+
+
+@app.route('/api/portal/purchase', methods=['POST'])
+@portal_api
+def api_portal_purchase():
+    data = request.get_json(silent=True) or {}
+    package = Package.query.filter_by(id=data.get('package_id'), is_active=True, show_on_portal=True).first()
+    if not package:
+        return jsonify(error='That package is no longer available.'), 404
+    phone = _normalize_tz_phone(str(data.get('phone', '')))
+    if not phone:
+        return jsonify(error='Enter a valid mobile number, e.g. 0712 345 678.'), 400
+    if not clickpesa.is_configured():
+        return jsonify(error='Mobile payments are not available right now.'), 503
+    recent = Payment.query.filter(Payment.phone == phone, Payment.status == 'pending',
+                                  Payment.created_at >= datetime.utcnow() - timedelta(seconds=90)).count()
+    if recent:
+        return jsonify(error='A payment request was just sent to this number. Check your phone, or wait a minute.'), 429
+
+    payment = Payment(
+        reference='SN' + secrets.token_hex(6).upper(),
+        package_id=package.id, package_name=package.name, plan_id=package.plan_id,
+        validity_minutes=package.validity_minutes, phone=phone,
+        amount=package.price, currency=package.currency,
+        nas_identifier=str(data.get('nas', ''))[:64] or None,
+        client_mac=str(data.get('mac', ''))[:17] or None,
+        client_ip=str(data.get('ip', ''))[:45] or None,
+    )
+    db.session.add(payment)
+    db.session.commit()
+    try:
+        available = clickpesa.preview_ussd_push(payment.amount, phone, payment.reference)
+        if not available:
+            payment.status = 'failed'
+            payment.message = 'No mobile-money method available for this number'
+            db.session.commit()
+            return jsonify({**_payment_json(payment),
+                            'error': "Mobile money for this number isn't available right now. Try another number or a voucher."}), 502
+        tx = clickpesa.initiate_ussd_push(payment.amount, phone, payment.reference) or {}
+        payment.provider_id = tx.get('id')
+        payment.provider_status = (tx.get('status') or '').upper() or None
+        payment.channel = tx.get('channel')
+        if payment.provider_status == 'FAILED':
+            payment.status = 'failed'
+    except clickpesa.ClickPesaError as e:
+        log.warning('ClickPesa USSD push %s failed: %s', payment.reference, e)
+        payment.status = 'failed'
+        payment.message = str(e)[:255]
+    db.session.commit()
+    if payment.status == 'failed':
+        return jsonify({**_payment_json(payment),
+                        'error': "We couldn't send the payment request. Check the number and try again."}), 502
+    return jsonify(_payment_json(payment))
+
+
+@app.route('/api/portal/purchase/<reference>')
+@portal_api
+def api_portal_purchase_status(reference):
+    payment = _refresh_payment(reference)
+    if not payment:
+        return jsonify(error='not found'), 404
+    return jsonify(_payment_json(payment))
+
+
+@app.route('/api/clickpesa/webhook', methods=['POST'])
+def clickpesa_webhook():
+    """ClickPesa PAYMENT RECEIVED / PAYMENT FAILED. The payload is only a hint:
+    the payment is re-checked with ClickPesa before anything is granted."""
+    data = (request.get_json(silent=True) or {}).get('data') or {}
+    reference = str(data.get('orderReference', ''))[:20]
+    if reference and re.fullmatch(r'[A-Za-z0-9]+', reference):
+        try:
+            _refresh_payment(reference, force=True)
+        except Exception:
+            db.session.rollback()
+            log.exception('webhook refresh %s failed', reference)
+    return jsonify(received=True)
+
+
+# Live activity (polled by templates/live.html)
+LIVE_STALE_MINUTES = 15   # open sessions with no accounting update for this long are not "online"
+
+
+def _local_midnight_utc():
+    """Start of today in the server's timezone (TZ env), as naive UTC."""
+    now_local = datetime.now()
+    offset = now_local - datetime.utcnow()
+    return now_local.replace(hour=0, minute=0, second=0, microsecond=0) - offset
+
+
+def _iso(dt):
+    return dt.strftime('%Y-%m-%dT%H:%M:%SZ') if dt else None
+
+
+@app.route('/live')
+@login_required
+def live():
+    return render_template('live.html', currency=Config.HOTSPOT_CURRENCY)
+
+
+@app.route('/api/live')
+@login_required
+def api_live():
+    now = datetime.utcnow()
+    midnight = _local_midnight_utc()
+    cutoff = now - timedelta(minutes=LIVE_STALE_MINUTES)
+    last_seen = func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime)
+
+    open_sessions = (RadAcct.query
+                     .filter(RadAcct.acctstoptime.is_(None), last_seen >= cutoff)
+                     .order_by(RadAcct.acctstarttime.desc()).limit(200).all())
+    usernames = {s.username for s in open_sessions}
+    vouchers = {v.code: v for v in Voucher.query.filter(Voucher.code.in_(usernames))} if usernames else {}
+    phones = {}
+    if vouchers:
+        ids = [v.id for v in vouchers.values()]
+        phones = {p.voucher_id: p.phone for p in Payment.query.filter(Payment.voucher_id.in_(ids))}
+    nas_names = {n.nasname: n.shortname for n in Nas.query.all()}
+
+    online = []
+    for s in open_sessions:
+        v = vouchers.get(s.username)
+        down = s.acctoutputoctets or 0   # to the user
+        up = s.acctinputoctets or 0      # from the user
+        online.append({
+            'user': s.username,
+            'kind': 'voucher' if v else 'user',
+            'plan': (v.plan.name if v and v.plan else s.groupname) or '',
+            'phone': phones.get(v.id) if v else None,
+            'expires': _iso(v.expires_at) if v else None,
+            'mac': s.callingstationid or '',
+            'ip': s.framedipaddress or '',
+            'router': s.calledstationid or nas_names.get(s.nasipaddress) or s.nasipaddress,
+            'started': _iso(s.acctstarttime),
+            'updated': _iso(s.acctupdatetime or s.acctstarttime),
+            'seconds': s.acctsessiontime or 0,
+            'down': down,
+            'up': up,
+        })
+
+    day_sessions = RadAcct.query.filter(or_(RadAcct.acctstoptime.is_(None), RadAcct.acctstoptime >= midnight))
+    usage = day_sessions.with_entities(
+        func.coalesce(func.sum(RadAcct.acctoutputoctets), 0),
+        func.coalesce(func.sum(RadAcct.acctinputoctets), 0)).one()
+    paid_today = Payment.query.filter(Payment.status == 'paid', Payment.paid_at >= midnight)
+    cash_today = Voucher.query.filter(Voucher.first_used_at >= midnight, Voucher.batch != 'online-payments')
+    stats = {
+        'online': len(online),
+        'down_today': int(usage[0]),
+        'up_today': int(usage[1]),
+        'logins_today': RadPostAuth.query.filter(RadPostAuth.authdate >= midnight,
+                                                 RadPostAuth.reply == 'Access-Accept').count(),
+        'rejects_today': RadPostAuth.query.filter(RadPostAuth.authdate >= midnight,
+                                                  RadPostAuth.reply != 'Access-Accept').count(),
+        'online_revenue_today': float(paid_today.with_entities(func.coalesce(func.sum(Payment.amount), 0)).scalar()),
+        'online_sales_today': paid_today.count(),
+        'cash_revenue_today': float(cash_today.with_entities(func.coalesce(func.sum(Voucher.price), 0)).scalar()),
+        'vouchers_activated_today': Voucher.query.filter(Voucher.first_used_at >= midnight).count(),
+        'pending_payments': Payment.query.filter_by(status='pending').count(),
+    }
+
+    events = []
+    for a in RadPostAuth.query.order_by(RadPostAuth.id.desc()).limit(30):
+        ok = a.reply == 'Access-Accept'
+        events.append({'at': _iso(a.authdate), 'type': 'login' if ok else 'reject',
+                       'text': f'{a.username} {"logged in" if ok else "was rejected"}'})
+    for s in RadAcct.query.order_by(RadAcct.radacctid.desc()).limit(30):
+        events.append({'at': _iso(s.acctstarttime), 'type': 'start',
+                       'text': f'{s.username} started a session on {s.calledstationid or s.nasipaddress}'})
+        if s.acctstoptime:
+            events.append({'at': _iso(s.acctstoptime), 'type': 'stop',
+                           'text': f'{s.username} disconnected ({s.acctterminatecause or "stop"})'})
+    for p in Payment.query.order_by(Payment.id.desc()).limit(20):
+        amount = f'{p.currency} {p.amount:,.0f}'
+        events.append({'at': _iso(p.created_at), 'type': 'payment',
+                       'text': f'{p.phone} requested {p.package_name} ({amount})'})
+        if p.status == 'paid' and p.paid_at:
+            events.append({'at': _iso(p.paid_at), 'type': 'paid',
+                           'text': f'{p.phone} paid {amount} for {p.package_name}'})
+        elif p.status in ('failed', 'review'):
+            events.append({'at': _iso(p.updated_at), 'type': 'failed',
+                           'text': f'{p.phone} payment {p.status}: {p.message or ""}'.strip()})
+    events = sorted((e for e in events if e['at']), key=lambda e: e['at'], reverse=True)[:40]
+
+    return jsonify(now=_iso(now), stats=stats, online=online, events=events,
+                   stale_minutes=LIVE_STALE_MINUTES)
 
 
 # Initialize database

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% macro field(f, cls="form-control") %}
+    {{ f.label(class="form-label") }}
+    {{ f(class=cls + (" is-invalid" if f.errors else "")) }}
+    {% if f.errors %}<div class="invalid-feedback">{% for error in f.errors %}{{ error }}{% endfor %}</div>{% endif %}
+    {% if f.description %}<small class="form-text text-muted">{{ f.description }}</small>{% endif %}
+{% endmacro %}
+
+{% block title %}{{ title }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-bag"></i> {{ title }}</div>
+            <div class="card-body">
+                <form method="POST" novalidate>
+                    {{ form.hidden_tag() }}
+                    <div class="mb-3">{{ field(form.name) }}</div>
+                    <div class="mb-3">{{ field(form.description) }}</div>
+
+                    <div class="row">
+                        <div class="col-md-4 mb-3">{{ field(form.price) }}</div>
+                        <div class="col-md-4 mb-3">{{ field(form.validity_value) }}</div>
+                        <div class="col-md-4 mb-3">{{ field(form.validity_unit, "form-select") }}</div>
+                    </div>
+                    <p class="text-muted small mb-3"><i class="bi bi-clock-history"></i>
+                        Time starts at the guest's first login and keeps running if they disconnect.</p>
+
+                    <div class="mb-3">
+                        {{ field(form.plan_id, "form-select") }}
+                        <small class="form-text text-muted">Speed limits come from the plan (Plans page).</small>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">{{ field(form.sort_order) }}</div>
+                        <div class="col-md-8 mb-3 d-flex flex-column justify-content-center gap-2">
+                            <div class="form-check">{{ form.is_active(class="form-check-input") }} {{ form.is_active.label(class="form-check-label") }}</div>
+                            <div class="form-check">{{ form.show_on_portal(class="form-check-input") }} {{ form.show_on_portal.label(class="form-check-label") }}</div>
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('packages') }}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> Cancel</a>
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

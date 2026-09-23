@@ -122,7 +122,11 @@ sql {
             interim-update {
                 query = "\
                     UPDATE radacct \
-                    SET acctupdatetime = FROM_UNIXTIME(%{integer:Event-Timestamp}) \
+                    SET acctupdatetime = FROM_UNIXTIME(%{integer:Event-Timestamp}), \
+                        acctsessiontime = %{%{Acct-Session-Time}:-0}, \
+                        acctinputoctets = (%{%{Acct-Input-Gigawords}:-0} << 32) + %{%{Acct-Input-Octets}:-0}, \
+                        acctoutputoctets = (%{%{Acct-Output-Gigawords}:-0} << 32) + %{%{Acct-Output-Octets}:-0}, \
+                        framedipaddress = '%{Framed-IP-Address}' \
                     WHERE acctsessionid = '%{Acct-Session-Id}' \
                     AND username = '%{SQL-User-Name}' \
                     AND nasipaddress = '%{NAS-IP-Address}'"
@@ -132,7 +136,12 @@ sql {
                 query = "\
                     UPDATE radacct \
                     SET acctstoptime = FROM_UNIXTIME(%{integer:Event-Timestamp}), \
-                        acctterminatecause = '%{Acct-Terminate-Cause}' \
+                        acctupdatetime = FROM_UNIXTIME(%{integer:Event-Timestamp}), \
+                        acctsessiontime = %{%{Acct-Session-Time}:-0}, \
+                        acctinputoctets = (%{%{Acct-Input-Gigawords}:-0} << 32) + %{%{Acct-Input-Octets}:-0}, \
+                        acctoutputoctets = (%{%{Acct-Output-Gigawords}:-0} << 32) + %{%{Acct-Output-Octets}:-0}, \
+                        acctterminatecause = '%{Acct-Terminate-Cause}', \
+                        connectinfo_stop = '%{Connect-Info}' \
                     WHERE acctsessionid = '%{Acct-Session-Id}' \
                     AND username = '%{SQL-User-Name}' \
                     AND nasipaddress = '%{NAS-IP-Address}'"

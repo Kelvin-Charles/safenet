@@ -191,6 +191,9 @@
             <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">
                 <i class="bi bi-speedometer2"></i> Dashboard
             </a>
+            <a class="nav-link {% if request.endpoint == 'live' %}active{% endif %}" href="{{ url_for('live') }}">
+                <i class="bi bi-broadcast"></i> Live
+            </a>
             <a class="nav-link {% if request.endpoint in ['users', 'add_user', 'edit_user'] %}active{% endif %}" href="{{ url_for('users') }}">
                 <i class="bi bi-people"></i> Users
             </a>
@@ -199,6 +202,12 @@
             </a>
             <a class="nav-link {% if request.endpoint in ['vouchers', 'generate_vouchers'] %}active{% endif %}" href="{{ url_for('vouchers') }}">
                 <i class="bi bi-ticket-perforated"></i> Vouchers
+            </a>
+            <a class="nav-link {% if request.endpoint in ['packages', 'add_package', 'edit_package'] %}active{% endif %}" href="{{ url_for('packages') }}">
+                <i class="bi bi-bag"></i> Packages
+            </a>
+            <a class="nav-link {% if request.endpoint == 'payments' %}active{% endif %}" href="{{ url_for('payments') }}">
+                <i class="bi bi-phone"></i> Payments
             </a>
             <a class="nav-link {% if request.endpoint in ['nas_list', 'add_nas', 'edit_nas'] %}active{% endif %}" href="{{ url_for('nas_list') }}">
                 <i class="bi bi-router"></i> NAS Devices

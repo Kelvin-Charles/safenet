@@ -287,6 +287,76 @@ class Voucher(db.Model):
         return f'<Voucher {self.code} ({self.state})>'
 
 
+
+class Package(db.Model):
+    """Internet package guests can buy on the captive portal.
+
+    Speeds and other RADIUS attributes come from the linked plan; a paid
+    purchase becomes a voucher for that plan, valid validity_minutes from
+    first login.
+    """
+    __tablename__ = 'packages'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), nullable=False)
+    description = db.Column(db.String(200))
+    plan_id = db.Column(db.Integer, db.ForeignKey('plans.id', ondelete='SET NULL'))
+    price = db.Column(db.Numeric(10, 2), nullable=False)
+    currency = db.Column(db.String(3), nullable=False, default='TZS')
+    validity_minutes = db.Column(db.Integer, nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    show_on_portal = db.Column(db.Boolean, default=True)
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    plan = db.relationship('Plan', backref='packages')
+
+    @property
+    def validity_label(self):
+        return format_minutes(self.validity_minutes)
+
+    def __repr__(self):
+        return f'<Package {self.name}>'
+
+
+class Payment(db.Model):
+    """Mobile-money purchase of a package (ClickPesa USSD push). UTC times."""
+    __tablename__ = 'payments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    reference = db.Column(db.String(20), unique=True, nullable=False, index=True)  # ClickPesa orderReference
+    package_id = db.Column(db.Integer, db.ForeignKey('packages.id', ondelete='SET NULL'))
+    package_name = db.Column(db.String(64))
+    # Copied from the package at purchase time
+    plan_id = db.Column(db.Integer, db.ForeignKey('plans.id', ondelete='SET NULL'))
+    validity_minutes = db.Column(db.Integer, nullable=False)
+    phone = db.Column(db.String(16), nullable=False, index=True)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    currency = db.Column(db.String(3), nullable=False, default='TZS')
+    status = db.Column(db.String(16), nullable=False, default='pending', index=True)  # pending, paid, failed
+    provider = db.Column(db.String(16), nullable=False, default='clickpesa')
+    provider_id = db.Column(db.String(64))
+    provider_status = db.Column(db.String(16))
+    channel = db.Column(db.String(32))
+    message = db.Column(db.String(255))
+    nas_identifier = db.Column(db.String(64))
+    client_mac = db.Column(db.String(17))
+    client_ip = db.Column(db.String(45))
+    voucher_id = db.Column(db.Integer, db.ForeignKey('vouchers.id', ondelete='SET NULL'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    checked_at = db.Column(db.DateTime)
+    paid_at = db.Column(db.DateTime)
+
+    package = db.relationship('Package')
+    plan = db.relationship('Plan')
+    voucher = db.relationship('Voucher')
+
+    def __repr__(self):
+        return f'<Payment {self.reference} {self.status}>'
+
+
 def format_minutes(minutes):
     """90 -> '1h 30m', 2880 -> '2 days'."""
     if minutes >= 1440 and minutes % 1440 == 0:

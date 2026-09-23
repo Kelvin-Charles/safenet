@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Payments - {{ app_name }}{% endblock %}
+{% block page_title %}Payments{% endblock %}
+
+{% block content %}
+{% if not clickpesa_ready %}
+<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i>
+    ClickPesa isn't configured. Set <code>CLICKPESA_CLIENT_ID</code> and <code>CLICKPESA_API_KEY</code> in <code>.env</code>.</div>
+{% endif %}
+
+<div class="row mb-4">
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.today) }}</div><div class="stat-label">{{ currency }} today (UTC)</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.month) }}</div><div class="stat-label">{{ currency }} this month</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value text-success">{{ '{:,.0f}'.format(stats.all_time) }}</div><div class="stat-label">{{ currency }} all time · {{ stats.paid_count }} paid</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value text-warning">{{ stats.pending }}</div><div class="stat-label">Waiting for PIN</div></div></div>
+</div>
+
+<div class="card">
+    <div class="card-header"><i class="bi bi-phone"></i> Mobile-money payments (ClickPesa)</div>
+    <div class="card-body">
+        <form method="GET" class="row g-2 mb-3">
+            <div class="col-md-6"><input type="text" name="search" class="form-control" placeholder="Phone or reference..." value="{{ search }}"></div>
+            <div class="col-md-4">
+                <select name="status" class="form-select">
+                    <option value="">Any status</option>
+                    {% for s in ['paid', 'pending', 'failed', 'review'] %}
+                    <option value="{{ s }}" {% if s == status %}selected{% endif %}>{{ s|capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2 d-grid"><button class="btn btn-outline-secondary" type="submit"><i class="bi bi-funnel"></i> Filter</button></div>
+        </form>
+
+        {% if pagination.items %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr><th>When (UTC)</th><th>Phone</th><th>Package</th><th>Amount</th><th>Status</th><th>Voucher</th><th></th></tr>
+                </thead>
+                <tbody>
+                    {% for p in pagination.items %}
+                    <tr>
+                        <td><small>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</small><small class="text-muted d-block font-monospace">{{ p.reference }}</small></td>
+                        <td>{{ p.phone }}{% if p.channel %}<small class="text-muted d-block">{{ p.channel }}</small>{% endif %}</td>
+                        <td>{{ p.package_name }}</td>
+                        <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}</td>
+                        <td>
+                            {% if p.status == 'paid' %}<span class="badge bg-success">Paid</span>
+                            {% elif p.status == 'pending' %}<span class="badge bg-warning text-dark">Pending</span>
+                            {% elif p.status == 'review' %}<span class="badge bg-info">Review</span>
+                            {% else %}<span class="badge bg-danger">Failed</span>{% endif %}
+                            {% if p.message %}<small class="text-muted d-block">{{ p.message }}</small>{% endif %}
+                        </td>
+                        <td>{% if p.voucher %}<span class="font-monospace">{{ p.voucher.code }}</span>{% else %}<span class="text-muted">-</span>{% endif %}</td>
+                        <td>
+                            {% if p.status == 'pending' %}
+                            <form method="POST" action="{{ url_for('refresh_payment', payment_id=p.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button class="btn btn-sm btn-outline-secondary" type="submit"><i class="bi bi-arrow-repeat"></i> Check</button>
+                            </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if pagination.pages > 1 %}
+        <nav><ul class="pagination justify-content-center">
+            <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}"><a class="page-link" href="{{ url_for('payments', page=pagination.prev_num, status=status, search=search) if pagination.has_prev else '#' }}">Previous</a></li>
+            <li class="page-item {% if not pagination.has_next %}disabled{% endif %}"><a class="page-link" href="{{ url_for('payments', page=pagination.next_num, status=status, search=search) if pagination.has_next else '#' }}">Next</a></li>
+        </ul></nav>
+        {% endif %}
+        {% else %}
+        <div class="text-center py-5 text-muted"><i class="bi bi-phone" style="font-size: 3rem;"></i><p class="mt-3">No payments yet</p></div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

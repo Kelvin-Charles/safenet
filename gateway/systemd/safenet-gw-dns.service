@@ -1,0 +1,15 @@
+[Unit]
+Description=SafeNet gateway DNS/DHCP for guests (dnsmasq)
+After=network-online.target safenet-gw-firewall.service
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/safenet-gateway/gateway.env
+RuntimeDirectory=safenet-gw-dns
+ExecStartPre=/opt/safenet-gateway/safenet-gw-dnsmasq-conf /run/safenet-gw-dns/dnsmasq.conf
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --conf-file=/run/safenet-gw-dns/dnsmasq.conf --pid-file=
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

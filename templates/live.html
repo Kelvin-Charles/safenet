@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block title %}Live - {{ app_name }}{% endblock %}
+{% block page_title %}Live Activity{% endblock %}
+
+{% block extra_css %}
+<style>
+    .live-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #198754; margin-right: 6px; animation: pulse 2s infinite; }
+    .live-dot.off { background: #dc3545; animation: none; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(25,135,84,.5); } 70% { box-shadow: 0 0 0 8px rgba(25,135,84,0); } 100% { box-shadow: 0 0 0 0 rgba(25,135,84,0); } }
+    .stat-card .stat-sub { color: #64748b; font-size: .8rem; margin-top: .25rem; }
+    .feed { max-height: 560px; overflow-y: auto; }
+    .feed-item { display: flex; gap: .75rem; padding: .6rem 0; border-bottom: 1px solid #f1f5f9; font-size: .9rem; }
+    .feed-item:last-child { border-bottom: 0; }
+    .feed-icon { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: #f1f5f9; color: #334155; }
+    .feed-item time { color: #64748b; font-size: .75rem; display: block; }
+    .feed-tag { font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: #64748b; }
+    .stale { color: #b45309; }
+    tr.flash td { animation: flash 1.2s ease-out; }
+    @keyframes flash { from { background: #e7f1ff; } to { background: transparent; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div><span class="live-dot" id="dot"></span><span id="status" class="text-muted">Connecting…</span></div>
+    <div class="text-muted small">Refreshes every 5 seconds · usage updates every minute from the gateway</div>
+</div>
+
+<div class="row mb-2" id="tiles">
+    <div class="col-lg-3 col-6 mb-3"><div class="stat-card"><div class="stat-label">Online now</div><div class="stat-value" id="t-online">–</div><div class="stat-sub" id="t-online-sub">&nbsp;</div></div></div>
+    <div class="col-lg-3 col-6 mb-3"><div class="stat-card"><div class="stat-label">Data today</div><div class="stat-value" id="t-data">–</div><div class="stat-sub" id="t-data-sub">&nbsp;</div></div></div>
+    <div class="col-lg-3 col-6 mb-3"><div class="stat-card"><div class="stat-label">Earned today ({{ currency }})</div><div class="stat-value" id="t-money">–</div><div class="stat-sub" id="t-money-sub">&nbsp;</div></div></div>
+    <div class="col-lg-3 col-6 mb-3"><div class="stat-card"><div class="stat-label">Logins today</div><div class="stat-value" id="t-logins">–</div><div class="stat-sub" id="t-logins-sub">&nbsp;</div></div></div>
+</div>
+
+<div class="row">
+    <div class="col-xl-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-people"></i> Online users</span>
+                <input type="search" id="filter" class="form-control form-control-sm" style="max-width: 220px" placeholder="Filter by code, phone, MAC…">
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead>
+                            <tr><th>User</th><th>Device</th><th>Online for</th><th>Download</th><th>Upload</th><th>Time left</th></tr>
+                        </thead>
+                        <tbody id="online-body">
+                            <tr><td colspan="6" class="text-center text-muted py-4">Loading…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-activity"></i> Activity</div>
+            <div class="card-body feed" id="feed"><p class="text-muted">Loading…</p></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const REFRESH_MS = 5000;
+    const EVENT_STYLE = {
+        login:   { icon: 'bi-box-arrow-in-right', label: 'Login' },
+        reject:  { icon: 'bi-x-octagon',          label: 'Rejected' },
+        start:   { icon: 'bi-wifi',               label: 'Session' },
+        stop:    { icon: 'bi-wifi-off',           label: 'Ended' },
+        payment: { icon: 'bi-phone',              label: 'Payment' },
+        paid:    { icon: 'bi-check2-circle',      label: 'Paid' },
+        failed:  { icon: 'bi-exclamation-triangle', label: 'Failed' },
+    };
+    let last = null, known = new Set(), timer = null;
+
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    const bytes = n => {
+        if (!n) return '0 B';
+        const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0;
+        while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+        return (i ? n.toFixed(n < 10 ? 1 : 0) : n) + ' ' + u[i];
+    };
+    const duration = sec => {
+        sec = Math.max(0, Math.floor(sec));
+        const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+        if (d) return `${d}d ${h}h`;
+        if (h) return `${h}h ${m}m`;
+        return `${m}m`;
+    };
+    const ago = iso => {
+        const s = (Date.now() - Date.parse(iso)) / 1000;
+        if (s < 60) return 'just now';
+        if (s < 3600) return Math.floor(s / 60) + ' min ago';
+        if (s < 86400) return Math.floor(s / 3600) + ' h ago';
+        return new Date(iso).toLocaleDateString();
+    };
+    const clock = iso => new Date(iso).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    const money = n => Math.round(n).toLocaleString();
+
+    function renderTiles(s) {
+        $('t-online').textContent = s.online;
+        $('t-online-sub').textContent = s.pending_payments ? `${s.pending_payments} payment(s) waiting for PIN` : 'devices with an active session';
+        $('t-data').textContent = bytes(s.down_today + s.up_today);
+        $('t-data-sub').textContent = `${bytes(s.down_today)} down · ${bytes(s.up_today)} up`;
+        $('t-money').textContent = money(s.online_revenue_today + s.cash_revenue_today);
+        $('t-money-sub').textContent = `${money(s.online_revenue_today)} mobile money (${s.online_sales_today}) · ${money(s.cash_revenue_today)} vouchers`;
+        $('t-logins').textContent = s.logins_today;
+        $('t-logins-sub').textContent = `${s.rejects_today} rejected · ${s.vouchers_activated_today} vouchers activated`;
+    }
+
+    function renderOnline(rows, nowIso, staleMin) {
+        const q = $('filter').value.trim().toLowerCase();
+        const shown = rows.filter(r => !q || [r.user, r.phone, r.mac, r.ip, r.plan].join(' ').toLowerCase().includes(q));
+        const body = $('online-body');
+        if (!shown.length) {
+            body.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4">${rows.length ? 'No match' : 'Nobody is online right now'}</td></tr>`;
+            return;
+        }
+        const now = Date.parse(nowIso);
+        const seen = new Set();
+        body.innerHTML = shown.map(r => {
+            const key = r.user + '|' + r.mac;
+            seen.add(key);
+            const isNew = last && !known.has(key);
+            const online = (now - Date.parse(r.started)) / 1000;
+            const quiet = (now - Date.parse(r.updated)) / 60000;
+            const left = r.expires ? (Date.parse(r.expires) - now) / 1000 : null;
+            return `<tr class="${isNew ? 'flash' : ''}">
+                <td><strong class="font-monospace">${esc(r.user)}</strong>
+                    <small class="text-muted d-block">${esc(r.plan || (r.kind === 'voucher' ? 'Voucher' : 'User'))}${r.phone ? ' · ' + esc(r.phone) : ''}</small></td>
+                <td><small class="d-block">${esc(r.mac)}</small><small class="text-muted">${esc(r.ip)} · ${esc(r.router)}</small></td>
+                <td>${duration(online)}${quiet > 3 ? `<small class="d-block stale" title="No usage update for ${Math.floor(quiet)} min"><i class="bi bi-hourglass-split"></i> quiet ${Math.floor(quiet)}m</small>` : ''}</td>
+                <td>${bytes(r.down)}</td>
+                <td>${bytes(r.up)}</td>
+                <td>${left === null ? '<span class="text-muted">–</span>' : duration(left)}</td>
+            </tr>`;
+        }).join('');
+        known = seen;
+    }
+
+    function renderFeed(events) {
+        if (!events.length) { $('feed').innerHTML = '<p class="text-muted mb-0">No activity yet.</p>'; return; }
+        $('feed').innerHTML = events.map(e => {
+            const st = EVENT_STYLE[e.type] || { icon: 'bi-dot', label: e.type };
+            return `<div class="feed-item">
+                <div class="feed-icon"><i class="bi ${st.icon}"></i></div>
+                <div><span class="feed-tag">${st.label}</span> ${esc(e.text)}
+                    <time datetime="${e.at}" title="${new Date(e.at).toLocaleString()}">${clock(e.at)} · ${ago(e.at)}</time></div>
+            </div>`;
+        }).join('');
+    }
+
+    async function refresh() {
+        try {
+            const r = await fetch('{{ url_for("api_live") }}', { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+            if (r.redirected || r.status === 401) { location.reload(); return; }
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const d = await r.json();
+            renderTiles(d.stats);
+            renderOnline(d.online, d.now, d.stale_minutes);
+            renderFeed(d.events);
+            last = d;
+            $('dot').classList.remove('off');
+            $('status').textContent = 'Live · updated ' + new Date().toLocaleTimeString();
+        } catch (err) {
+            $('dot').classList.add('off');
+            $('status').textContent = 'Connection lost, retrying… (' + err.message + ')';
+        }
+    }
+
+    function schedule() {
+        clearInterval(timer);
+        if (!document.hidden) { refresh(); timer = setInterval(refresh, REFRESH_MS); }
+    }
+    document.addEventListener('visibilitychange', schedule);
+    $('filter').addEventListener('input', () => last && renderOnline(last.online, last.now, last.stale_minutes));
+    schedule();
+})();
+</script>
+{% endblock %}

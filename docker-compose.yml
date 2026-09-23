@@ -92,6 +92,11 @@ services:
       HOTSPOT_SSID: ${HOTSPOT_SSID:-}
       HOTSPOT_SUPPORT: ${HOTSPOT_SUPPORT:-}
       HOTSPOT_CURRENCY: ${HOTSPOT_CURRENCY:-TZS}
+      # ClickPesa payments + captive-portal gateway API
+      CLICKPESA_CLIENT_ID: ${CLICKPESA_CLIENT_ID:-}
+      CLICKPESA_API_KEY: ${CLICKPESA_API_KEY:-}
+      CLICKPESA_CHECKSUM_KEY: ${CLICKPESA_CHECKSUM_KEY:-}
+      PORTAL_API_KEY: ${PORTAL_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy

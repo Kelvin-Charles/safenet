@@ -157,3 +157,31 @@ class VoucherGenerateForm(FlaskForm):
     def validate_price(self, field):
         if field.data and not re.match(r'^\d+(\.\d{1,2})?$', field.data.strip()):
             raise ValidationError('Price must be a number, e.g. 1000 or 1500.50')
+
+
+class PackageForm(FlaskForm):
+    """Internet package sold on the captive portal"""
+    name = StringField('Package name', validators=[DataRequired(), Length(max=64)],
+                       description='Shown to guests, e.g. "1 Hour - 500"')
+    description = StringField('Short description', validators=[Optional(), Length(max=200)])
+    plan_id = SelectField('Speed plan', coerce=int, validators=[Optional()])
+    price = StringField('Price (TZS)', validators=[DataRequired(), Length(max=12)])
+    validity_value = IntegerField('Access duration', default=1, validators=[DataRequired()])
+    validity_unit = SelectField('Unit', choices=[
+        ('minutes', 'Minutes'),
+        ('hours', 'Hours'),
+        ('days', 'Days'),
+    ], default='hours', validators=[DataRequired()])
+    sort_order = IntegerField('Display order', default=0, validators=[Optional()],
+                              description='Lower numbers are shown first')
+    is_active = BooleanField('Active', default=True)
+    show_on_portal = BooleanField('Show on captive portal', default=True)
+
+    def validate_price(self, field):
+        value = (field.data or '').strip()
+        if not re.match(r'^\d+(\.\d{1,2})?$', value) or float(value) < 100:
+            raise ValidationError('Enter a price of at least 100, e.g. 500 or 1000.')
+
+    def validate_validity_value(self, field):
+        if not 1 <= (field.data or 0) <= 100000:
+            raise ValidationError('Enter a positive duration.')

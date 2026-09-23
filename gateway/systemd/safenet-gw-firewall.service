@@ -1,0 +1,13 @@
+[Unit]
+Description=SafeNet gateway firewall (nftables)
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/safenet-gateway/gateway.env
+ExecStart=/opt/safenet-gateway/safenet-gw-firewall start
+ExecStop=/opt/safenet-gateway/safenet-gw-firewall stop
+
+[Install]
+WantedBy=multi-user.target
