@@ -237,8 +237,9 @@ class RadAcct(db.Model):
     acctsessionid = db.Column(db.String(64), nullable=False, index=True)
     acctuniqueid = db.Column(db.String(32), nullable=False, unique=True, index=True)
     username = db.Column(db.String(64), nullable=False, index=True)
-    groupname = db.Column(db.String(64))
-    realm = db.Column(db.String(64))
+    # NOT NULL DEFAULT '' in database/schema.sql: never insert NULL here
+    groupname = db.Column(db.String(64), nullable=False, default='')
+    realm = db.Column(db.String(64), default='')
     nasipaddress = db.Column(db.String(15), nullable=False, index=True)
     nasportid = db.Column(db.String(32))
     nasporttype = db.Column(db.String(32))
@@ -252,12 +253,12 @@ class RadAcct(db.Model):
     connectinfo_stop = db.Column(db.String(50))
     acctinputoctets = db.Column(db.BigInteger)
     acctoutputoctets = db.Column(db.BigInteger)
-    calledstationid = db.Column(db.String(50))
-    callingstationid = db.Column(db.String(50))
-    acctterminatecause = db.Column(db.String(32))
+    calledstationid = db.Column(db.String(50), nullable=False, default='')
+    callingstationid = db.Column(db.String(50), nullable=False, default='')
+    acctterminatecause = db.Column(db.String(32), nullable=False, default='')
     servicetype = db.Column(db.String(32))
     framedprotocol = db.Column(db.String(32))
-    framedipaddress = db.Column(db.String(15), index=True)
+    framedipaddress = db.Column(db.String(15), nullable=False, default='', index=True)
     
     def __repr__(self):
         return f'<RadAcct {self.username} @ {self.nasipaddress}>'

@@ -1710,6 +1710,8 @@ def api_gateway_accounting():
     "terminate_cause", "time"}]}. input = uploaded by the guest, output = downloaded."""
     events = (request.get_json(silent=True) or {}).get('events') or []
     owned = {n for (n,) in db.session.execute(tenant_usernames(g.api_tenant.id))}
+    groups = dict(db.session.query(RadUserGroup.username, RadUserGroup.groupname).filter(
+        RadUserGroup.username.in_({str(e.get('username', ''))[:64] for e in events[:500]})).all()) if events else {}
     where = (g.api_gateway.name if g.api_gateway else 'gateway')[:50]
     stored = 0
     for e in events[:500]:
@@ -1727,8 +1729,9 @@ def api_gateway_accounting():
         if row is None:
             seconds = int(e.get('session_time') or 0)
             row = RadAcct(acctsessionid=sid, acctuniqueid=uid, username=username, nasipaddress=_acct_nas_ip(),
+                          groupname=groups.get(username, ''), acctterminatecause='',
                           calledstationid=where, callingstationid=str(e.get('mac', '')).upper().replace(':', '-')[:50],
-                          framedipaddress=str(e.get('ip', ''))[:15], nasporttype='Wireless-802.11',
+                          framedipaddress=str(e.get('ip') or '')[:15], nasporttype='Wireless-802.11',
                           acctstarttime=at - timedelta(seconds=seconds) if kind != 'start' else at,
                           acctsessiontime=0, acctinputoctets=0, acctoutputoctets=0)
             db.session.add(row)
