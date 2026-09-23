@@ -203,7 +203,8 @@
             {{ link(['packages', 'add_package', 'edit_package'], url_for('packages'), 'bi-bag', 'Packages') }}
             {{ link(['plans', 'add_plan', 'edit_plan', 'add_plan_attribute'], url_for('plans'), 'bi-box', 'Plans') }}
             {{ link(['gateways', 'add_gateway'], url_for('gateways'), 'bi-hdd-network', 'Gateways') }}
-            {{ link(['nas_list', 'add_nas', 'edit_nas'], url_for('nas_list'), 'bi-router', 'Routers (NAS)') }}
+            {{ link(['routers', 'router_script'], url_for('routers'), 'bi-shield-lock', 'Routers (VPN)') }}
+            {{ link(['nas_list', 'add_nas', 'edit_nas'], url_for('nas_list'), 'bi-router', 'RADIUS clients (NAS)') }}
             {% endif %}
             {{ link(['accounting', 'accounting_detail'], url_for('accounting'), 'bi-graph-up', 'Accounting') }}
             {{ link(['auth_logs'], url_for('auth_logs'), 'bi-shield-check', 'Auth Logs') }}

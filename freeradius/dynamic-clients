@@ -1,0 +1,16 @@
+# SafeNet: routers registered in the web app (nas table) are accepted on first
+# contact, without restarting FreeRADIUS. Used by the dynamic client ranges in
+# clients.conf; clients defined there statically always take precedence.
+server dynamic_clients {
+	authorize {
+		if ("%{sql:SELECT COUNT(*) FROM nas WHERE nasname = '%{Packet-Src-IP-Address}' AND (is_active IS NULL OR is_active = 1)}" == "1") {
+			update control {
+				&FreeRADIUS-Client-IP-Address = "%{Packet-Src-IP-Address}"
+				&FreeRADIUS-Client-Shortname = "%{sql:SELECT shortname FROM nas WHERE nasname = '%{Packet-Src-IP-Address}'}"
+				&FreeRADIUS-Client-Secret = "%{sql:SELECT secret FROM nas WHERE nasname = '%{Packet-Src-IP-Address}'}"
+				&FreeRADIUS-Client-NAS-Type = "other"
+			}
+			ok
+		}
+	}
+}

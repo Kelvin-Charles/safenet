@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, Withdrawal, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway
+from models import db, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -14,6 +14,9 @@ from mailer import send_mail
 from tenancy import current_tenant, tenant_id, scoped, owned_or_404, tenant_usernames, role_required, superadmin_required
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import hashlib
+import base64
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 import subprocess
 import secrets
 import hmac
@@ -2297,6 +2300,109 @@ def platform_tenant_fee(tid):
     db.session.commit()
     flash(f'{tenant.name}: platform fee set to {_fee_percent(tenant)} %.', 'success')
     return redirect(url_for('platform_tenants'))
+
+
+# ---------------------------------------------------------------------------
+# Routers over the WireGuard VPN (phase 4)
+# ---------------------------------------------------------------------------
+ROUTER_VENDORS = [('mikrotik', 'MikroTik (RouterOS 7)'), ('other', 'Other WireGuard-capable router')]
+
+
+def _wg_keypair():
+    key = X25519PrivateKey.generate()
+    private = key.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw,
+                                serialization.NoEncryption())
+    public = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    return base64.b64encode(private).decode(), base64.b64encode(public).decode()
+
+
+def _next_tunnel_ip():
+    net = ipaddress.ip_network(Config.WG_SUBNET)
+    used = {r for (r,) in db.session.query(Router.tunnel_ip)} | {Config.WG_SERVER_IP}
+    used |= {n for (n,) in db.session.query(Nas.nasname)}
+    first = int(net.network_address) + 256          # x.x.0.* is kept for the hub
+    for value in range(first, int(net.broadcast_address)):
+        ip = str(ipaddress.ip_address(value))
+        if ip not in used and not ip.endswith(('.0', '.255')):
+            return ip
+    raise RuntimeError('VPN address space is full')
+
+
+def _router_online(router):
+    return bool(router.last_handshake_at and (datetime.utcnow() - router.last_handshake_at).total_seconds() < 180)
+
+
+@app.route('/routers')
+@login_required
+@role_required('admin')
+def routers():
+    items = scoped(Router).order_by(Router.created_at.desc()).all()
+    return render_template('routers/list.html', routers=items, vendors=ROUTER_VENDORS, online=_router_online,
+                           hub=db.session.get(VpnServer, 1))
+
+
+@app.route('/routers/add', methods=['POST'])
+@login_required
+@role_required('admin')
+def add_router():
+    _check_csrf()
+    name = (request.form.get('name') or '').strip()[:64]
+    vendor = request.form.get('vendor') if request.form.get('vendor') in dict(ROUTER_VENDORS) else 'mikrotik'
+    if not name:
+        flash('Give the router a name.', 'danger')
+        return redirect(url_for('routers'))
+    private, public = _wg_keypair()
+    tunnel_ip = _next_tunnel_ip()
+    nas = Nas(tenant_id=tenant_id(), nasname=tunnel_ip, shortname=re.sub(r'[^A-Za-z0-9_-]+', '-', name)[:32] or 'router',
+              type='other', secret=secrets.token_urlsafe(18), vendor=vendor if vendor == 'mikrotik' else 'standard',
+              description=f'VPN router: {name}', is_active=True)
+    db.session.add(nas)
+    db.session.flush()
+    router = Router(tenant_id=tenant_id(), name=name, vendor=vendor, tunnel_ip=tunnel_ip, public_key=public,
+                    private_key_enc=secretbox.encrypt(private), nas_id=nas.id)
+    db.session.add(router)
+    db.session.commit()
+    flash(f'Router "{name}" added with VPN address {tunnel_ip}. Paste the setup script into the router.', 'success')
+    return redirect(url_for('router_script', router_id=router.id))
+
+
+@app.route('/routers/<int:router_id>/script')
+@login_required
+@role_required('admin')
+def router_script(router_id):
+    router = owned_or_404(Router, router_id)
+    hub = db.session.get(VpnServer, 1)
+    return render_template('routers/script.html', router=router, hub=hub, online=_router_online(router),
+                           private_key=secretbox.decrypt(router.private_key_enc), config=Config)
+
+
+@app.route('/routers/<int:router_id>/toggle', methods=['POST'])
+@login_required
+@role_required('admin')
+def toggle_router(router_id):
+    _check_csrf()
+    router = owned_or_404(Router, router_id)
+    router.is_active = not router.is_active
+    if router.nas:
+        router.nas.is_active = router.is_active
+    db.session.commit()
+    flash(f'Router "{router.name}" {"enabled" if router.is_active else "disconnected from the VPN"}.', 'success')
+    return redirect(url_for('routers'))
+
+
+@app.route('/routers/<int:router_id>/delete', methods=['POST'])
+@login_required
+@role_required('admin')
+def delete_router(router_id):
+    _check_csrf()
+    router = owned_or_404(Router, router_id)
+    name = router.name
+    if router.nas:
+        db.session.delete(router.nas)
+    db.session.delete(router)
+    db.session.commit()
+    flash(f'Router "{name}" removed.', 'success')
+    return redirect(url_for('routers'))
 
 
 # Initialize database

@@ -483,3 +483,42 @@ class Withdrawal(db.Model):
 
     def __repr__(self):
         return f'<Withdrawal {self.id} {self.status}>'
+
+
+class VpnServer(db.Model):
+    """The WireGuard hub's public details, published by the safenet-wireguard service."""
+    __tablename__ = 'vpn_server'
+
+    id = db.Column(db.Integer, primary_key=True)
+    public_key = db.Column(db.String(64), nullable=False)
+    listen_port = db.Column(db.Integer, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class Router(db.Model):
+    """A tenant's router (MikroTik etc.) connected over the WireGuard VPN.
+
+    Its tunnel address is unique, so FreeRADIUS can tell routers apart even when
+    they share a public IP; the matching nas row carries the RADIUS secret.
+    """
+    __tablename__ = 'routers'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    name = db.Column(db.String(64), nullable=False)
+    vendor = db.Column(db.String(16), nullable=False, default='mikrotik')
+    tunnel_ip = db.Column(db.String(15), unique=True, nullable=False)
+    public_key = db.Column(db.String(64), unique=True, nullable=False)
+    private_key_enc = db.Column(db.Text, nullable=False)       # secretbox; only used to build the setup script
+    nas_id = db.Column(db.Integer, db.ForeignKey('nas.id', ondelete='SET NULL'))
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    last_handshake_at = db.Column(db.DateTime)                  # updated by safenet-wireguard
+    rx_bytes = db.Column(db.BigInteger, default=0)
+    tx_bytes = db.Column(db.BigInteger, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    tenant = db.relationship('Tenant')
+    nas = db.relationship('Nas')
+
+    def __repr__(self):
+        return f'<Router {self.name} {self.tunnel_ip}>'

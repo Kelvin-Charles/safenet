@@ -64,6 +64,12 @@ class Config:
     # Fernet key for secrets stored in the database (derived from SECRET_KEY if empty)
     DATA_ENCRYPTION_KEY = os.getenv('DATA_ENCRYPTION_KEY', '')
 
+    # WireGuard hub that tenants' routers connect to (safenet-wireguard service)
+    WG_ENDPOINT = os.getenv('WG_ENDPOINT', 'radius.safezonetz.com')   # public host routers dial
+    WG_PORT = int(os.getenv('WG_PORT', '51820'))
+    WG_SERVER_IP = os.getenv('WG_SERVER_IP', '10.200.0.1')           # hub's tunnel address = RADIUS server
+    WG_SUBNET = os.getenv('WG_SUBNET', '10.200.0.0/16')
+
     # Shared key captive-portal gateways send in X-SafeNet-Key (empty = API disabled)
     PORTAL_API_KEY = os.getenv('PORTAL_API_KEY', '')
 

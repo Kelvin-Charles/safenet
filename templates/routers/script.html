@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Setup {{ router.name }} - {{ app_name }}{% endblock %}
+{% block page_title %}Setup: {{ router.name }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-terminal"></i> {{ router.name }} · VPN address <code>{{ router.tunnel_ip }}</code></span>
+        {% if online %}<span class="badge bg-success">Connected</span>{% else %}<span class="badge bg-light text-dark border">Not connected yet</span>{% endif %}
+    </div>
+    <div class="card-body">
+        {% if not hub %}
+        <div class="alert alert-warning mb-0">The SafeNet VPN hub isn't running yet, so this script can't be generated. Please try again later.</div>
+        {% else %}
+        <div class="alert alert-warning small"><i class="bi bi-shield-lock"></i> This script contains the router's private VPN key and RADIUS secret. Don't share it.</div>
+        {% if router.vendor == 'mikrotik' %}
+        <p>Open the router in Winbox or WebFig → <strong>New Terminal</strong>, paste all of this, and press Enter. Needs <strong>RouterOS 7</strong>. Set up your Hotspot (IP → Hotspot → Hotspot Setup) first if you haven't.</p>
+        <pre class="bg-dark text-light p-3 rounded small" id="script"># SafeNet VPN + RADIUS for "{{ router.name }}"
+/interface wireguard add name=safenet-wg private-key="{{ private_key }}" listen-port=13231 comment="SafeNet"
+/interface wireguard peers add interface=safenet-wg public-key="{{ hub.public_key }}" endpoint-address={{ config.WG_ENDPOINT }} endpoint-port={{ hub.listen_port }} allowed-address={{ config.WG_SERVER_IP }}/32 persistent-keepalive=25s comment="SafeNet"
+/ip address add address={{ router.tunnel_ip }}/16 interface=safenet-wg comment="SafeNet"
+/radius add service=hotspot,login,ppp address={{ config.WG_SERVER_IP }} secret="{{ router.nas.secret if router.nas else '' }}" src-address={{ router.tunnel_ip }} authentication-port=1812 accounting-port=1813 timeout=3s comment="SafeNet"
+/radius incoming set accept=yes
+/ip hotspot profile set [find] use-radius=yes radius-accounting=yes radius-interim-update=1m
+/ppp aaa set use-radius=yes accounting=yes interim-update=1m</pre>
+        <button class="btn btn-outline-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('script').innerText).then(() => this.textContent = 'Copied')"><i class="bi bi-clipboard"></i> Copy script</button>
+        <p class="small text-muted mt-3 mb-0">Check: <code>/interface wireguard peers print</code> should show a recent "last-handshake", and this page will say "Connected" within a minute. Speed limits from your plans are sent to the router as <code>Mikrotik-Rate-Limit</code>.</p>
+        {% else %}
+        <p>Create a WireGuard interface on the router with these settings, then point its RADIUS client at SafeNet:</p>
+        <table class="table table-sm small">
+            <tr><th>Interface private key</th><td><code>{{ private_key }}</code></td></tr>
+            <tr><th>Interface address</th><td><code>{{ router.tunnel_ip }}/16</code></td></tr>
+            <tr><th>Peer public key</th><td><code>{{ hub.public_key }}</code></td></tr>
+            <tr><th>Peer endpoint</th><td><code>{{ config.WG_ENDPOINT }}:{{ hub.listen_port }}</code></td></tr>
+            <tr><th>Peer allowed IPs</th><td><code>{{ config.WG_SERVER_IP }}/32</code>, keepalive 25 s</td></tr>
+            <tr><th>RADIUS server</th><td><code>{{ config.WG_SERVER_IP }}</code> ports 1812 / 1813, source address <code>{{ router.tunnel_ip }}</code></td></tr>
+            <tr><th>RADIUS secret</th><td><code>{{ router.nas.secret if router.nas else '' }}</code></td></tr>
+        </table>
+        {% endif %}
+        {% endif %}
+        <a href="{{ url_for('routers') }}" class="btn btn-primary mt-3">Back to routers</a>
+    </div>
+</div>
+{% endblock %}

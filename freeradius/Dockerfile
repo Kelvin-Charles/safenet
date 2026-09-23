@@ -18,6 +18,7 @@ COPY freeradius/radiusd.conf /etc/freeradius/3.0/radiusd.conf
 COPY freeradius/clients.conf /etc/freeradius/3.0/clients.conf
 # Path avoids freeradius/sites-available/default (old bind mounts created a directory there).
 COPY freeradius/default-server /etc/freeradius/3.0/sites-available/default
+COPY freeradius/dynamic-clients /etc/freeradius/3.0/sites-enabled/dynamic-clients
 COPY freeradius/mods-available/sql.template /etc/freeradius/3.0/mods-available/sql.template
 COPY freeradius/render-freeradius-sql.py /usr/local/bin/render-freeradius-sql.py
 COPY freeradius/docker-entrypoint.sh /docker-entrypoint.sh
