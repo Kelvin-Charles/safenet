@@ -35,6 +35,17 @@ class Tenant(db.Model):
     paid_until = db.Column(db.DateTime)
     service_until = db.Column(db.DateTime)
     billing_notice = db.Column(db.String(32))          # last reminder sent, e.g. "pre:2026-10-01"
+    # Captive portal look (see gateway/portal_ui.py); NULL = SafeNet defaults
+    portal_color = db.Column(db.String(7))
+    portal_style = db.Column(db.String(16))            # gradient, solid, light
+    portal_title = db.Column(db.String(80))
+    portal_message = db.Column(db.String(300))
+    portal_language = db.Column(db.String(2))          # en, sw
+    portal_show_voucher = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
+    portal_show_packages = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
+    portal_logo = db.deferred(db.Column(db.LargeBinary(length=16777215)))   # MEDIUMBLOB; loaded only when needed
+    portal_logo_type = db.Column(db.String(32))
+    portal_logo_at = db.Column(db.DateTime)
 
     billing_plan = db.relationship('BillingPlan')
 

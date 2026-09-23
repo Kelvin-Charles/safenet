@@ -10,10 +10,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css">
     <style>
-        :root { --ink: #111113; --ink-2: #3f3f46; --muted: #71717a; --line: #e4e4e7; --soft: #f4f4f5; --paper: #ffffff; --grey: #c7c7cc; }
+        :root { --ink: #051D60; --ink-2: #334155; --muted: #64748b; --line: #e2e8f0; --soft: #F9FAFB; --paper: #ffffff; --grey: #cbd5e1; --brand-2: #2E3B76; --tint: #DCE3F5; }
         * { box-sizing: border-box; }
         html { scroll-behavior: smooth; }
-        body { margin: 0; font-family: 'Poppins', system-ui, sans-serif; color: var(--ink); background: var(--paper); line-height: 1.6; }
+        body { margin: 0; font-family: 'Poppins', system-ui, sans-serif; color: #0f172a; background: var(--paper); line-height: 1.6; }
         a { color: inherit; text-decoration: none; }
         .wrap { max-width: 1160px; margin: 0 auto; padding: 0 24px; }
         .eyebrow { font-size: 12px; letter-spacing: 6px; text-transform: uppercase; font-weight: 500; }
@@ -42,20 +42,20 @@
 
         /* Hero */
         .hero { display: grid; grid-template-columns: 1fr 1.05fr; gap: 40px; align-items: center; padding-top: 56px; padding-bottom: 40px; }
-        .hero h1 { font-size: clamp(36px, 5vw, 56px); font-weight: 600; letter-spacing: -.5px; }
+        .hero h1 { font-size: clamp(36px, 5vw, 56px); font-weight: 600; letter-spacing: -.5px; color: var(--ink); }
         .hero p { color: var(--ink-2); font-size: 16px; max-width: 470px; margin: 20px 0 32px; }
         .hero .cta { display: flex; gap: 24px; flex-wrap: wrap; }
         .hero .note { font-size: 13px; color: var(--muted); margin-top: 22px; }
         .hero svg { width: 100%; height: auto; }
 
-        .works-with { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 18px 32px; padding-top: 34px; padding-bottom: 60px; color: #52525b; }
+        .works-with { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 18px 32px; padding-top: 34px; padding-bottom: 60px; color: #475569; }
         .works-with span { display: inline-flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 600; letter-spacing: -.3px; }
         .works-with i { font-size: 22px; }
 
         /* Features (dark) */
         .features { background: var(--ink); color: #fff; padding: 72px 0 80px; text-align: center; }
         .features h2 { font-size: clamp(26px, 3.4vw, 36px); font-weight: 600; margin: 14px 0 12px; }
-        .features .lead { color: #d4d4d8; max-width: 620px; margin: 0 auto 44px; font-size: 15px; }
+        .features .lead { color: #C7D0EA; max-width: 620px; margin: 0 auto 44px; font-size: 15px; }
         .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; text-align: left; }
         .card { background: var(--paper); color: var(--ink); padding: 26px 24px; }
         .card i { font-size: 30px; display: block; margin-bottom: 14px; }
@@ -84,15 +84,15 @@
         table.plans thead th .price { display: block; font-size: 26px; font-weight: 700; margin-top: 4px; }
         table.plans thead th .price small { font-size: 12px; font-weight: 500; color: var(--muted); }
         table.plans thead th:first-child { text-align: left; font-size: 24px; font-weight: 600; }
-        table.plans tbody th { background: var(--ink); color: #e4e4e7; text-align: left; font-weight: 400; font-size: 13px; width: 26%; border-bottom: 1px solid #3f3f46; }
+        table.plans tbody th { background: var(--ink); color: #E2E8F5; text-align: left; font-weight: 400; font-size: 13px; width: 26%; border-bottom: 1px solid var(--brand-2); }
         table.plans tbody td { background: var(--paper); border-bottom: 1px solid var(--line); }
         table.plans tbody tr:last-child th, table.plans tbody tr:last-child td { border-bottom: 0; }
-        table.plans .hl { background: var(--ink) !important; color: #fff; border-bottom-color: #3f3f46 !important; }
+        table.plans .hl { background: var(--ink) !important; color: #fff; border-bottom-color: var(--brand-2) !important; }
         table.plans thead .hl { border-radius: 8px 8px 0 0; }
         table.plans tfoot td { padding: 16px 12px 20px; }
         table.plans tfoot td.hl { border-radius: 0 0 8px 8px; }
         .ok { font-size: 18px; }
-        .no { color: #a1a1aa; font-size: 18px; }
+        .no { color: #94a3b8; font-size: 18px; }
         .tag { display: inline-block; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; border: 1px solid currentColor; padding: 1px 8px; margin-bottom: 6px; }
         .swipe { display: none; text-align: center; font-size: 12px; color: var(--muted); margin: -24px 0 0; }
         .empty-plans { max-width: 520px; margin: 0 auto; background: var(--paper); border: 1.5px solid var(--ink); padding: 32px; text-align: center; box-shadow: 6px 6px 0 var(--ink); }
@@ -114,7 +114,7 @@
         /* CTA band */
         .band { background: var(--ink); color: #fff; text-align: center; padding: 56px 24px; margin-bottom: 70px; }
         .band h2 { font-size: clamp(24px, 3vw, 32px); font-weight: 600; margin: 12px 0 10px; }
-        .band p { color: #d4d4d8; font-size: 14px; max-width: 520px; margin: 0 auto 28px; }
+        .band p { color: #C7D0EA; font-size: 14px; max-width: 520px; margin: 0 auto 28px; }
         .band .cta { display: flex; gap: 22px; justify-content: center; flex-wrap: wrap; }
         .band .btn-dark { background: var(--paper); color: var(--ink); box-shadow: 4px 4px 0 0 var(--ink), 4px 4px 0 1.5px var(--paper); border-color: var(--paper); }
 
@@ -183,35 +183,35 @@
             <div class="note"><i class="bi bi-check2"></i> {{ trial_days }}-day free trial &nbsp; <i class="bi bi-check2"></i> No card needed &nbsp; <i class="bi bi-check2"></i> No contract</div>
         </div>
         <svg viewBox="0 0 560 440" role="img" aria-label="A Wi-Fi tower sending signal to people online">
-            <g fill="none" stroke="#111113" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M170 160c20-60 110-90 170-60 50 25 100 10 110 60 12 58-40 70-30 120 8 40-60 70-120 50-50-17-70 20-120-10-45-27-30-80-20-110 7-22 3-35 10-50z" fill="#d4d4d8" stroke="none"/>
-                <ellipse cx="300" cy="392" rx="240" ry="26" fill="#111113" stroke="none"/>
+            <g fill="none" stroke="#051D60" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M170 160c20-60 110-90 170-60 50 25 100 10 110 60 12 58-40 70-30 120 8 40-60 70-120 50-50-17-70 20-120-10-45-27-30-80-20-110 7-22 3-35 10-50z" fill="#DCE3F5" stroke="none"/>
+                <ellipse cx="300" cy="392" rx="240" ry="26" fill="#051D60" stroke="none"/>
                 <!-- tower -->
                 <path d="M300 92 L252 380 M300 92 L348 380"/>
                 <path d="M285 180h30M275 240h50M265 300h70M258 350h84"/>
                 <path d="M285 180l40 60M315 180l-40 60M275 240l60 60M325 240l-60 60M265 300l77 50M335 300l-77 50"/>
-                <circle cx="300" cy="86" r="7" fill="#111113"/>
+                <circle cx="300" cy="86" r="7" fill="#051D60"/>
                 <path d="M282 70a26 26 0 0 1 36 0M272 58a40 40 0 0 1 56 0M262 46a54 54 0 0 1 76 0"/>
                 <!-- clouds -->
-                <path d="M86 150h56a14 14 0 0 0-10-24 18 18 0 0 0-34-4 14 14 0 0 0-12 28z" fill="#111113"/>
-                <path d="M418 70h56a14 14 0 0 0-10-24 18 18 0 0 0-34-4 14 14 0 0 0-12 28z" fill="#111113"/>
-                <path d="M452 196h50a12 12 0 0 0-9-21 16 16 0 0 0-30-4 12 12 0 0 0-11 25z" fill="#111113"/>
+                <path d="M86 150h56a14 14 0 0 0-10-24 18 18 0 0 0-34-4 14 14 0 0 0-12 28z" fill="#051D60"/>
+                <path d="M418 70h56a14 14 0 0 0-10-24 18 18 0 0 0-34-4 14 14 0 0 0-12 28z" fill="#051D60"/>
+                <path d="M452 196h50a12 12 0 0 0-9-21 16 16 0 0 0-30-4 12 12 0 0 0-11 25z" fill="#051D60"/>
                 <!-- server stack + person with laptop -->
                 <rect x="86" y="300" width="96" height="24" rx="4" fill="#fff"/>
                 <rect x="86" y="328" width="96" height="24" rx="4" fill="#fff"/>
                 <rect x="86" y="356" width="96" height="24" rx="4" fill="#fff"/>
                 <path d="M98 312h52M98 340h52M98 368h52"/>
-                <circle cx="166" cy="312" r="3" fill="#111113"/><circle cx="166" cy="340" r="3" fill="#111113"/><circle cx="166" cy="368" r="3" fill="#111113"/>
+                <circle cx="166" cy="312" r="3" fill="#051D60"/><circle cx="166" cy="340" r="3" fill="#051D60"/><circle cx="166" cy="368" r="3" fill="#051D60"/>
                 <circle cx="134" cy="222" r="15" fill="#fff"/>
-                <path d="M120 214c8-14 30-10 30 4" fill="#111113"/>
+                <path d="M120 214c8-14 30-10 30 4" fill="#051D60"/>
                 <path d="M134 237v10M110 296c0-30 8-48 24-48s24 18 24 48" fill="#fff"/>
                 <path d="M98 298c10-12 26-14 36-4 10-10 26-8 36 4" />
-                <rect x="112" y="262" width="44" height="30" rx="3" fill="#111113"/>
+                <rect x="112" y="262" width="44" height="30" rx="3" fill="#051D60"/>
                 <path d="M104 292h60"/>
                 <!-- phone with voucher -->
                 <rect x="420" y="250" width="74" height="130" rx="12" fill="#fff"/>
                 <path d="M446 262h22"/>
-                <rect x="432" y="286" width="50" height="28" rx="4" fill="#111113"/>
+                <rect x="432" y="286" width="50" height="28" rx="4" fill="#051D60"/>
                 <path d="M438 330h38M438 344h26"/>
                 <circle cx="457" cy="364" r="6"/>
                 <text x="457" y="305" text-anchor="middle" font-family="Poppins, sans-serif" font-size="10" font-weight="600" fill="#fff" stroke="none">4829 1175</text>
@@ -250,24 +250,24 @@
 
     <section class="wrap how" id="how">
         <svg viewBox="0 0 480 360" role="img" aria-label="A person online next to a Wi-Fi router">
-            <g fill="none" stroke="#111113" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <g fill="none" stroke="#051D60" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M60 110a110 110 0 0 1 150 0M85 138a72 72 0 0 1 100 0M110 166a36 36 0 0 1 50 0"/>
-                <circle cx="135" cy="192" r="8" fill="#111113"/>
+                <circle cx="135" cy="192" r="8" fill="#051D60"/>
                 <path d="M300 10v70M330 10v126M360 10v50M390 10v96" stroke-dasharray="5 6" stroke-width="1.6"/>
-                <path d="M300 86c-9 0-15 7-15 15 0 11 15 24 15 24s15-13 15-24c0-8-6-15-15-15z" fill="#111113"/><circle cx="300" cy="100" r="4" fill="#fff" stroke="none"/>
+                <path d="M300 86c-9 0-15 7-15 15 0 11 15 24 15 24s15-13 15-24c0-8-6-15-15-15z" fill="#051D60"/><circle cx="300" cy="100" r="4" fill="#fff" stroke="none"/>
                 <rect x="316" y="140" width="30" height="22" rx="2"/><path d="M316 142l15 11 15-11"/>
                 <path d="M364 78h34a9 9 0 0 0-6-16 12 12 0 0 0-22-3 9 9 0 0 0-6 19z"/>
                 <circle cx="390" cy="118" r="12"/><path d="M386 112h6a3 3 0 0 1 0 6h-6a3 3 0 0 0 0 6h7M390 108v3M390 125v3"/>
                 <!-- router -->
                 <path d="M110 250l-10-80M270 250l10-80" stroke-width="5"/>
                 <rect x="70" y="250" width="240" height="44" rx="6" fill="#fff"/>
-                <circle cx="96" cy="272" r="4" fill="#111113"/><circle cx="112" cy="272" r="4" fill="#111113"/><circle cx="128" cy="272" r="4" fill="#111113"/>
+                <circle cx="96" cy="272" r="4" fill="#051D60"/><circle cx="112" cy="272" r="4" fill="#051D60"/><circle cx="128" cy="272" r="4" fill="#051D60"/>
                 <path d="M200 272h80"/>
                 <!-- person sitting on router -->
                 <circle cx="196" cy="160" r="14" fill="#fff"/>
-                <path d="M182 152c6-14 28-12 28 2" fill="#111113"/>
+                <path d="M182 152c6-14 28-12 28 2" fill="#051D60"/>
                 <path d="M196 174c-18 0-22 22-22 50v26h44v-26c0-28-4-50-22-50z" fill="#fff"/>
-                <rect x="178" y="214" width="46" height="30" rx="3" fill="#111113"/>
+                <rect x="178" y="214" width="46" height="30" rx="3" fill="#051D60"/>
                 <path d="M184 250l-8 60M208 250l14 60M170 312h14M216 312h16"/>
                 <!-- plant -->
                 <path d="M400 330v-80M400 260c-20-10-30-30-28-44M400 280c18-10 30-26 30-42M400 300c-16-4-28-16-30-28"/>

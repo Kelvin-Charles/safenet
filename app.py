@@ -1,13 +1,14 @@
-from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, abort, session, g, has_request_context
+from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, abort, session, g, has_request_context, make_response, Response
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
 from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway
-from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm
+from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
 from sqlalchemy import func, or_, desc, text
 import clickpesa
+from gateway import portal_ui
 from sms import send_sms_async
 from models import format_minutes
 import radclient
@@ -1217,30 +1218,162 @@ def _is_gateway_url(url):
         return '.' not in host or host.endswith(('.local', '.lan', '.wifi'))
 
 
+def portal_config(tenant):
+    """Portal look and text for a tenant, as gateway/portal_ui.theme() expects."""
+    hs = _hotspot_settings(tenant)
+    cfg = {'name': hs['name'], 'support': hs['support'], 'terms': hs['terms'], 'ssid': hs['ssid'], 'logo_version': None}
+    if tenant is not None:
+        cfg.update(color=tenant.portal_color, style=tenant.portal_style, title=tenant.portal_title,
+                   message=tenant.portal_message, language=tenant.portal_language,
+                   show_voucher=tenant.portal_show_voucher, show_packages=tenant.portal_show_packages,
+                   logo_version=int(tenant.portal_logo_at.timestamp()) if tenant.portal_logo_at else None)
+    return cfg
+
+
+def _portal_packages(tenant):
+    if tenant is None:
+        return []
+    return [{'id': p.id, 'name': p.name, 'description': p.description or '', 'price': f'{p.price:.0f}',
+             'currency': p.currency, 'validity_minutes': p.validity_minutes}
+            for p in Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True)
+                                  .order_by(Package.sort_order, Package.price)]
+
+
+PREVIEW_FIELDS = ('color', 'style', 'title', 'message', 'show_voucher', 'show_packages')
+
+
 @app.route('/portal')
 def portal():
-    """Branded splash/login page for guests.
+    """Guest splash page with the tenant's branding (same design as the gateway).
 
     Gateways redirect here with their own login URL:
       MikroTik external login: ?link-login-only=...&link-orig=...&error=...
       Meraki sign-on splash:   ?login_url=...&continue_url=...
-    Without one (plain WPA2-Enterprise on the TP-Link), it shows how to connect.
+    Without one it shows how to connect with WPA2-Enterprise.
+    ?preview=1&view=voucher|buy|wait|online renders a screen for the settings page;
+    unsaved settings can be passed as query parameters in preview mode.
     """
+    slug = request.args.get('t', migrations.DEFAULT_TENANT_SLUG)[:64]
+    tenant = Tenant.query.filter_by(slug=slug).first()
+    cfg = portal_config(tenant)
+    preview = request.args.get('preview') == '1'
+    if preview:
+        for key in PREVIEW_FIELDS:
+            if key in request.args:
+                value = request.args[key][:300]
+                cfg[key] = value == '1' if key.startswith('show_') else value
+    if cfg.get('logo_version') and tenant is not None:
+        cfg['logo_url'] = url_for('portal_logo', slug=tenant.slug, v=cfg['logo_version'])
+    th = portal_ui.theme(cfg)
+    wanted = request.args.get('lang')
+    lang = wanted if wanted in portal_ui.LANGS else request.cookies.get('sn_lang') if request.cookies.get('sn_lang') in portal_ui.LANGS else th['language']
     mikrotik_login = request.args.get('link-login-only', '')
     meraki_login = request.args.get('login_url', '')
     gateway = None
     if mikrotik_login and _is_gateway_url(mikrotik_login):
-        gateway = {'action': mikrotik_login, 'next_field': 'dst',
-                   'next_value': request.args.get('link-orig', '')}
+        gateway = {'action': mikrotik_login, 'next_field': 'dst', 'next_value': request.args.get('link-orig', '')}
+        passthrough = ('link-login-only', 'link-orig', 'error')
     elif meraki_login and _is_gateway_url(meraki_login):
-        gateway = {'action': meraki_login, 'next_field': 'success_url',
-                   'next_value': request.args.get('continue_url', '')}
+        gateway = {'action': meraki_login, 'next_field': 'success_url', 'next_value': request.args.get('continue_url', '')}
+        passthrough = ('login_url', 'continue_url')
+    else:
+        passthrough = ()
+    # The language switch only repeats parameters we trust
+    lang_url = url_for('portal', t=slug, **{k: request.args[k] for k in passthrough if k in request.args})
 
-    slug = request.args.get('t', migrations.DEFAULT_TENANT_SLUG)[:64]
-    tenant = Tenant.query.filter_by(slug=slug).first()
-    return render_template('portal/index.html', hotspot=_hotspot_settings(tenant), gateway=gateway,
-                           error=request.args.get('error', '')[:200])
+    if preview:
+        view = request.args.get('view', 'voucher')
+        packages = _portal_packages(tenant) or [
+            {'id': 1, 'name': '1 Hour', 'price': '500', 'currency': 'TZS', 'validity_minutes': 60},
+            {'id': 2, 'name': '1 Day', 'price': '1000', 'currency': 'TZS', 'validity_minutes': 1440},
+            {'id': 3, 'name': '1 Week', 'price': '5000', 'currency': 'TZS', 'validity_minutes': 10080}]
+        if view == 'online':
+            html_out = portal_ui.status_page(th, lang, user='48291175', remaining=5 * 3600 + 1200, total=86400,
+                                             new_code='48291175', preview=True)
+        elif view == 'wait':
+            html_out = portal_ui.waiting_page(th, lang, ref='PREVIEW', info={'amount': packages[0]['price'], 'currency': 'TZS',
+                                                                             'phone': '255712345678', 'package': packages[0]['name']})
+            html_out = html_out.replace('<meta http-equiv="refresh"', '<meta name="no-refresh"')
+        else:
+            html_out = portal_ui.login_page(th, lang, packages=packages, tab='buy' if view == 'buy' else 'voucher',
+                                            preview=True, lang_url=lang_url)
+    else:
+        if gateway:
+            html_out = portal_ui.login_page(th, lang, external=gateway, buy_enabled=False,
+                                            error=request.args.get('error', '')[:200], lang_url=lang_url)
+        else:
+            html_out = portal_ui.instructions_page(th, lang, lang_url=lang_url)
+    resp = make_response(html_out)
+    resp.headers['Cache-Control'] = 'no-store'
+    if wanted in portal_ui.LANGS:
+        resp.set_cookie('sn_lang', wanted, max_age=31536000, samesite='Lax')
+    return resp
 
+
+def _logo_response(tenant):
+    if tenant is None or not tenant.portal_logo_at:
+        abort(404)
+    data = db.session.query(Tenant.portal_logo).filter(Tenant.id == tenant.id).scalar()
+    if not data:
+        abort(404)
+    return Response(data, mimetype=tenant.portal_logo_type or 'image/png',
+                    headers={'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff'})
+
+
+@app.route('/portal/logo/<slug>')
+def portal_logo(slug):
+    return _logo_response(Tenant.query.filter_by(slug=slug[:64]).first())
+
+
+LOGO_TYPES = ((b'\x89PNG\r\n\x1a\n', 'image/png'), (b'\xff\xd8\xff', 'image/jpeg'))
+MAX_LOGO_BYTES = 300 * 1024
+
+
+def _logo_type(data):
+    for magic, kind in LOGO_TYPES:
+        if data.startswith(magic):
+            return kind
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return 'image/webp'
+    return None
+
+
+@app.route('/settings/portal', methods=['GET', 'POST'])
+@login_required
+@role_required('admin')
+def portal_settings():
+    tenant = current_tenant()
+    form = PortalSettingsForm(color=tenant.portal_color or portal_ui.DEFAULT_COLOR, style=tenant.portal_style or 'gradient',
+                              title=tenant.portal_title, message=tenant.portal_message,
+                              language=tenant.portal_language or 'en', show_voucher=tenant.portal_show_voucher,
+                              show_packages=tenant.portal_show_packages)
+    if form.validate_on_submit():
+        upload = form.logo.data
+        if upload and getattr(upload, 'filename', ''):
+            data = upload.read(MAX_LOGO_BYTES + 1)
+            kind = _logo_type(data)
+            if len(data) > MAX_LOGO_BYTES or not kind:
+                flash('The logo must be a PNG, JPG or WebP image of at most 300 KB.', 'danger')
+                return redirect(url_for('portal_settings'))
+            tenant.portal_logo, tenant.portal_logo_type, tenant.portal_logo_at = data, kind, datetime.utcnow()
+        elif form.remove_logo.data:
+            tenant.portal_logo = tenant.portal_logo_type = tenant.portal_logo_at = None
+        tenant.portal_color = form.color.data.upper()
+        tenant.portal_style = form.style.data
+        tenant.portal_title = (form.title.data or '').strip() or None
+        tenant.portal_message = (form.message.data or '').strip() or None
+        tenant.portal_language = form.language.data
+        tenant.portal_show_voucher = form.show_voucher.data
+        tenant.portal_show_packages = form.show_packages.data
+        db.session.commit()
+        flash('Captive portal saved. Gateways pick up the changes within 5 minutes.', 'success')
+        return redirect(url_for('portal_settings'))
+    return render_template('portal_settings.html', form=form, has_logo=bool(tenant.portal_logo_at),
+                           logo_url=url_for('portal_logo', slug=tenant.slug, v=int(tenant.portal_logo_at.timestamp()))
+                           if tenant.portal_logo_at else None,
+                           preview_base=url_for('portal', t=tenant.slug, preview=1),
+                           package_count=scoped(Package).filter_by(is_active=True, show_on_portal=True).count(),
+                           hotspot_name=_hotspot_settings(tenant)['name'])
 
 # Packages (sold on the captive portal)
 def _minutes_from(value, unit):
@@ -1652,9 +1785,18 @@ def _gateway_authenticate(tenant, username, password):
 def api_gateway_config():
     t = g.api_tenant
     hotspot = _hotspot_settings(t)
+    cfg = portal_config(t)
     return jsonify(tenant=t.slug, hotspot_name=hotspot['name'], support=hotspot['support'],
                    terms=hotspot['terms'], currency=hotspot['currency'], acct_interim_seconds=60,
-                   gateway=g.api_gateway.name if g.api_gateway else None)
+                   gateway=g.api_gateway.name if g.api_gateway else None,
+                   portal={k: cfg.get(k) for k in ('color', 'style', 'title', 'message', 'language',
+                                                   'show_voucher', 'show_packages', 'logo_version')})
+
+
+@app.route('/api/gateway/logo')
+@portal_api
+def api_gateway_logo():
+    return _logo_response(g.api_tenant)
 
 
 @app.route('/api/gateway/auth', methods=['POST'])

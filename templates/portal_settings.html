@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% from "auth/_field.html" import field %}
+
+{% block title %}Captive portal - {{ app_name }}{% endblock %}
+{% block page_title %}Captive Portal{% endblock %}
+
+{% block extra_css %}
+<style>
+    .phone-frame { width: 360px; max-width: 100%; margin: 0 auto; border: 10px solid #0f172a; border-radius: 38px; overflow: hidden;
+                   box-shadow: 0 20px 50px rgba(15,23,42,.25); background: #0f172a; }
+    .phone-frame iframe { display: block; width: 100%; height: 700px; border: 0; background: #f1f5f9; }
+    .color-row { display: flex; gap: 10px; align-items: center; }
+    .color-row input[type=color] { width: 52px; height: 44px; padding: 2px; border-radius: .375rem; border: 1px solid #e2e8f0; }
+    .swatches { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .swatches button { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #cbd5e1; cursor: pointer; }
+    .logo-now { width: 64px; height: 64px; border-radius: 16px; border: 1px solid #e2e8f0; object-fit: contain; padding: 6px; background: #fff; }
+    .preview-tabs .btn { font-size: 13px; padding: .35rem .7rem; }
+    @media (min-width: 1200px) { .sticky-preview { position: sticky; top: 1rem; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-xl-6">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-palette"></i> Look and feel</div>
+            <div class="card-body">
+                <form method="POST" enctype="multipart/form-data" novalidate id="portal-form">
+                    {{ form.hidden_tag() }}
+                    <div class="mb-3">
+                        <label class="form-label" for="color">{{ form.color.label.text }}</label>
+                        <div class="color-row">
+                            <input type="color" id="color-pick" value="{{ form.color.data }}" aria-label="Pick colour">
+                            {{ form.color(class="form-control" + (" is-invalid" if form.color.errors else ""), style="max-width: 140px", maxlength=7) }}
+                        </div>
+                        {% if form.color.errors %}<div class="text-danger small mt-1">{{ form.color.errors[0] }}</div>{% endif %}
+                        <div class="swatches" aria-label="Suggested colours">
+                            {% for c in ['#051D60', '#0F766E', '#15803D', '#B45309', '#B91C1C', '#7C3AED', '#DB2777', '#0F172A'] %}
+                            <button type="button" style="background: {{ c }}" data-color="{{ c }}" title="{{ c }}"></button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {{ field(form.style, "form-select") }}
+                    {{ field(form.title, placeholder="Welcome to " ~ hotspot_name) }}
+                    {{ field(form.message, rows=2) }}
+                    {{ field(form.language, "form-select", help="Guests can still switch between English and Kiswahili.") }}
+
+                    <label class="form-label">What guests can do</label>
+                    <div class="form-check">{{ form.show_voucher(class="form-check-input") }} {{ form.show_voucher.label(class="form-check-label") }}</div>
+                    <div class="form-check mb-1">{{ form.show_packages(class="form-check-input") }} {{ form.show_packages.label(class="form-check-label") }}</div>
+                    {% if form.show_packages.errors %}<div class="text-danger small">{{ form.show_packages.errors[0] }}</div>{% endif %}
+                    <p class="small text-muted mb-3">{% if package_count %}{{ package_count }} package{{ '' if package_count == 1 else 's' }} on sale.{% else %}No packages on sale yet: <a href="{{ url_for('packages') }}">add packages</a> to show the buy tab.{% endif %}
+                        Terms and support number come from <a href="{{ url_for('tenant_settings') }}">Settings</a>.</p>
+
+                    <label class="form-label">Logo</label>
+                    <div class="d-flex align-items-center gap-3 mb-2">
+                        {% if logo_url %}<img src="{{ logo_url }}" class="logo-now" alt="Current logo">{% endif %}
+                        <div class="flex-grow-1">{{ form.logo(class="form-control", accept="image/png,image/jpeg,image/webp") }}
+                            <small class="text-muted">PNG, JPG or WebP, up to 300 KB. A square logo looks best.</small></div>
+                    </div>
+                    {% if has_logo %}<div class="form-check mb-3">{{ form.remove_logo(class="form-check-input") }} {{ form.remove_logo.label(class="form-check-label") }}</div>{% endif %}
+
+                    <button type="submit" class="btn btn-primary mt-2"><i class="bi bi-check-circle"></i> Save portal</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-6">
+        <div class="sticky-preview">
+            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                <strong><i class="bi bi-phone"></i> Live preview</strong>
+                <div class="btn-group preview-tabs" role="group" aria-label="Preview screen">
+                    <button type="button" class="btn btn-outline-primary active" data-view="voucher">Voucher</button>
+                    <button type="button" class="btn btn-outline-primary" data-view="buy">Buy</button>
+                    <button type="button" class="btn btn-outline-primary" data-view="wait">Paying</button>
+                    <button type="button" class="btn btn-outline-primary" data-view="online">Connected</button>
+                </div>
+            </div>
+            <div class="phone-frame"><iframe id="preview" title="Captive portal preview" src="{{ preview_base }}"></iframe></div>
+            <p class="small text-muted text-center mt-2 mb-0">Changes show here right away; guests see them after you save.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const f = document.getElementById('portal-form'), frame = document.getElementById('preview');
+    const colorText = document.getElementById('color'), colorPick = document.getElementById('color-pick');
+    let view = 'voucher', timer = null;
+    function url() {
+        const p = new URLSearchParams({ view: view, color: colorText.value, style: f.style.value, title: f.title.value,
+            message: f.message.value, lang: f.language.value,
+            show_voucher: f.show_voucher.checked ? '1' : '0', show_packages: f.show_packages.checked ? '1' : '0' });
+        return '{{ preview_base }}&' + p.toString();
+    }
+    function refresh() { clearTimeout(timer); timer = setTimeout(() => frame.src = url(), 250); }
+    colorPick.addEventListener('input', () => { colorText.value = colorPick.value.toUpperCase(); refresh(); });
+    colorText.addEventListener('input', () => { if (/^#[0-9a-fA-F]{6}$/.test(colorText.value)) { colorPick.value = colorText.value; refresh(); } });
+    document.querySelectorAll('.swatches button').forEach(b => b.addEventListener('click', () => {
+        colorText.value = b.dataset.color; colorPick.value = b.dataset.color; refresh(); }));
+    ['style', 'title', 'message', 'language', 'show_voucher', 'show_packages'].forEach(n => {
+        f[n].addEventListener('input', refresh); f[n].addEventListener('change', refresh); });
+    document.querySelectorAll('.preview-tabs button').forEach(b => b.addEventListener('click', () => {
+        document.querySelectorAll('.preview-tabs button').forEach(x => x.classList.toggle('active', x === b));
+        view = b.dataset.view; refresh(); }));
+    refresh();
+})();
+</script>
+{% endblock %}

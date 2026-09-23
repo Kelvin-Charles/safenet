@@ -16,12 +16,13 @@
     <style>
         :root {
             --sidebar-width: 260px;
-            --primary-color: #0d6efd;
+            --primary-color: #051D60;
+            --brand-2: #2E3B76;
         }
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background-color: #f8f9fa;
+            background-color: #F9FAFB;
         }
         
         .sidebar {
@@ -30,7 +31,7 @@
             left: 0;
             height: 100vh;
             width: var(--sidebar-width);
-            background: linear-gradient(180deg, #1e3a8a 0%, #1e40af 100%);
+            background: #051D60;
             color: white;
             overflow-y: auto;
             z-index: 1000;
@@ -41,7 +42,7 @@
             padding: 1.5rem 1rem;
             font-size: 1.5rem;
             font-weight: 700;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
+            border-bottom: 1px solid var(--brand-2);
             text-align: center;
         }
         
@@ -175,8 +176,19 @@
         
         .form-control:focus, .form-select:focus {
             border-color: var(--primary-color);
-            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+            box-shadow: 0 0 0 0.2rem rgba(5, 29, 96, 0.15);
         }
+
+        /* SafeNet brand navy for Bootstrap's primary colour */
+        .btn-primary { --bs-btn-bg: #051D60; --bs-btn-border-color: #051D60; --bs-btn-hover-bg: #0A2A80; --bs-btn-hover-border-color: #0A2A80; --bs-btn-active-bg: #03143F; --bs-btn-active-border-color: #03143F; --bs-btn-disabled-bg: #051D60; --bs-btn-disabled-border-color: #051D60; }
+        .btn-outline-primary { --bs-btn-color: #051D60; --bs-btn-border-color: #051D60; --bs-btn-hover-bg: #051D60; --bs-btn-hover-border-color: #051D60; --bs-btn-active-bg: #051D60; }
+        .text-primary { color: #051D60 !important; }
+        .bg-primary { background-color: #051D60 !important; }
+        a { color: #1E3A8A; }
+        .page-link { color: #051D60; }
+        .active > .page-link, .page-link.active { background-color: #051D60; border-color: #051D60; }
+        .form-check-input:checked { background-color: #051D60; border-color: #051D60; }
+        body { background-color: #F9FAFB; }
     </style>
     
     {% block extra_css %}{% endblock %}
@@ -210,8 +222,9 @@
             {{ link(['accounting', 'accounting_detail'], url_for('accounting'), 'bi-graph-up', 'Accounting') }}
             {{ link(['auth_logs'], url_for('auth_logs'), 'bi-shield-check', 'Auth Logs') }}
             {% if is_admin %}
-            <hr style="border-color: rgba(255,255,255,0.2); margin: 1rem 0;">
+            <hr style="border-color: #2E3B76; opacity: 1; margin: 1rem 0;">
             {{ link(['billing', 'billing_payment'], url_for('billing'), 'bi-receipt', 'Billing') }}
+            {{ link(['portal_settings'], url_for('portal_settings'), 'bi-phone-landscape', 'Captive portal') }}
             {{ link(['tenant_settings'], url_for('tenant_settings'), 'bi-sliders', 'Settings') }}
             {{ link(['team', 'add_team_member'], url_for('team'), 'bi-person-badge', 'Team') }}
             {{ link(['radius_features'], url_for('radius_features'), 'bi-gear', 'RADIUS Features') }}
@@ -221,7 +234,7 @@
             {{ link(['platform_payouts'], url_for('platform_payouts'), 'bi-cash-coin', 'Platform: Payouts') }}
             {{ link(['platform_billing'], url_for('platform_billing'), 'bi-tags', 'Platform: Billing') }}
             {% endif %}
-            <hr style="border-color: rgba(255,255,255,0.2); margin: 1rem 0;">
+            <hr style="border-color: #2E3B76; opacity: 1; margin: 1rem 0;">
             <a class="nav-link" href="{{ url_for('logout') }}">
                 <i class="bi bi-box-arrow-right"></i> Logout
             </a>

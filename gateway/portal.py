@@ -28,6 +28,8 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
+import portal_ui as ui
+
 log = logging.getLogger('safenet-gw')
 
 LAN_ADDR = os.environ.get('LAN_ADDR', '10.10.0.1')
@@ -54,8 +56,9 @@ HOTSPOT_TERMS = os.environ.get(
     'Use this network lawfully. No illegal downloads, spam or attacks on other users. '
     'Vouchers are valid from first login, cannot be refunded and must not be shared. '
     'We may log connection times and data usage for billing and security.')
-# Replaced by the tenant's settings from SafeNet when API_MODE is on
+# Portal look and text; replaced by the tenant's settings from SafeNet in API_MODE
 branding = {'name': HOTSPOT_NAME, 'support': HOTSPOT_SUPPORT, 'terms': HOTSPOT_TERMS}
+LOGO_FILE = os.path.join(os.environ.get('STATE_DIRECTORY', '/var/lib/safenet-gateway'), 'logo')
 
 # Cloud SafeNet web app, for selling packages (optional)
 SAFENET_API_URL = os.environ.get('SAFENET_API_URL', '').rstrip('/')
@@ -233,6 +236,7 @@ def account(status, session, terminate_cause=None):
 
 
 def refresh_branding():
+    """Tenant's portal settings (and logo, cached on disk) from SafeNet."""
     if not API_MODE:
         return
     try:
@@ -240,8 +244,23 @@ def refresh_branding():
     except Exception as e:
         log.warning('fetching branding failed: %s', e)
         return
+    portal = data.get('portal') or {}
     branding.update(name=data.get('hotspot_name') or branding['name'],
-                    support=data.get('support') or '', terms=data.get('terms') or branding['terms'])
+                    support=data.get('support') or '', terms=data.get('terms') or branding['terms'],
+                    **{k: portal.get(k) for k in ('color', 'style', 'title', 'message', 'language',
+                                                   'show_voucher', 'show_packages') if k in portal})
+    version = portal.get('logo_version')
+    if not version:
+        branding.pop('logo_url', None)
+    elif branding.get('logo_version') != version:
+        try:
+            content, content_type = safenet_fetch('/api/gateway/logo')
+            with open(LOGO_FILE + '.tmp', 'wb') as f:
+                f.write(content)
+            os.replace(LOGO_FILE + '.tmp', LOGO_FILE)
+            branding.update(logo_version=version, logo_type=content_type, logo_url=f'/logo?v={version}')
+        except Exception as e:
+            log.warning('fetching logo failed: %s', e)
 
 
 def _first_int(attrs, kind):
@@ -541,6 +560,13 @@ def safenet_api(method, path, body=None, timeout=25):
         raise ApiError(f'SafeNet unreachable: {e}') from None
 
 
+def safenet_fetch(path, timeout=15):
+    """(bytes, content type) of a binary SafeNet API resource."""
+    req = urllib.request.Request(SAFENET_API_URL + path, headers={'X-SafeNet-Key': SAFENET_API_KEY})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read(512 * 1024), resp.headers.get('Content-Type', 'application/octet-stream')
+
+
 _packages_cache = {'at': 0.0, 'items': []}
 
 
@@ -586,135 +612,28 @@ def start_purchase(mac, ip, package_id, phone):
 
 
 # ---------------------------------------------------------------------------
-# Web pages
+# Web pages (see portal_ui.py, shared with the SafeNet web app)
 # ---------------------------------------------------------------------------
-CSS = """
-:root{--p:#0d6efd;--t:#0f172a;--m:#64748b;--b:#e2e8f0}
-*{box-sizing:border-box}
-body{margin:0;min-height:100vh;font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:var(--t);
-background:linear-gradient(160deg,#0d6efd 0%,#0a58ca 40%,#eef2f7 40%);display:flex;justify-content:center;padding:32px 16px}
-.wrap{width:100%;max-width:420px}
-.brand{color:#fff;text-align:center;margin-bottom:20px}.brand h1{margin:0;font-size:26px}.brand p{margin:6px 0 0;opacity:.85;font-size:14px}
-.card{background:#fff;border-radius:14px;box-shadow:0 10px 30px rgba(15,23,42,.15);padding:24px}
-h2{font-size:18px;margin:0 0 14px}
-label{display:block;font-weight:600;font-size:14px;margin:12px 0 6px}
-input[type=text],input[type=password]{width:100%;font-size:17px;padding:12px;border:1px solid var(--b);border-radius:10px}
-#code{font-size:24px;letter-spacing:4px;text-align:center;font-family:"SF Mono",Menlo,Consolas,monospace}
-input:focus{outline:2px solid var(--p);border-color:transparent}
-.terms{display:flex;gap:8px;align-items:flex-start;font-size:14px;margin:16px 0}.terms label{font-weight:400;margin:0}
-details{font-size:14px;color:var(--m);margin:12px 0}summary{cursor:pointer;color:var(--p)}
-button{width:100%;background:var(--p);color:#fff;border:0;border-radius:10px;padding:14px;font-size:16px;font-weight:600;cursor:pointer}
-button.secondary{background:#fff;color:var(--m);border:1px solid var(--b);margin-top:12px}
-.error{background:#fee2e2;color:#991b1b;border-radius:8px;padding:10px 12px;font-size:14px;margin-bottom:12px}
-.big{font-size:32px;font-weight:700;margin:4px 0 8px;color:var(--p)}
-.muted{color:var(--m);font-size:14px}
-a.btn{display:block;text-align:center;background:var(--p);color:#fff;border-radius:10px;padding:14px;font-weight:600;text-decoration:none;margin-top:16px}
-.foot{text-align:center;font-size:13px;color:var(--m);margin-top:16px}
-.or{display:flex;align-items:center;gap:10px;color:var(--m);font-size:13px;margin:22px 0 14px}.or:before,.or:after{content:"";flex:1;border-top:1px solid var(--b)}
-.pkg{display:flex;align-items:center;gap:10px;border:1px solid var(--b);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;font-weight:400}
-.pkg input{margin:0}.pkg .n{flex:1}.pkg .n small{display:block;color:var(--m)}.pkg .pr{font-weight:700;color:var(--p)}
-.pkg:has(input:checked){border-color:var(--p);background:#eff6ff}
-.code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:26px;letter-spacing:3px;font-weight:700;text-align:center;background:#f1f5f9;border-radius:10px;padding:10px;margin:8px 0}
-.spin{width:36px;height:36px;border:4px solid var(--b);border-top-color:var(--p);border-radius:50%;margin:8px auto 16px;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}
-"""
+def _theme():
+    return ui.theme(branding)
 
 
-def page(body, head=''):
-    e = html.escape
-    foot = f'<div class="foot">Need help? {e(branding["support"])}</div>' if branding['support'] else ''
-    return (f'<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
-            f'<meta name="viewport" content="width=device-width, initial-scale=1">'
-            f'<title>{e(branding["name"])}</title>{head}<style>{CSS}</style></head><body><div class="wrap">'
-            f'<div class="brand"><h1>{e(branding["name"])}</h1><p>Guest Wi-Fi</p></div>'
-            f'<div class="card">{body}</div>{foot}</div></body></html>')
+def login_page(dst='', error='', lang='en', tab='voucher'):
+    return ui.login_page(_theme(), lang, packages=portal_packages(), dst=dst, error=error, tab=tab,
+                         buy_enabled=bool(SAFENET_API_URL))
 
 
-def login_page(dst='', error=''):
-    e = html.escape
-    err = f'<div class="error">{e(error)}</div>' if error else ''
-    return page(f"""
-<h2>Enter your voucher</h2>{err}
-<form method="post" action="/login">
-<input type="hidden" name="dst" value="{e(dst)}">
-<label for="code">Voucher code</label>
-<input type="text" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" autofocus>
-<details><summary>I have a username and password</summary>
-<label for="u">Username</label><input type="text" id="u" name="username" autocapitalize="off" autocomplete="username" spellcheck="false">
-<label for="p">Password</label><input type="password" id="p" name="password" autocomplete="current-password">
-</details>
-<div class="terms"><input type="checkbox" id="agree" name="agree" value="1" required><label for="agree">I accept the terms of use</label></div>
-<button type="submit">Connect</button>
-</form>
-{buy_section(dst)}
-<details><summary>Read the terms of use</summary><p>{e(branding['terms'])}</p></details>""")
+def status_page(session, dst='', new_code=None, lang='en'):
+    return ui.status_page(_theme(), lang, user=session['user'], remaining=session['expires'] - time.time(),
+                          total=session['expires'] - session.get('start', session['expires']), dst=dst, new_code=new_code)
 
 
-def buy_section(dst=''):
-    items = portal_packages()
-    if not items:
-        return ''
-    e = html.escape
-    options = ''.join(
-        f'<label class="pkg"><input type="radio" name="package_id" value="{int(p["id"])}" required{" checked" if i == 0 else ""}>'
-        f'<span class="n">{e(p["name"])}<small>{e(p.get("validity", ""))}{(" · " + e(p["description"])) if p.get("description") else ""}</small></span>'
-        f'<span class="pr">{e(p.get("currency", "TZS"))} {e(p["price"])}</span></label>'
-        for i, p in enumerate(items))
-    return f"""
-<div class="or">No voucher? Buy one</div>
-<form method="post" action="/buy">
-<input type="hidden" name="dst" value="{e(dst)}">
-{options}
-<label for="phone">Mobile money number</label>
-<input type="text" id="phone" name="phone" inputmode="tel" autocomplete="tel" placeholder="07XX XXX XXX" required>
-<div class="terms"><input type="checkbox" id="agree2" name="agree" value="1" required><label for="agree2">I accept the terms of use</label></div>
-<button type="submit">Pay with mobile money</button>
-<p class="muted">You'll get a prompt on your phone. Enter your PIN to pay, and you'll be connected automatically.</p>
-</form>"""
+def waiting_page(ref, info, timed_out=False, lang='en'):
+    return ui.waiting_page(_theme(), lang, ref=ref, info=info, timed_out=timed_out)
 
 
 def format_remaining(seconds):
-    minutes = max(0, int(seconds)) // 60
-    days, rest = divmod(minutes, 1440)
-    hours, mins = divmod(rest, 60)
-    if days:
-        return f'{days}d {hours}h'
-    if hours:
-        return f'{hours}h {mins}m'
-    return f'{mins} min'
-
-
-def status_page(session, dst='', new_code=None):
-    e = html.escape
-    go = ''
-    if dst.startswith(('http://', 'https://')):
-        go = f'<a class="btn" href="{e(dst)}">Continue to {e(urlparse(dst).hostname or "your page")}</a>'
-    bought = ''
-    if new_code:
-        bought = (f'<p style="margin-top:16px">Payment received. Your voucher code:</p><div class="code">{e(new_code)}</div>'
-                  f'<p class="muted">Save it: use it to reconnect if you get disconnected.</p>')
-    return page(f"""
-<h2>You're online</h2>
-<div class="big">{format_remaining(session['expires'] - time.time())}</div>
-<p class="muted">left on <strong>{e(session['user'])}</strong></p>{bought}{go}
-<form method="post" action="/logout"><button class="secondary" type="submit">Disconnect</button></form>""")
-
-
-def waiting_page(ref, info, timed_out=False):
-    e = html.escape
-    if timed_out:
-        return page(f"""
-<h2>Still waiting for your payment</h2>
-<p>We haven't received confirmation yet for <strong>{e(info.get('currency', 'TZS'))} {e(str(info.get('amount') or ''))}</strong>
-from <strong>{e(info.get('phone', ''))}</strong>.</p>
-<a class="btn" href="/buy/wait?{urlencode({'ref': ref, 'again': '1'})}">I've paid, check again</a>
-<form method="get" action="/"><button class="secondary" type="submit">Start over</button></form>""")
-    return page(f"""
-<div class="spin"></div>
-<h2 style="text-align:center">Check your phone</h2>
-<p style="text-align:center">Enter your mobile-money PIN to pay <strong>{e(info.get('currency', 'TZS'))} {e(str(info.get('amount') or ''))}</strong>
-for <strong>{e(info.get('package') or 'internet')}</strong>.</p>
-<p class="muted" style="text-align:center">Sent to {e(info.get('phone', ''))}. This page updates by itself.</p>""",
-                head=f'<meta http-equiv="refresh" content="3;url=/buy/wait?{urlencode({"ref": ref})}">')
+    return ui.duration(int(seconds) // 60)
 
 
 class PortalHandler(BaseHTTPRequestHandler):
@@ -724,12 +643,24 @@ class PortalHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         log.debug('%s %s', self.client_address[0], fmt % args)
 
+    def _lang(self, query=None):
+        """?lang= (remembered in a cookie) > cookie > tenant default."""
+        wanted = (query or {}).get('lang', [''])[0]
+        if wanted in ui.LANGS:
+            self._cookie = f'sn_lang={wanted}; Path=/; Max-Age=31536000; SameSite=Lax'
+            return wanted
+        cookie = self.headers.get('Cookie') or ''
+        m = re.search(r'(?:^|;\s*)sn_lang=(en|sw)', cookie)
+        return m.group(1) if m else _theme()['language']
+
     def _send(self, status, body='', headers=None):
-        data = body.encode()
+        data = body.encode() if isinstance(body, str) else body
         self.send_response(status)
         self.send_header('Cache-Control', 'no-store')
         self.send_header('Connection', 'close')
-        if body:
+        if getattr(self, '_cookie', None):
+            self.send_header('Set-Cookie', self._cookie)
+        if body and isinstance(body, str):
             self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Content-Length', str(len(data)))
         for k, v in (headers or {}).items():
@@ -766,16 +697,33 @@ class PortalHandler(BaseHTTPRequestHandler):
 
         url = urlparse(self.path)
         query = parse_qs(url.query)
+        if url.path == '/logo':
+            return self._logo()
+        lang = self._lang(query)
         if url.path == '/buy/wait':
-            return self._buy_wait(query.get('ref', [''])[0], bool(query.get('again')))
+            return self._buy_wait(query.get('ref', [''])[0], bool(query.get('again')), lang)
         if url.path != '/':
             return self._redirect(self._portal_url('/'))
         dst = query.get('dst', [''])[0][:500]
         ip, mac = self._client()
         session = sessions.get(mac) if mac else None
         if session and session['ip'] == ip and session['expires'] > time.time():
-            return self._send(200, status_page(session, dst))
-        self._send(200, login_page(dst))
+            return self._send(200, status_page(session, dst, lang=lang))
+        self._send(200, login_page(dst, lang=lang))
+
+    def _logo(self):
+        try:
+            with open(LOGO_FILE, 'rb') as f:
+                content = f.read()
+        except OSError:
+            return self._send(404, '')
+        self.send_response(200)
+        self.send_header('Content-Type', branding.get('logo_type') or 'image/png')
+        self.send_header('Cache-Control', 'public, max-age=86400')
+        self.send_header('Content-Length', str(len(content)))
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(content)
 
     def do_POST(self):
         length = min(int(self.headers.get('Content-Length') or 0), 4096)
@@ -783,49 +731,54 @@ class PortalHandler(BaseHTTPRequestHandler):
         ip, mac = self._client()
         path = urlparse(self.path).path
         dst = form.get('dst', '')[:500]
+        lang = self._lang()
 
         if path == '/logout':
             if mac:
                 end_session(mac, TERM_USER_REQUEST)
             return self._redirect(self._portal_url('/'))
         if path == '/buy':
-            return self._buy(form, ip, mac, dst)
+            return self._buy(form, ip, mac, dst, lang)
         if path != '/login':
             return self._redirect(self._portal_url('/'))
 
         if not mac:
-            return self._send(200, login_page(dst, "We couldn't identify your device. Turn Wi-Fi off and on, then try again."))
+            return self._send(200, login_page(dst, "We couldn't identify your device. Turn Wi-Fi off and on, then try again.", lang))
         if not form.get('agree'):
-            return self._send(200, login_page(dst, 'Please accept the terms of use to continue.'))
+            return self._send(200, login_page(dst, 'Please accept the terms of use to continue.', lang))
         username = form.get('username', '').strip()
         if username:
             password = form.get('password', '')
         else:
             username = password = re.sub(r'\s+', '', form.get('code', ''))
         if not username:
-            return self._send(200, login_page(dst, 'Enter your voucher code.'))
+            return self._send(200, login_page(dst, 'Enter your voucher code.', lang))
 
         session, error = login(mac, ip, username, password)
         if error:
-            return self._send(200, login_page(dst, error))
-        self._send(200, status_page(session, dst))
+            return self._send(200, login_page(dst, error, lang))
+        self._send(200, status_page(session, dst, lang=lang))
 
 
-    def _buy(self, form, ip, mac, dst):
+    def _buy(self, form, ip, mac, dst, lang):
+        err = lambda message: self._send(200, login_page(dst, message, lang, tab='buy'))
         if not mac:
-            return self._send(200, login_page(dst, "We couldn't identify your device. Turn Wi-Fi off and on, then try again."))
+            return err("We couldn't identify your device. Turn Wi-Fi off and on, then try again.")
         if not form.get('agree'):
-            return self._send(200, login_page(dst, 'Please accept the terms of use to continue.'))
+            return err('Please accept the terms of use to continue.')
         try:
             package_id = int(form.get('package_id', ''))
         except ValueError:
-            return self._send(200, login_page(dst, 'Choose a package.'))
-        ref, error = start_purchase(mac, ip, package_id, form.get('phone', '').strip())
+            return err('Choose a package.')
+        phone = re.sub(r'\D', '', form.get('phone', ''))
+        if len(phone) == 9:                      # typed after the +255 prefix
+            phone = '255' + phone
+        ref, error = start_purchase(mac, ip, package_id, phone)
         if error:
-            return self._send(200, login_page(dst, error))
+            return err(error)
         self._redirect(self._portal_url('/buy/wait', ref=ref))
 
-    def _buy_wait(self, ref, again):
+    def _buy_wait(self, ref, again, lang='en'):
         ip, mac = self._client()
         info = purchases.get(ref)
         if not info or info['mac'] != mac:
@@ -841,14 +794,14 @@ class PortalHandler(BaseHTTPRequestHandler):
             code = data['code']
             session, error = login(mac, ip, code, code)
             if error:
-                return self._send(200, login_page('', f'Payment received. Your voucher code is {code}. {error}'))
-            return self._send(200, status_page(session, '', new_code=code))
+                return self._send(200, login_page('', f'Payment received. Your voucher code is {code}. {error}', lang))
+            return self._send(200, status_page(session, '', new_code=code, lang=lang))
         if status in ('failed', 'review'):
             purchases.pop(ref, None)
             reason = data.get('message') or 'The payment was not completed.'
-            return self._send(200, login_page('', f'Payment not completed: {reason}'))
+            return self._send(200, login_page('', f'Payment not completed: {reason}', lang, tab='buy'))
         timed_out = time.time() - info['created'] > PURCHASE_WAIT and not again
-        self._send(200, waiting_page(ref, info, timed_out))
+        self._send(200, waiting_page(ref, info, timed_out, lang))
 
 
 class Server(ThreadingHTTPServer):

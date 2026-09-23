@@ -35,7 +35,7 @@
                 <p class="mb-2">Status: <strong>{{ tenant.status|capitalize }}</strong>
                     {% if tenant.trial_days_left is not none %}({{ tenant.trial_days_left }} days left){% endif %}</p>
                 {% if current_user.has_role('owner') %}<p class="mb-2">Payments: <strong>{{ 'own ClickPesa' if tenant.payment_mode == 'own' else 'collected by SafeNet' }}</strong> · <a href="{{ url_for('payment_settings') }}">change</a></p>{% endif %}
-                <p class="mb-0">Public splash page: <a href="{{ url_for('portal', t=tenant.slug) }}" target="_blank">{{ url_for('portal', t=tenant.slug) }}</a></p>
+                <p class="mb-0">Captive portal: <a href="{{ url_for('portal_settings') }}">customise and preview</a></p>
             </div>
         </div>
     </div>

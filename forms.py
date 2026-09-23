@@ -1,4 +1,5 @@
 from flask_wtf import FlaskForm
+from flask_wtf.file import FileField
 from wtforms import StringField, PasswordField, TextAreaField, SelectField, BooleanField, IntegerField, DateTimeField
 from wtforms.validators import DataRequired, Email, Length, Optional, IPAddress, ValidationError
 from models import Admin, Plan, RadUser, Nas
@@ -265,3 +266,27 @@ class WithdrawalForm(FlaskForm):
     phone = StringField('Mobile money number', validators=[DataRequired(), Length(max=20)])
     account_name = StringField('Account name', validators=[Optional(), Length(max=100)],
                                description='Name registered on the mobile money number')
+
+
+
+class PortalSettingsForm(FlaskForm):
+    """How the captive portal looks to guests"""
+    color = StringField('Brand colour', validators=[DataRequired()])
+    style = SelectField('Header style', choices=[('gradient', 'Gradient'), ('solid', 'Solid colour'), ('light', 'Light (white)')])
+    title = StringField('Welcome title', validators=[Optional(), Length(max=80)],
+                        description='Leave empty for "Welcome to <your Wi-Fi name>".')
+    message = TextAreaField('Welcome message', validators=[Optional(), Length(max=300)],
+                            description='One or two short sentences under the title.')
+    language = SelectField('Default language', choices=[('en', 'English'), ('sw', 'Kiswahili')])
+    show_voucher = BooleanField('Voucher login')
+    show_packages = BooleanField('Buy packages with mobile money')
+    logo = FileField('Logo (PNG, JPG or WebP, up to 300 KB)')
+    remove_logo = BooleanField('Remove the current logo')
+
+    def validate_color(self, field):
+        if not re.fullmatch(r'#[0-9a-fA-F]{6}', field.data or ''):
+            raise ValidationError('Use a colour like #051D60.')
+
+    def validate_show_packages(self, field):
+        if not field.data and not self.show_voucher.data:
+            raise ValidationError('Keep at least one way to get online.')
