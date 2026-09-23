@@ -522,3 +522,14 @@ class Router(db.Model):
 
     def __repr__(self):
         return f'<Router {self.name} {self.tunnel_ip}>'
+
+
+class SessionKick(db.Model):
+    """Admin asked to disconnect a user now; gateways pick it up on their next check."""
+    __tablename__ = 'session_kicks'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    username = db.Column(db.String(64), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    consumed_at = db.Column(db.DateTime)

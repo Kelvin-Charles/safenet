@@ -45,10 +45,10 @@
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
                         <thead>
-                            <tr><th>User</th><th>Device</th><th>Online for</th><th>Download</th><th>Upload</th><th>Time left</th></tr>
+                            <tr><th>User</th><th>Device</th><th>Online for</th><th>Download</th><th>Upload</th><th>Time left</th><th></th></tr>
                         </thead>
                         <tbody id="online-body">
-                            <tr><td colspan="6" class="text-center text-muted py-4">Loading…</td></tr>
+                            <tr><td colspan="7" class="text-center text-muted py-4">Loading…</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -120,7 +120,7 @@
         const shown = rows.filter(r => !q || [r.user, r.phone, r.mac, r.ip, r.plan].join(' ').toLowerCase().includes(q));
         const body = $('online-body');
         if (!shown.length) {
-            body.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-4">${rows.length ? 'No match' : 'Nobody is online right now'}</td></tr>`;
+            body.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">${rows.length ? 'No match' : 'Nobody is online right now'}</td></tr>`;
             return;
         }
         const now = Date.parse(nowIso);
@@ -140,6 +140,7 @@
                 <td>${bytes(r.down)}</td>
                 <td>${bytes(r.up)}</td>
                 <td>${left === null ? '<span class="text-muted">–</span>' : duration(left)}</td>
+                <td><button class="btn btn-sm btn-outline-danger" data-kick="${esc(r.user)}" title="Disconnect now"><i class="bi bi-x-circle"></i></button></td>
             </tr>`;
         }).join('');
         known = seen;
@@ -174,6 +175,17 @@
             $('status').textContent = 'Connection lost, retrying… (' + err.message + ')';
         }
     }
+
+    const CSRF = '{{ csrf_token() }}';
+    $('online-body').addEventListener('click', async e => {
+        const btn = e.target.closest('[data-kick]');
+        if (!btn || !confirm('Disconnect ' + btn.dataset.kick + ' now? They can log in again unless you also disable their voucher.')) return;
+        btn.disabled = true;
+        const body = new URLSearchParams({ username: btn.dataset.kick, csrf_token: CSRF });
+        const r = await fetch('{{ url_for("live_disconnect") }}', { method: 'POST', body, credentials: 'same-origin' });
+        btn.innerHTML = r.ok ? '<i class="bi bi-check"></i>' : '!';
+        setTimeout(refresh, 1500);
+    });
 
     function schedule() {
         clearInterval(timer);

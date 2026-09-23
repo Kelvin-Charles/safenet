@@ -44,6 +44,8 @@ NAS_IDENTIFIER = os.environ.get('NAS_IDENTIFIER', 'safenet-gateway')
 DEFAULT_SESSION = int(os.environ.get('DEFAULT_SESSION_SECONDS', '3600'))
 MAX_SESSION = int(os.environ.get('MAX_SESSION_SECONDS', str(7 * 86400)))
 ACCT_INTERIM = int(os.environ.get('ACCT_INTERIM_SECONDS', '60'))
+# How often to ask SafeNet which guests must be cut off (disabled voucher, admin kick...)
+REVOKE_CHECK_SECONDS = int(os.environ.get('REVOKE_CHECK_SECONDS', '10'))
 
 HOTSPOT_NAME = os.environ.get('HOTSPOT_NAME', 'SafeNet WiFi')
 HOTSPOT_SUPPORT = os.environ.get('HOTSPOT_SUPPORT', '')
@@ -433,6 +435,38 @@ def accounting_loop():
                 _background(account, ACCT_INTERIM_UPDATE, s)
         with sessions_lock:
             save_sessions()
+
+
+def check_revocations():
+    """Disconnect guests SafeNet no longer allows. Returns how many were cut off."""
+    with sessions_lock:
+        by_user = {}
+        for mac, s in sessions.items():
+            by_user.setdefault(s['user'], []).append(mac)
+    if not by_user:
+        return 0
+    try:
+        names = safenet_api('POST', '/api/gateway/sessions/check', {'usernames': list(by_user)},
+                            timeout=8).get('disconnect') or []
+    except ApiError as e:
+        if 'suspended' not in str(e):
+            log.warning('session check failed: %s', e)
+            return 0
+        names = list(by_user)          # the whole network is suspended
+    count = 0
+    for name in names:
+        for mac in by_user.get(name, []):
+            log.info('disconnecting %s (%s): revoked by SafeNet', name, mac)
+            end_session(mac, TERM_ADMIN_RESET)
+            count += 1
+    return count
+
+
+def revocation_loop():
+    """Within REVOKE_CHECK_SECONDS of a voucher being disabled or a user kicked."""
+    while True:
+        time.sleep(REVOKE_CHECK_SECONDS)
+        check_revocations()
 
 
 def too_many_failures(mac):
@@ -835,6 +869,8 @@ def main():
     refresh_branding()
     load_sessions()
     threading.Thread(target=accounting_loop, daemon=True).start()
+    if API_MODE:
+        threading.Thread(target=revocation_loop, daemon=True).start()
     server = Server((LAN_ADDR, PORTAL_PORT), PortalHandler)
     log.info('portal on http://%s:%d, %s', LAN_ADDR, PORTAL_PORT,
              f'SafeNet API {SAFENET_API_URL}' if API_MODE else f'RADIUS {RADIUS_SERVER}')

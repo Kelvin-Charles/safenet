@@ -2,12 +2,14 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway
+from models import db, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
 from sqlalchemy import func, or_, desc
 import clickpesa
+import radclient
+import threading
 import secretbox
 import migrations
 from mailer import send_mail
@@ -269,6 +271,8 @@ def edit_user(user_id):
     if form.validate_on_submit():
         # Update RadUser
         user.plan_id = form.plan_id.data if form.plan_id.data > 0 else None
+        if user.is_active and not form.is_active.data:
+            disconnect_subscriber(user.tenant_id, user.username)
         user.is_active = form.is_active.data
         user.expires_at = form.expires_at.data
         user.notes = form.notes.data
@@ -432,6 +436,7 @@ def test_user_connection(user_id):
 def delete_user(user_id):
     user = owned_or_404(RadUser, user_id)
     username = user.username
+    disconnect_subscriber(user.tenant_id, username)
     
     # Delete all related records
     RadCheck.query.filter_by(username=username).delete()
@@ -964,6 +969,28 @@ def _new_voucher_code(taken):
             return code
 
 
+def disconnect_subscriber(tid, username):
+    """Cut a user/voucher off right away. SafeNet gateways pick up the kick on
+    their next check (about 10 s); routers in the nas table get a RADIUS
+    Disconnect-Request for each open session. Caller commits."""
+    db.session.add(SessionKick(tenant_id=tid, username=username))
+    recent = datetime.utcnow() - timedelta(days=2)
+    targets = []
+    for s in RadAcct.query.filter(RadAcct.username == username, RadAcct.acctstoptime.is_(None),
+                                  func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime) >= recent):
+        nas = Nas.query.filter_by(nasname=s.nasipaddress, tenant_id=tid).first()
+        if nas and nas.secret:
+            targets.append((s.nasipaddress, nas.secret, username, s.acctsessionid, s.framedipaddress))
+
+    def send():
+        for target in targets:
+            ok, message = radclient.disconnect(*target)
+            log.info('disconnect %s on %s: %s', username, target[0], message)
+    if targets:
+        threading.Thread(target=send, daemon=True).start()
+    return len(targets)
+
+
 def _radius_username_taken(username):
     """RADIUS usernames are global: users, voucher codes and radcheck rows of every tenant."""
     return bool(RadUser.query.filter_by(username=username).first()
@@ -1094,7 +1121,8 @@ def toggle_voucher(voucher_id):
         flash(f'Voucher {voucher.code} enabled.', 'success')
     else:
         voucher.status = 'disabled'
-        flash(f'Voucher {voucher.code} disabled. Connected devices are cut off at their next login.', 'success')
+        disconnect_subscriber(voucher.tenant_id, voucher.code)
+        flash(f'Voucher {voucher.code} disabled and its devices disconnected.', 'success')
     db.session.commit()
     return redirect(request.referrer or url_for('vouchers'))
 
@@ -1105,6 +1133,8 @@ def delete_voucher(voucher_id):
     _check_csrf()
     voucher = owned_or_404(Voucher, voucher_id)
     code = voucher.code
+    if voucher.first_used_at:
+        disconnect_subscriber(voucher.tenant_id, code)
     RadCheck.query.filter_by(username=code).delete()
     RadReply.query.filter_by(username=code).delete()
     RadUserGroup.query.filter_by(username=code).delete()
@@ -1409,6 +1439,14 @@ def refresh_payment(payment_id):
 
 
 # Captive-portal gateway API (JSON, authenticated with X-SafeNet-Key)
+def tenant_blocked(tenant):
+    """Suspended, or subscription/trial over (after grace): no service for its guests."""
+    if tenant.status == 'suspended':
+        return True
+    until = getattr(tenant, 'service_until', None)
+    return bool(until and until < datetime.utcnow())
+
+
 def _hash_key(key):
     return hashlib.sha256(key.encode()).hexdigest()
 
@@ -1432,7 +1470,7 @@ def portal_api(fn):
                 tenant = migrations.default_tenant()
         if tenant is None:
             return jsonify(error='unauthorized'), 401
-        if tenant.status == 'suspended':
+        if tenant_blocked(tenant):
             return jsonify(error='This network is suspended.'), 403
         g.api_tenant = tenant
         g.api_gateway = gw
@@ -1612,6 +1650,42 @@ def _acct_nas_ip():
     return ip if len(ip) <= 15 else '0.0.0.0'
 
 
+@app.route('/api/gateway/sessions/check', methods=['POST'])
+@portal_api
+def api_gateway_sessions_check():
+    """{"usernames": [...]} of guests online at the gateway -> {"disconnect": [...]}:
+    deleted, disabled or expired users/vouchers, suspended tenant, or kicked by an admin."""
+    names = [str(n)[:64] for n in (request.get_json(silent=True) or {}).get('usernames') or []][:1000]
+    tenant = g.api_tenant
+    if not names:
+        return jsonify(disconnect=[])
+    if tenant_blocked(tenant):
+        return jsonify(disconnect=names)
+    now = datetime.utcnow()
+    vouchers = {v.code: v for v in Voucher.query.filter(Voucher.tenant_id == tenant.id, Voucher.code.in_(names))}
+    users = {u.username: u for u in RadUser.query.filter(RadUser.tenant_id == tenant.id, RadUser.username.in_(names))}
+    kicks = SessionKick.query.filter(SessionKick.tenant_id == tenant.id, SessionKick.username.in_(names),
+                                     SessionKick.consumed_at.is_(None)).all()
+    kicked = {k.username for k in kicks}
+    for k in kicks:
+        k.consumed_at = now
+    db.session.commit()
+    out = []
+    for n in names:
+        v, u = vouchers.get(n), users.get(n)
+        if n in kicked:
+            out.append(n)
+        elif v:
+            if v.status == 'disabled' or (v.expires_at and v.expires_at <= now):
+                out.append(n)
+        elif u:
+            if not u.is_active or (u.expires_at and u.expires_at <= now):
+                out.append(n)
+        else:
+            out.append(n)          # deleted
+    return jsonify(disconnect=out)
+
+
 @app.route('/api/gateway/accounting', methods=['POST'])
 @portal_api
 def api_gateway_accounting():
@@ -1691,6 +1765,19 @@ def _iso(dt):
 @login_required
 def live():
     return render_template('live.html', currency=current_tenant().currency)
+
+
+@app.route('/live/disconnect', methods=['POST'])
+@login_required
+def live_disconnect():
+    _check_csrf()
+    username = (request.form.get('username') or '')[:64]
+    owned = {n for (n,) in db.session.execute(tenant_usernames())}
+    if username not in owned:
+        abort(404)
+    sent = disconnect_subscriber(tenant_id(), username)
+    db.session.commit()
+    return jsonify(ok=True, routers=sent)
 
 
 @app.route('/api/live')
@@ -2087,6 +2174,10 @@ def platform_tenant_status(tid):
         if tenant.slug == migrations.DEFAULT_TENANT_SLUG:
             abort(400)
         tenant.status = 'suspended'
+        names = {n for (n,) in db.session.execute(tenant_usernames(tenant.id))}
+        for (name,) in db.session.query(RadAcct.username).filter(RadAcct.username.in_(names),
+                                                                  RadAcct.acctstoptime.is_(None)).distinct():
+            disconnect_subscriber(tenant.id, name)
     elif action == 'extend':
         base = max(tenant.trial_ends_at or datetime.utcnow(), datetime.utcnow())
         tenant.status, tenant.trial_ends_at = 'trial', base + timedelta(days=Config.TRIAL_DAYS)
