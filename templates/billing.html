@@ -39,7 +39,7 @@
                 {% elif not payments_ready %}
                 <p class="text-muted mb-0">Online payment isn't available right now. Please contact SafeNet to renew.</p>
                 {% else %}
-                <form method="POST" action="{{ url_for('billing_pay') }}">
+                <form method="POST" action="{{ url_for('billing_pay') }}" onsubmit="if(this.dataset.sent)return false;this.dataset.sent=1;var b=this.querySelector('button[type=submit]');b.disabled=true;b.innerHTML='<span class=&quot;spinner-border spinner-border-sm me-2&quot;></span>Sending payment request…';">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <label class="form-label">Plan</label>
                     {% for p in plans %}

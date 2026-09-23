@@ -51,6 +51,7 @@ T = {
         'how3': 'CA certificate: <code>Don\'t validate</code> (Android) or tap <b>Trust</b> (iPhone)',
         'how4': 'Username and password: your voucher code. Leave <i>anonymous identity</i> empty.',
         'preview': 'Preview', 'left': 'left', 'total': 'total',
+        'busy_pay': 'Sending payment request…', 'busy_connect': 'Connecting…', 'busy_pay_hint': 'Please wait, this takes a few seconds.',
     },
     'sw': {
         'wifi': 'Wi-Fi ya Wageni', 'switch': 'English', 'welcome': 'Karibu {name}',
@@ -80,6 +81,7 @@ T = {
         'how3': 'CA certificate: <code>Don\'t validate</code> (Android) au bonyeza <b>Trust</b> (iPhone)',
         'how4': 'Jina la mtumiaji na nenosiri: namba ya vocha yako. Acha <i>anonymous identity</i> wazi.',
         'preview': 'Onyesho', 'left': 'imebaki', 'total': 'jumla',
+        'busy_pay': 'Inatuma ombi la malipo…', 'busy_connect': 'Inaunganisha…', 'busy_pay_hint': 'Tafadhali subiri, inachukua sekunde chache.',
     },
 }
 
@@ -299,6 +301,15 @@ function openTerms(){{var d=document.getElementById('terms');if(!d)return;if(d.s
 document.querySelectorAll('.pkg input').forEach(function(r){{r.addEventListener('change',function(){{
   document.querySelectorAll('.pkg').forEach(function(p){{p.classList.toggle('on',p.contains(document.querySelector('.pkg input:checked')));}});
   var b=document.getElementById('paybtn');if(b&&r.dataset.label)b.textContent=r.dataset.label;}});}});
+document.querySelectorAll('form[data-busy]').forEach(function(f){{f.addEventListener('submit',function(ev){{
+  if(f.dataset.sent){{ev.preventDefault();return;}}
+  f.dataset.sent='1';
+  var b=f.querySelector('button[type=submit]');
+  if(b){{b.classList.add('loading');b.setAttribute('aria-busy','true');b.innerHTML='<span class="spinner" aria-hidden="true"></span>'+f.dataset.busy;}}
+  var h=f.querySelector('.hint');if(h&&f.dataset.busyHint)h.textContent=f.dataset.busyHint;
+  f.querySelectorAll('input,select,button.linkbtn').forEach(function(x){{x.setAttribute('readonly','');}});
+}});}});
+window.addEventListener('pageshow',function(ev){{if(ev.persisted)location.reload();}});
 </script>
 </body>
 </html>"""
@@ -351,7 +362,7 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab='voucher', action
       <h2>{t(lang, 'voucher_title')}</h2>
       <p class="lead">{t(lang, 'voucher_lead')}</p>
       {_alert(error, lang) if tab == 'voucher' else ''}
-      <form {form_attrs} autocomplete="off">
+      <form {form_attrs} autocomplete="off" data-busy="{e(t(lang, 'busy_connect'))}">
         {hidden}
         <div class="field">
           <label for="code">{t(lang, 'code')}</label>
@@ -388,7 +399,7 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab='voucher', action
       <h2>{t(lang, 'buy_title')}</h2>
       <p class="lead">{t(lang, 'buy_lead')}</p>
       {_alert(error, lang) if tab == 'buy' else ''}
-      <form method="post" action="{e(buy_action)}">
+      <form method="post" action="{e(buy_action)}" data-busy="{e(t(lang, 'busy_pay'))}" data-busy-hint="{e(t(lang, 'busy_pay_hint'))}">
         <input type="hidden" name="dst" value="{e(dst)}">
         <div class="pkgs">{''.join(options)}</div>
         <div class="field">

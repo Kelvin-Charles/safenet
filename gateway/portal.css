@@ -79,6 +79,10 @@ details.more[open] summary { margin-bottom: 12px; }
 .btn:hover { filter: brightness(1.08); }
 .btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn.loading { pointer-events: none; filter: saturate(.85); }
+.spinner { width: 19px; height: 19px; border-radius: 50%; border: 2.5px solid currentColor; border-right-color: transparent;
+           display: inline-block; animation: spin .75s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .btn.ghost { background: #fff; color: var(--ink); border: 1.5px solid var(--line); box-shadow: none; font-weight: 650; margin-top: 10px; }
 
 /* Packages */
@@ -168,4 +172,4 @@ body.preview .sheet { padding-bottom: 64px; }
     .input.code { font-size: 22px; letter-spacing: 4px; }
     h1 { font-size: 23px; }
 }
-@media (prefers-reduced-motion: reduce) { .state-ic.wait { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .state-ic.wait { animation: none; } .spinner { animation-duration: 2s; } }
