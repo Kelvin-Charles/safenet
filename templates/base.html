@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{{ app_name }}{% endblock %}</title>
     {% if current_user.is_authenticated %}<meta name="csrf-token" content="{{ csrf_token() }}">{% endif %}
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}">
     
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -46,6 +48,11 @@
             text-align: center;
         }
         
+        .sidebar .brand-link { color: #fff; text-decoration: none; display: inline-flex; align-items: center; gap: .6rem; }
+        .sidebar .brand-tile { width: 38px; height: 38px; border-radius: 10px; background: #fff; display: grid; place-items: center; }
+        .sidebar .brand-tile img { width: 30px; height: auto; }
+        .sidebar .powered { font-size: .72rem; color: rgba(255,255,255,.55); text-align: center; padding: .5rem 1rem 1.25rem; }
+
         .sidebar .nav-link {
             color: rgba(255,255,255,0.8);
             padding: 0.75rem 1.25rem;
@@ -198,7 +205,7 @@
     <!-- Sidebar -->
     <div class="sidebar">
         <div class="logo">
-            <i class="bi bi-shield-lock"></i> SafeNet
+            <a href="{{ url_for('dashboard') }}" class="brand-link"><span class="brand-tile"><img src="{{ url_for('static', filename='img/safenet-mark.png') }}" alt=""></span> SafeNet</a>
             {% if tenant %}<div style="font-size: .8rem; font-weight: 400; opacity: .8; margin-top: .25rem;">{{ tenant.name }}</div>{% endif %}
         </div>
         {% macro link(endpoints, url, icon, label) %}
@@ -239,6 +246,7 @@
                 <i class="bi bi-box-arrow-right"></i> Logout
             </a>
         </nav>
+        <div class="powered">Powered by Safezone Tech</div>
     </div>
     {% endif %}
     

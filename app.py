@@ -62,7 +62,7 @@ def load_user(user_id):
 def inject_globals():
     tenant = current_tenant() if current_user.is_authenticated else None
     return {
-        'app_name': 'SafeNet RADIUS Manager',
+        'app_name': 'SafeNet',
         'supported_vendors': Config.SUPPORTED_VENDORS,
         'csrf_token': generate_csrf,
         'tenant': tenant,

@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SafeNet · Wi-Fi billing and hotspot management</title>
     <meta name="description" content="Sell Wi-Fi with vouchers and mobile money, brand your login page and watch every guest live. Works with MikroTik, TP-Link and the SafeNet gateway. {{ trial_days }}-day free trial.">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -33,8 +35,9 @@
         header.scrolled { border-bottom-color: var(--line); }
         .nav { display: flex; align-items: center; justify-content: space-between; height: 76px; gap: 24px; }
         .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
-        .brand .mark { width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: #fff; display: grid; place-items: center; font-size: 17px; }
-        .brand small { font-size: 10px; font-weight: 500; color: var(--muted); letter-spacing: .5px; }
+        .brand img { width: 40px; height: auto; }
+        .brand .word { font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #012041; }
+        .brand .word span { color: #0072DB; }
         .links { display: flex; gap: 32px; font-size: 15px; color: var(--ink-2); }
         .links a:hover, .links a.active { color: var(--ink); }
         .actions { display: flex; align-items: center; gap: 20px; font-size: 15px; }
@@ -151,7 +154,7 @@
 <body>
 <header id="top">
     <div class="wrap nav">
-        <a href="#top" class="brand"><span class="mark"><i class="bi bi-wifi"></i></span> SafeNet <small>.WIFI</small></a>
+        <a href="#top" class="brand" aria-label="SafeNet home"><img src="{{ url_for('static', filename='img/safenet-mark.png') }}" alt=""><span class="word">Safe<span>Net</span></span></a>
         <nav class="links">
             <a href="#top" class="active">Home</a>
             <a href="#features">Features</a>
@@ -399,7 +402,7 @@
     <div class="wrap">
         <div class="cols">
             <div>
-                <a href="#top" class="brand"><span class="mark"><i class="bi bi-wifi"></i></span> SafeNet <small>.WIFI</small></a>
+                <a href="#top" class="brand" aria-label="SafeNet home"><img src="{{ url_for('static', filename='img/safenet-mark.png') }}" alt=""><span class="word">Safe<span>Net</span></span></a>
                 <p class="about">Wi-Fi billing and hotspot management for businesses in Tanzania.</p>
             </div>
             <div>
@@ -419,7 +422,7 @@
                 </ul>
             </div>
         </div>
-        <div class="copy">© {{ year }} SafeNet · SafeZone Tanzania. All rights reserved.</div>
+        <div class="copy">© {{ year }} SafeNet. All rights reserved. · Powered by <strong>Safezone Tech</strong></div>
     </div>
 </footer>
 
