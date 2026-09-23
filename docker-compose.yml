@@ -82,13 +82,17 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123@SafeNet}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-meenacharles22@gmail.com}
       # Bandwidth alert email (SMTP - e.g. mail.safezonetz.com)
-      MAIL_SERVER: ${MAIL_SERVER:-mail.safezonetz.com}
+      MAIL_SERVER: ${MAIL_SERVER:-schoolhub.space}
       MAIL_PORT: ${MAIL_PORT:-465}
-      MAIL_USE_SSL: ${MAIL_USE_SSL:-true}
+      MAIL_USE_SSL: ${MAIL_USE_SSL:-}
       MAIL_USERNAME: ${MAIL_USERNAME:-safenet@safezonetz.com}
-      MAIL_PASSWORD: ${MAIL_PASSWORD:-NEcEtmsvEc54}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_DEFAULT_SENDER: ${MAIL_DEFAULT_SENDER:-safenet@safezonetz.com}
       BANDWIDTH_ALERT_FALLBACK_EMAIL: ${BANDWIDTH_ALERT_FALLBACK_EMAIL:-}
+      # SMS confirmations (NextSMS)
+      NEXTSMS_USERNAME: ${NEXTSMS_USERNAME:-}
+      NEXTSMS_PASSWORD: ${NEXTSMS_PASSWORD:-}
+      NEXTSMS_SENDER_ID: ${NEXTSMS_SENDER_ID:-}
       # Guest portal (/portal) and printed voucher branding
       HOTSPOT_NAME: ${HOTSPOT_NAME:-SafeNet WiFi}
       HOTSPOT_SSID: ${HOTSPOT_SSID:-}

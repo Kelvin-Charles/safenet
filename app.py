@@ -8,6 +8,8 @@ from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
 from sqlalchemy import func, or_, desc, text
 import clickpesa
+from sms import send_sms_async
+from models import format_minutes
 import radclient
 import threading
 import math
@@ -1369,6 +1371,11 @@ def _fulfil_payment(payment):
     payment.status = 'paid'
     payment.paid_at = datetime.utcnow()
     log.info('payment %s paid: voucher %s', payment.reference, voucher.code)
+    brand = _hotspot_settings(payment.tenant)
+    send_sms_async(payment.phone, f'{brand["name"]}: payment of {payment.currency} {payment.amount:,.0f} received. '
+                                  f'Your WiFi code is {voucher.code}, valid {format_minutes(payment.validity_minutes)} '
+                                  f'from first login. Keep it to reconnect.'
+                                  + (f' Help: {brand["support"]}' if brand['support'] else ''), payment.reference)
 
 
 def _refresh_payment(reference, force=False):
@@ -2403,6 +2410,11 @@ def process_payout(wid):
                 f'Your withdrawal of {w.tenant.currency} {w.amount:,.0f} was not approved{": " + note if note else ""}. '
                 f'The amount is back in your balance.\n')
         send_mail(owner.email, f'Withdrawal {w.status}', body)
+    if w.status == 'paid':
+        send_sms_async(w.phone, f'SafeNet: {w.tenant.currency} {w.amount:,.0f} has been sent to this number. Ref {reference}.')
+    else:
+        send_sms_async(_normalize_tz_phone(w.tenant.phone or ''), f'SafeNet: your withdrawal of {w.tenant.currency} '
+                       f'{w.amount:,.0f} was not approved{": " + note if note else ""}. It is back in your balance.')
     flash(f'Withdrawal marked {w.status}.', 'success')
     return redirect(url_for('platform_payouts'))
 
@@ -2595,7 +2607,9 @@ def _fulfil_subscription(sp):
     if owner:
         send_mail(owner.email, 'SafeNet subscription renewed',
                   f'Thank you! We received {sp.currency} {sp.amount:,.0f} for {sp.months} month(s) of '
-                  f'{sp.plan_name or "SafeNet"}.\\nYour service is paid until {sp.period_end:%d %b %Y}.\\nReference: {sp.reference}\\n')
+                  f'{sp.plan_name or "SafeNet"}.\nYour service is paid until {sp.period_end:%d %b %Y}.\nReference: {sp.reference}\n')
+    send_sms_async(sp.phone, f'SafeNet: we received {sp.currency} {sp.amount:,.0f}. Your service is paid until '
+                             f'{sp.period_end:%d %b %Y}. Ref {sp.reference}. Asante!', sp.reference)
 
 
 def _refresh_subscription(reference, force=False):
@@ -2723,6 +2737,8 @@ def send_billing_reminders(now=None):
         owner = Admin.query.filter_by(tenant_id=tenant.id, role='owner').first()
         if owner and send_mail(owner.email, subject, body):
             sent += 1
+        send_sms_async(_normalize_tz_phone(tenant.phone or ''), f'SafeNet: {subject.replace("Your SafeNet", "your")}. '
+                       f'Renew at {_link("billing")}')
         tenant.billing_notice = key
     db.session.commit()
     return sent

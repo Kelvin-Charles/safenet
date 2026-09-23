@@ -86,10 +86,17 @@ class Config:
     # Outgoing email
     MAIL_SERVER = os.getenv('MAIL_SERVER', '')
     MAIL_PORT = int(os.getenv('MAIL_PORT', '465'))
-    MAIL_USE_SSL = os.getenv('MAIL_USE_SSL', 'true').lower() == 'true'
+    # 465 = implicit TLS (SMTP_SSL); anything else uses STARTTLS
+    MAIL_USE_SSL = (os.getenv('MAIL_USE_SSL') or ('true' if os.getenv('MAIL_PORT', '465') == '465' else 'false')).lower() == 'true'
     MAIL_USERNAME = os.getenv('MAIL_USERNAME', '')
     MAIL_PASSWORD = os.getenv('MAIL_PASSWORD', '')
     MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER', '')
+
+    # SMS (NextSMS): payment confirmations with voucher codes, billing notices
+    NEXTSMS_USERNAME = os.getenv('NEXTSMS_USERNAME', '')
+    NEXTSMS_PASSWORD = os.getenv('NEXTSMS_PASSWORD', '')
+    NEXTSMS_SENDER_ID = os.getenv('NEXTSMS_SENDER_ID', '')
+    NEXTSMS_URL = os.getenv('NEXTSMS_URL', 'https://messaging-service.co.tz/api/sms/v1/text/single')
 
     # Pagination
     ITEMS_PER_PAGE = 25
