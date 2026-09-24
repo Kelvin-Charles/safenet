@@ -65,12 +65,28 @@ class Tenant(db.Model):
         return f'<Tenant {self.slug}>'
 
 
+class Site(db.Model):
+    """A place where a tenant sells internet (a shop, hostel, branch). Devices,
+    packages and sales belong to a site so each place can be followed on its own."""
+    __tablename__ = 'sites'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    name = db.Column(db.String(64), nullable=False)
+    location = db.Column(db.String(128))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<Site {self.name}>'
+
+
 class Gateway(db.Model):
     """A SafeNet gateway box; authenticates to the API with its own key."""
     __tablename__ = 'gateways'
 
     id = db.Column(db.Integer, primary_key=True)
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'), index=True)
     name = db.Column(db.String(64), nullable=False)
     key_prefix = db.Column(db.String(8), nullable=False)       # shown in the UI to tell keys apart
     key_hash = db.Column(db.String(64), unique=True, nullable=False)  # sha256 of the full key
@@ -284,6 +300,7 @@ class Nas(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
     nasname = db.Column(db.String(128), nullable=False, unique=True, index=True)
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'), index=True)
     shortname = db.Column(db.String(32), nullable=False)
     type = db.Column(db.String(30), nullable=False, default='other')
     ports = db.Column(db.Integer)
@@ -354,6 +371,7 @@ class Voucher(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
     code = db.Column(db.String(32), unique=True, nullable=False, index=True)
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'), index=True)
     plan_id = db.Column(db.Integer, db.ForeignKey('plans.id', ondelete='SET NULL'))
     batch = db.Column(db.String(64), index=True)
     validity_minutes = db.Column(db.Integer, nullable=False)
@@ -406,6 +424,7 @@ class Package(db.Model):
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
     name = db.Column(db.String(64), nullable=False)
     description = db.Column(db.String(200))
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'), index=True)  # NULL = every site
     plan_id = db.Column(db.Integer, db.ForeignKey('plans.id', ondelete='SET NULL'))
     price = db.Column(db.Numeric(10, 2), nullable=False)
     currency = db.Column(db.String(3), nullable=False, default='TZS')
@@ -434,6 +453,7 @@ class Payment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
     reference = db.Column(db.String(20), unique=True, nullable=False, index=True)  # ClickPesa orderReference
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'), index=True)
     package_id = db.Column(db.Integer, db.ForeignKey('packages.id', ondelete='SET NULL'))
     package_name = db.Column(db.String(64))
     # Copied from the package at purchase time
@@ -533,6 +553,7 @@ class Router(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
     name = db.Column(db.String(64), nullable=False)
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'), index=True)
     vendor = db.Column(db.String(16), nullable=False, default='mikrotik')
     tunnel_ip = db.Column(db.String(15), unique=True, nullable=False)
     public_key = db.Column(db.String(64), unique=True, nullable=False)
@@ -574,7 +595,8 @@ class BillingPlan(db.Model):
     price_yearly = db.Column(db.Numeric(10, 2))                # 12 months at once; NULL = 12 x price
     currency = db.Column(db.String(3), nullable=False, default='TZS')
     max_routers = db.Column(db.Integer)                        # NULL = unlimited
-    max_gateways = db.Column(db.Integer)                       # "sites"
+    max_gateways = db.Column(db.Integer)
+    max_sites = db.Column(db.Integer)
     max_customers = db.Column(db.Integer)                      # subscriber accounts (vouchers are unlimited)
     max_staff = db.Column(db.Integer)                          # team accounts, owner included
 

@@ -46,7 +46,7 @@
                     <label class="d-flex align-items-start gap-2 border rounded p-2 mb-2" style="cursor:pointer">
                         <input type="radio" name="plan_id" value="{{ p.id }}" class="form-check-input mt-1" {{ 'checked' if (state.plan and state.plan.id == p.id) or (not state.plan and loop.first) }} required>
                         <span class="flex-grow-1"><strong>{{ p.name }}</strong>{% if p.description %}<small class="d-block text-muted">{{ p.description }}</small>{% endif %}
-                            <small class="d-block text-muted">{{ 'Unlimited' if p.max_customers is none else '{:,}'.format(p.max_customers) }} customers · {{ 'unlimited' if p.max_routers is none else p.max_routers }} routers · {{ 'unlimited' if p.max_gateways is none else p.max_gateways }} sites · {{ 'unlimited' if p.max_staff is none else p.max_staff }} staff</small></span>
+                            <small class="d-block text-muted">{{ 'Unlimited' if p.max_customers is none else '{:,}'.format(p.max_customers) }} customers · {{ 'unlimited' if p.max_routers is none else p.max_routers }} routers · {{ 'unlimited' if p.max_sites is none else p.max_sites }} site{{ '' if p.max_sites == 1 else 's' }} · {{ 'unlimited' if p.max_staff is none else p.max_staff }} staff</small></span>
                         <span class="fw-bold text-end">{{ p.currency }} {{ '{:,.0f}'.format(p.price) }}<small class="text-muted fw-normal">/mo</small>
                             {% if p.price_yearly is not none %}<small class="d-block text-muted fw-normal">or {{ '{:,.0f}'.format(p.price_yearly) }} / year</small>{% endif %}</span>
                     </label>

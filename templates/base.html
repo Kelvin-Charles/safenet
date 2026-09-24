@@ -196,6 +196,19 @@
         .active > .page-link, .page-link.active { background-color: #051D60; border-color: #051D60; }
         .form-check-input:checked { background-color: #051D60; border-color: #051D60; }
         body { background-color: #F9FAFB; }
+        .navbar-top .site-btn { border: 1px solid #E5E7EB; border-radius: 10px; background: #fff; padding: .4rem .75rem; font-weight: 500; }
+        .navbar-top .site-badge { width: 22px; height: 22px; border-radius: 6px; background: #051D60; color: #fff; font-size: .72rem; display: inline-grid; place-items: center; margin-right: .4rem; }
+        .navbar-top .menu-btn { display: none; border: 0; background: none; font-size: 1.5rem; padding: 0 .5rem 0 0; }
+        .sidebar-backdrop { display: none; }
+        @media (max-width: 991px) {
+            .sidebar { transform: translateX(-100%); transition: transform .2s; }
+            body.nav-open .sidebar { transform: none; }
+            body.nav-open .sidebar-backdrop { display: block; position: fixed; inset: 0; background: rgba(15,23,42,.4); z-index: 999; }
+            .main-content { margin-left: 0; padding: 1rem; }
+            .navbar-top { padding: .75rem 1rem; margin-bottom: 1rem; }
+            .navbar-top .menu-btn { display: inline-block; }
+            .navbar-top .who { display: none; }
+        }
     </style>
     
     {% block extra_css %}{% endblock %}
@@ -214,6 +227,7 @@
         {% set is_admin = current_user.has_role('admin') %}
         <nav class="nav flex-column mt-3">
             {{ link(['dashboard'], url_for('dashboard'), 'bi-speedometer2', 'Dashboard') }}
+            {{ link(['sites_page'], url_for('sites_page'), 'bi-geo-alt', 'Sites') }}
             {{ link(['live'], url_for('live'), 'bi-broadcast', 'Live') }}
             {{ link(['users', 'add_user', 'edit_user'], url_for('users'), 'bi-people', 'Users') }}
             {{ link(['vouchers', 'generate_vouchers'], url_for('vouchers'), 'bi-ticket-perforated', 'Vouchers') }}
@@ -253,12 +267,33 @@
     <!-- Main Content -->
     <div class="{% if current_user.is_authenticated %}main-content{% else %}container mt-5{% endif %}">
         {% if current_user.is_authenticated %}
-        <div class="navbar-top d-flex justify-content-between align-items-center">
-            <h4 class="mb-0">{% block page_title %}Dashboard{% endblock %}</h4>
-            <div>
-                <span class="text-muted me-3">
-                    <i class="bi bi-person-circle"></i> {{ current_user.username }}
-                </span>
+        <div class="sidebar-backdrop" onclick="document.body.classList.remove('nav-open')"></div>
+        <div class="navbar-top d-flex justify-content-between align-items-center gap-2">
+            <div class="d-flex align-items-center">
+                <button class="menu-btn" type="button" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')"><i class="bi bi-list"></i></button>
+                <h4 class="mb-0">{% block page_title %}Dashboard{% endblock %}</h4>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                {% if tenant and sites %}
+                <div class="dropdown">
+                    <button class="site-btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-label="Choose site">
+                        <span class="site-badge">{{ (site.name if site else 'All')[:1]|upper }}</span>{{ site.name if site else ('All sites' if sites|length > 1 else sites[0].name) }}
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><h6 class="dropdown-header">Show</h6></li>
+                        {% for choice in [none] + sites %}
+                        <li><form method="POST" action="{{ url_for('switch_site') }}" class="m-0">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="site_id" value="{{ choice.id if choice else '' }}">
+                            <button class="dropdown-item {{ 'active' if (choice and site and choice.id == site.id) or (not choice and not site) }}" type="submit">{{ choice.name if choice else 'All sites' }}</button>
+                        </form></li>
+                        {% endfor %}
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{{ url_for('sites_page') }}"><i class="bi bi-geo-alt"></i> Manage sites</a></li>
+                    </ul>
+                </div>
+                {% endif %}
+                <span class="text-muted who"><i class="bi bi-person-circle"></i> {{ current_user.username }}</span>
             </div>
         </div>
         {% endif %}
@@ -281,7 +316,7 @@
             </form>
         </div>
         {% endif %}
-        {% if current_user.is_authenticated and billing and not viewing_other_tenant %}
+        {% if current_user.is_authenticated and billing and not viewing_other_tenant and not (request.endpoint == 'dashboard' and billing.state == 'trial') %}
         {% set bs = billing.state %}
         {% if bs == 'trial' and billing.days_left is not none %}
         <div class="alert alert-light"><i class="bi bi-hourglass-split"></i> Free trial: {{ billing.days_left }} day{{ '' if billing.days_left == 1 else 's' }} left. <a href="{{ url_for('billing') }}">Choose a plan</a></div>

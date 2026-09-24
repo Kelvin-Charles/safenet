@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_site.html" import site_select, new_site_field with context %}
 
 {% block title %}Packages - {{ app_name }}{% endblock %}
 {% block page_title %}Packages{% endblock %}
@@ -25,12 +26,13 @@
         <div class="table-responsive">
             <table class="table table-hover align-middle">
                 <thead>
-                    <tr><th>Package</th><th>Price</th><th>Duration</th><th>Devices</th><th>Speed plan</th><th>Status</th><th>Actions</th></tr>
+                    <tr><th>Package</th><th>Sold at</th><th>Price</th><th>Duration</th><th>Devices</th><th>Speed plan</th><th>Status</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                     {% for p in packages %}
                     <tr>
                         <td><strong>{{ p.name }}</strong>{% if p.description %}<small class="text-muted d-block">{{ p.description }}</small>{% endif %}</td>
+                        <td>{{ site_select('package', p, allow_all=True) if sites|length > 1 else 'All sites' }}</td>
                         <td>{{ p.currency }} {{ '{:,.0f}'.format(p.price) }}</td>
                         <td>{{ p.validity_label }}</td>
                         <td>{{ p.max_devices }}</td>

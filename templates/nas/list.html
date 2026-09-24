@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_site.html" import site_select, new_site_field with context %}
 
 {% block title %}NAS Devices - {{ app_name }}{% endblock %}
 {% block page_title %}NAS Devices{% endblock %}
@@ -19,6 +20,7 @@
                     <tr>
                         <th>Short Name</th>
                         <th>IP Address</th>
+                        <th>Site</th>
                         <th>Type</th>
                         <th>Vendor</th>
                         <th>Description</th>
@@ -35,6 +37,7 @@
                         <td>
                             <code>{{ nas.nasname }}</code>
                         </td>
+                        <td>{{ site_select('nas', nas) }}</td>
                         <td>
                             <span class="badge bg-secondary">{{ nas.type }}</span>
                         </td>

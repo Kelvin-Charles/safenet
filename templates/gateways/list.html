@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_site.html" import site_select, new_site_field with context %}
 
 {% block title %}Gateways - {{ app_name }}{% endblock %}
 {% block page_title %}Gateways{% endblock %}
@@ -10,17 +11,19 @@
         <p class="text-muted">A gateway is a small Linux computer between your Wi-Fi access point and the internet. It shows your splash page and sells your packages. Each gateway gets its own key.</p>
         <form method="POST" action="{{ url_for('add_gateway') }}" class="row g-2 mb-4">
             {{ form.hidden_tag() }}
-            <div class="col-md-8">{{ form.name(class="form-control", placeholder="Gateway name, e.g. Main branch") }}</div>
+            <div class="col-md">{{ form.name(class="form-control", placeholder="Gateway name, e.g. Main branch") }}</div>
+            {% if sites|length > 1 %}<div class="col-md-3">{{ new_site_field() }}</div>{% endif %}
             <div class="col-md-4 d-grid"><button class="btn btn-primary" type="submit"><i class="bi bi-key"></i> Create gateway key</button></div>
         </form>
         {% if gateways %}
         <div class="table-responsive">
             <table class="table table-hover align-middle">
-                <thead><tr><th>Name</th><th>Key</th><th>Last seen</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Name</th><th>Site</th><th>Key</th><th>Last seen</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                     {% for gw in gateways %}
                     <tr>
                         <td><strong>{{ gw.name }}</strong><small class="text-muted d-block">added {{ gw.created_at.strftime('%Y-%m-%d') }}</small></td>
+                        <td>{{ site_select('gateway', gw) }}</td>
                         <td><code>{{ gw.key_prefix }}…</code></td>
                         <td>{% if gw.last_seen_at %}
                                 {% set mins = ((now - gw.last_seen_at).total_seconds() // 60)|int %}

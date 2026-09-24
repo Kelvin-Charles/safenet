@@ -15,7 +15,7 @@
     <div class="card-body">
         <div class="table-responsive">
             <table class="table align-middle">
-                <thead><tr><th>Name</th><th>Description</th><th>Price / month</th><th>Price / year</th><th>Customers</th><th>Routers</th><th>Sites (gateways)</th><th>Staff</th><th>Order</th><th>On sale</th><th></th></tr></thead>
+                <thead><tr><th>Name</th><th>Description</th><th>Price / month</th><th>Price / year</th><th>Customers</th><th>Routers</th><th>Sites</th><th>Staff</th><th>Order</th><th>On sale</th><th></th></tr></thead>
                 <tbody>
                     {% for p in plans + [none] %}
                     {% set f = 'plan-' ~ (p.id if p else 'new') %}
@@ -26,7 +26,7 @@
                         <td><input form="{{ f }}" name="price_yearly" class="form-control form-control-sm" style="width: 100px" value="{{ '%.0f'|format(p.price_yearly) if p and p.price_yearly is not none else '' }}" placeholder="12 × month"></td>
                         <td><input form="{{ f }}" name="max_customers" type="number" min="0" class="form-control form-control-sm" style="width: 80px" value="{{ p.max_customers if p and p.max_customers is not none else '' }}" placeholder="∞"></td>
                         <td><input form="{{ f }}" name="max_routers" type="number" min="0" class="form-control form-control-sm" style="width: 80px" value="{{ p.max_routers if p and p.max_routers is not none else '' }}" placeholder="∞"></td>
-                        <td><input form="{{ f }}" name="max_gateways" type="number" min="0" class="form-control form-control-sm" style="width: 80px" value="{{ p.max_gateways if p and p.max_gateways is not none else '' }}" placeholder="∞"></td>
+                        <td><input form="{{ f }}" name="max_sites" type="number" min="0" class="form-control form-control-sm" style="width: 80px" value="{{ p.max_sites if p and p.max_sites is not none else '' }}" placeholder="∞"></td>
                         <td><input form="{{ f }}" name="max_staff" type="number" min="0" class="form-control form-control-sm" style="width: 80px" value="{{ p.max_staff if p and p.max_staff is not none else '' }}" placeholder="∞"></td>
                         <td><input form="{{ f }}" name="sort_order" type="number" class="form-control form-control-sm" style="width: 70px" value="{{ p.sort_order if p else 0 }}"></td>
                         <td><input form="{{ f }}" name="is_active" type="checkbox" class="form-check-input" value="1" {{ 'checked' if not p or p.is_active }}></td>

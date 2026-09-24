@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_site.html" import site_select, new_site_field with context %}
 
 {% block title %}Routers - {{ app_name }}{% endblock %}
 {% block page_title %}Routers (VPN){% endblock %}
@@ -14,18 +15,20 @@
         <p class="text-muted">Connect a MikroTik (or another router that supports WireGuard) from anywhere, even behind a mobile or shared IP. SafeNet gives it a private VPN address and a RADIUS secret, and the setup script does the rest.</p>
         <form method="POST" action="{{ url_for('add_router') }}" class="row g-2 mb-4">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="col-md-5"><input type="text" name="name" class="form-control" placeholder="Router name, e.g. Kariakoo hotspot" required maxlength="64"></div>
-            <div class="col-md-4"><select name="vendor" class="form-select">{% for v, label in vendors %}<option value="{{ v }}">{{ label }}</option>{% endfor %}</select></div>
+            <div class="col-md"><input type="text" name="name" class="form-control" placeholder="Router name, e.g. Kariakoo hotspot" required maxlength="64"></div>
+            {% if sites|length > 1 %}<div class="col-md-3">{{ new_site_field() }}</div>{% endif %}
+            <div class="col-md-3"><select name="vendor" class="form-select">{% for v, label in vendors %}<option value="{{ v }}">{{ label }}</option>{% endfor %}</select></div>
             <div class="col-md-3 d-grid"><button class="btn btn-primary" type="submit"><i class="bi bi-plus-circle"></i> Add router</button></div>
         </form>
         {% if routers %}
         <div class="table-responsive">
             <table class="table table-hover align-middle">
-                <thead><tr><th>Router</th><th>VPN address</th><th>Status</th><th>Traffic</th><th></th></tr></thead>
+                <thead><tr><th>Router</th><th>Site</th><th>VPN address</th><th>Status</th><th>Traffic</th><th></th></tr></thead>
                 <tbody>
                     {% for r in routers %}
                     <tr>
                         <td><strong>{{ r.name }}</strong><small class="text-muted d-block">{{ 'MikroTik' if r.vendor == 'mikrotik' else 'Other' }} · added {{ r.created_at.strftime('%Y-%m-%d') }}</small></td>
+                        <td>{{ site_select('router', r) }}</td>
                         <td><code>{{ r.tunnel_ip }}</code></td>
                         <td>
                             {% if not r.is_active %}<span class="badge bg-secondary">Disabled</span>

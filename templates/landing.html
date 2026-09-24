@@ -319,7 +319,7 @@
                         {% macro yes() %}<i class="bi bi-check-circle-fill ok" aria-label="Included"></i>{% endmacro %}
                         <tr><th scope="row">Customers</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ 'Unlimited' if p.max_customers is none else '{:,}'.format(p.max_customers) }}</td>{% endfor %}</tr>
                         <tr><th scope="row">Routers (MikroTik over VPN)</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ 'Unlimited' if p.max_routers is none else p.max_routers }}</td>{% endfor %}</tr>
-                        <tr><th scope="row">Sites (SafeNet gateways)</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ 'Unlimited' if p.max_gateways is none else p.max_gateways }}</td>{% endfor %}</tr>
+                        <tr><th scope="row">Sites (locations)</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ 'Unlimited' if p.max_sites is none else p.max_sites }}</td>{% endfor %}</tr>
                         <tr><th scope="row">Vouchers</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">Unlimited</td>{% endfor %}</tr>
                         <tr><th scope="row">Mobile-money packages</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
                         <tr><th scope="row">Branded login page</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>

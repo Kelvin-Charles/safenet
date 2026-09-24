@@ -165,7 +165,17 @@ def run():
     _add_column('billing_plans', 'price_yearly', 'NUMERIC(10, 2)')
     _add_column('billing_plans', 'max_customers', 'INTEGER')
     _add_column('billing_plans', 'max_staff', 'INTEGER')
+    _add_column('billing_plans', 'max_sites', 'INTEGER')
+    # "Sites" used to be counted as gateways: move those limits to real sites (once)
+    db.session.execute(text('UPDATE billing_plans SET max_sites = max_gateways, max_gateways = NULL '
+                            'WHERE max_sites IS NULL AND max_gateways IS NOT NULL'))
+    db.session.commit()
     _seed_billing_plans()
+
+    # Sites: every tenant has at least one; existing devices and sales go to it
+    for table in ('gateways', 'routers', 'nas', 'packages', 'payments', 'vouchers'):
+        _add_column(table, 'site_id', 'INTEGER')
+    _ensure_sites()
 
 
 STARTER_PLANS = (
@@ -183,6 +193,20 @@ def _seed_billing_plans():
         return
     for order, (name, month, year, customers, routers, sites, staff) in enumerate(STARTER_PLANS):
         db.session.add(BillingPlan(name=name, price=month, price_yearly=year, currency='TZS', max_customers=customers,
-                                   max_routers=routers, max_gateways=sites, max_staff=staff, sort_order=order))
+                                   max_routers=routers, max_sites=sites, max_staff=staff, sort_order=order))
     db.session.commit()
     print('migrate: added starter billing plans')
+
+
+def _ensure_sites():
+    now = datetime.utcnow()
+    for (tid,) in db.session.execute(text('SELECT id FROM tenants WHERE id NOT IN (SELECT tenant_id FROM sites)')).all():
+        db.session.execute(text('INSERT INTO sites (tenant_id, name, created_at) VALUES (:t, :n, :c)'),
+                           {'t': tid, 'n': 'Main site', 'c': now})
+        print(f'migrate: created main site for tenant {tid}')
+    # Anything without a site (packages excepted: no site = sold everywhere) goes to the tenant's first site
+    first = '(SELECT MIN(s.id) FROM sites s WHERE s.tenant_id = {t}.tenant_id)'
+    for table in ('gateways', 'routers', 'nas', 'payments', 'vouchers'):
+        db.session.execute(text(f'UPDATE {table} SET site_id = {first.format(t=table)} '
+                                f'WHERE site_id IS NULL AND tenant_id IS NOT NULL'))
+    db.session.commit()

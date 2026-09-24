@@ -1,0 +1,23 @@
+{# Site picker for one item; changing it moves the item to that site. #}
+{% macro site_select(kind, item, allow_all=False) %}
+{% if sites|length > 1 or allow_all %}
+<form method="POST" action="{{ url_for('assign_site') }}" class="m-0">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <input type="hidden" name="id" value="{{ item.id }}">
+    <select name="site_id" class="form-select form-select-sm" style="min-width: 130px" onchange="this.form.submit()" aria-label="Site">
+        {% if allow_all %}<option value="" {{ 'selected' if not item.site_id }}>All sites</option>{% endif %}
+        {% for s in sites %}<option value="{{ s.id }}" {{ 'selected' if item.site_id == s.id }}>{{ s.name }}</option>{% endfor %}
+    </select>
+</form>
+{% else %}{{ sites[0].name if sites else '' }}{% endif %}
+{% endmacro %}
+
+{# Site choice when adding a device (defaults to the site picked in the top bar). #}
+{% macro new_site_field() %}
+{% if sites|length > 1 %}
+<select name="site_id" class="form-select" aria-label="Site">
+    {% for s in sites %}<option value="{{ s.id }}" {{ 'selected' if (site and site.id == s.id) or (not site and loop.first) }}>{{ s.name }}</option>{% endfor %}
+</select>
+{% endif %}
+{% endmacro %}

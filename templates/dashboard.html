@@ -3,180 +3,341 @@
 {% block title %}Dashboard - {{ app_name }}{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 
-{% block content %}
-<!-- Statistics Cards -->
-<div class="row mb-4">
-    <div class="col-md-3">
-        <div class="stat-card">
-            <div class="stat-value">{{ total_users }}</div>
-            <div class="stat-label">Total Users</div>
-            <div class="mt-2">
-                <small class="text-success">
-                    <i class="bi bi-check-circle"></i> {{ active_users }} Active
-                </small>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-md-3">
-        <div class="stat-card">
-            <div class="stat-value">{{ active_sessions }}</div>
-            <div class="stat-label">Active Sessions</div>
-            <div class="mt-2">
-                <small class="text-muted">
-                    <i class="bi bi-clock"></i> Real-time
-                </small>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-md-3">
-        <div class="stat-card">
-            <div class="stat-value">{{ total_plans }}</div>
-            <div class="stat-label">Plans</div>
-            <div class="mt-2">
-                <small class="text-muted">
-                    <i class="bi bi-box"></i> Service Plans
-                </small>
-            </div>
-        </div>
-    </div>
-    
-    <div class="col-md-3">
-        <div class="stat-card">
-            <div class="stat-value">{{ total_nas }}</div>
-            <div class="stat-label">NAS Devices</div>
-            <div class="mt-2">
-                <small class="text-muted">
-                    <i class="bi bi-router"></i> Network Devices
-                </small>
-            </div>
-        </div>
-    </div>
-</div>
+{% macro money(v) %}{{ currency }} {{ '{:,.0f}'.format(v) }}{% endmacro %}
+{% macro ago(dt) %}{% if dt %}{% set m = ((now - dt).total_seconds() // 60)|int %}{{ 'just now' if m < 2 else (m ~ ' min ago' if m < 60 else ((m // 60) ~ ' h ago' if m < 1440 else (dt + offset).strftime('%d %b %H:%M'))) }}{% else %}never{% endif %}{% endmacro %}
 
-<div class="row">
-    <!-- Recent Sessions -->
-    <div class="col-md-8">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-clock-history"></i> Recent Sessions</span>
-                <a href="{{ url_for('accounting') }}" class="btn btn-sm btn-outline-primary">View All</a>
+{% block extra_css %}
+<style>
+    .dash { --ink: #0F172A; --muted: #64748B; --line: #E5E7EB; --navy: #051D60; --down: #2F5BD3; --up: #0FA3A3;
+            --good: #15803D; --warn: #B45309; --bad: #B91C1C; }
+    .dash .eyebrow { font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--navy); margin-bottom: .15rem; }
+    .dash h2.sec { font-size: 1.15rem; font-weight: 600; color: var(--ink); margin: 0; }
+    .dash .sub { color: var(--muted); font-size: .85rem; }
+    .dash .panel { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 1.4rem 1.5rem; height: 100%; }
+    .dash .row { --bs-gutter-y: 1.25rem; }
+
+    .hero { background: var(--navy); color: #fff; border-radius: 18px; padding: 1.75rem 2rem; position: relative; overflow: hidden; }
+    .hero::after { content: ''; position: absolute; width: 260px; height: 260px; border-radius: 50%; background: rgba(255,255,255,.05); right: -60px; top: -80px; }
+    .hero .live-dot { width: 9px; height: 9px; border-radius: 50%; background: #34D399; display: inline-block; margin-right: .4rem; }
+    .hero h1 { font-size: 2rem; font-weight: 700; margin: .35rem 0 .4rem; }
+    .hero p { color: rgba(255,255,255,.78); margin: 0; }
+    .hero .actions { position: relative; z-index: 1; }
+    .hero .btn-hero { border: 1px solid rgba(255,255,255,.35); color: #fff; border-radius: 10px; }
+    .hero .btn-hero:hover { background: rgba(255,255,255,.1); color: #fff; }
+    .hero .btn-hero.solid { background: #fff; color: var(--navy); border-color: #fff; }
+    .hero .stats { border-top: 1px solid rgba(255,255,255,.14); margin-top: 1.5rem; padding-top: 1.25rem; }
+    .hero .k { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,.65); }
+    .hero .v { font-size: 1.45rem; font-weight: 700; }
+    .hero .v small { font-size: .85rem; opacity: .7; font-weight: 500; }
+
+    .notice { border: 1px solid #C7D7FE; background: #EEF3FF; border-radius: 14px; padding: 1rem 1.25rem; }
+    .notice .ic { width: 42px; height: 42px; border-radius: 10px; background: #DCE6FF; display: grid; place-items: center; color: var(--navy); font-size: 1.2rem; }
+
+    .kpi { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 1.15rem 1.25rem; height: 100%; }
+    .kpi .k { font-size: .72rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .kpi .v { font-size: 1.6rem; font-weight: 700; color: var(--ink); margin: .2rem 0; }
+    .kpi .d { font-size: .8rem; color: var(--muted); }
+    .kpi .ic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; font-size: 1.1rem; background: #EEF3FF; color: var(--navy); }
+    .kpi .ic.g { background: #EAF7EF; color: var(--good); }
+    .kpi .ic.o { background: #FFF4E8; color: var(--warn); }
+
+    .split-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: #F1F5F9; gap: 2px; }
+    .split-bar span { display: block; height: 100%; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; margin-right: .4rem; }
+    .kv { display: flex; justify-content: space-between; padding: .45rem 0; font-size: .9rem; color: #334155; }
+    .kv strong { color: var(--ink); }
+
+    .chart { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; align-items: end; height: 180px; border-bottom: 1px solid var(--line); }
+    .chart .hcol { display: flex; gap: 1px; align-items: end; height: 100%; position: relative; }
+    .chart .hcol .b { flex: 1; border-radius: 3px 3px 0 0; min-height: 0; }
+    .chart .hcol:hover { background: #F8FAFC; }
+    .axis { display: grid; grid-template-columns: repeat(24, 1fr); font-size: .68rem; color: var(--muted); margin-top: .35rem; }
+    .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: .6rem; align-items: end; height: 170px; }
+    .days .slot { background: #F1F5F9; border-radius: 8px; height: 100%; display: flex; align-items: end; overflow: hidden; }
+    .days .slot span { display: block; width: 100%; background: var(--navy); border-radius: 6px 6px 0 0; min-height: 3px; }
+    .days-l { display: grid; grid-template-columns: repeat(7, 1fr); gap: .6rem; text-align: center; font-size: .78rem; color: var(--muted); margin-top: .4rem; }
+
+    .health { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; }
+    .health div { border-radius: 10px; padding: .75rem .9rem; font-size: .85rem; }
+    .health strong { display: block; font-size: 1.5rem; }
+    .h-on { background: #EAF7EF; color: var(--good); } .h-deg { background: #FFF7E6; color: var(--warn); } .h-off { background: #FDECEC; color: var(--bad); }
+    .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: .45rem; }
+    .dot.online { background: var(--good); } .dot.degraded { background: #F59E0B; } .dot.offline { background: #94A3B8; }
+
+    .donut { width: 128px; height: 128px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+    .donut div { width: 92px; height: 92px; border-radius: 50%; background: #fff; display: grid; place-items: center; text-align: center; line-height: 1.1; }
+    .donut strong { font-size: 1.35rem; }
+    .table-dash th { font-size: .7rem; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; font-weight: 600; border-bottom: 1px solid var(--line) !important; }
+    .table-dash td { border-color: #F1F5F9; font-size: .88rem; }
+    .quick a { display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: .75rem 1rem; margin-bottom: .6rem; color: var(--ink); text-decoration: none; font-weight: 500; }
+    .quick a:hover { border-color: var(--navy); background: #F8FAFF; }
+    .alert-row { display: flex; gap: .6rem; align-items: flex-start; padding: .6rem 0; border-bottom: 1px solid #F1F5F9; font-size: .88rem; }
+    .alert-row:last-child { border-bottom: 0; }
+    @media (max-width: 767px) { .hero { padding: 1.4rem; } .hero h1 { font-size: 1.5rem; } .chart { height: 140px; }
+        .kpi { padding: .9rem; } .kpi .v { font-size: 1.15rem; white-space: nowrap; } .kpi .ic { display: none; } .dash .panel { padding: 1.1rem; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dash">
+    <!-- Hero -->
+    <div class="hero mb-4">
+        <div class="d-flex flex-wrap justify-content-between gap-3 align-items-start">
+            <div>
+                <div class="small"><span class="live-dot"></span>Network operations center{% if site %} · {{ site.name }}{% endif %}</div>
+                <h1>{{ greeting }}, {{ tenant.name }}</h1>
+                <p>Customers, network traffic, device health and collections{{ ' for ' ~ site.name if site else ' across all your sites' }} in one view.</p>
             </div>
-            <div class="card-body p-0">
-                {% if recent_sessions %}
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead>
-                            <tr>
-                                <th>Username</th>
-                                <th>NAS IP</th>
-                                <th>Start Time</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for session in recent_sessions %}
-                            <tr>
-                                <td>
-                                    <i class="bi bi-person"></i> {{ session.username }}
-                                </td>
-                                <td>{{ session.nasipaddress }}</td>
-                                <td>
-                                    <small>{{ session.acctstarttime.strftime('%Y-%m-%d %H:%M:%S') if session.acctstarttime else 'N/A' }}</small>
-                                </td>
-                                <td>
-                                    {% if session.acctstoptime %}
-                                        <span class="badge bg-secondary">Closed</span>
-                                    {% else %}
-                                        <span class="badge bg-success">Active</span>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+            <div class="actions d-flex flex-wrap gap-2">
+                <a href="{{ url_for('add_user') }}" class="btn btn-hero solid"><i class="bi bi-plus-lg"></i> Add customer</a>
+                {% if current_user.has_role('admin') %}<a href="{{ url_for('gateways') }}" class="btn btn-hero"><i class="bi bi-router"></i> Add network</a>{% endif %}
+                {% if billing and billing.state != 'complimentary' and current_user.has_role('admin') %}<a href="{{ url_for('billing') }}" class="btn btn-hero"><i class="bi bi-receipt"></i> {{ 'Subscribe now' if billing.state == 'trial' else 'Billing' }}</a>{% endif %}
+            </div>
+        </div>
+        <div class="stats row g-3">
+            <div class="col-6 col-md"><div class="k">Total earnings</div><div class="v">{{ money(all_time.total) }}</div></div>
+            <div class="col-6 col-md"><div class="k">Online devices</div><div class="v">{{ health.online }}<small>/{{ devices|length }}</small></div></div>
+            <div class="col-6 col-md"><div class="k">Users online</div><div class="v">{{ users_online }}</div></div>
+            <div class="col-6 col-md"><div class="k">Today's transfer</div><div class="v">{{ (down_today + up_today)|filesizeformat }}</div></div>
+            <div class="col-12 col-md"><div class="k">Last telemetry</div><div class="v" style="font-size: 1.05rem; padding-top: .35rem">{{ ago(last_telemetry) if last_telemetry else 'Awaiting telemetry' }}</div></div>
+        </div>
+    </div>
+
+    {% if billing and billing.state == 'trial' and billing.days_left is not none %}
+    <div class="notice d-flex flex-wrap gap-3 align-items-center justify-content-between mb-4">
+        <div class="d-flex gap-3 align-items-center">
+            <div class="ic"><i class="bi bi-receipt"></i></div>
+            <div><strong>Free trial: {{ billing.days_left }} day{{ '' if billing.days_left == 1 else 's' }} left</strong>
+                <div class="small text-primary">Subscribe now without waiting for the trial to end: your paid month starts the day the trial ends.</div></div>
+        </div>
+        {% if current_user.has_role('owner') %}<a href="{{ url_for('billing') }}" class="btn btn-primary">Subscribe now <i class="bi bi-arrow-right"></i></a>{% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Financial overview -->
+    <div class="d-flex flex-wrap justify-content-between align-items-end mb-3 gap-2">
+        <div><div class="eyebrow">Financial overview</div><h2 class="sec">Earnings for {{ period_label }}</h2><div class="sub">This calendar month{{ ', ' ~ site.name if site }}.</div></div>
+        {% if current_user.has_role('admin') %}<a href="{{ url_for('earnings') }}" class="fw-semibold text-decoration-none">Manage earnings <i class="bi bi-arrow-right"></i></a>{% endif %}
+    </div>
+    <div class="row mb-4">
+        <div class="col-6 col-xl-3"><div class="kpi"><div class="d-flex justify-content-between"><div class="k">Collected this month</div><div class="ic"><i class="bi bi-cash-stack"></i></div></div>
+            <div class="v">{{ money(period.total) }}</div><div class="d">{{ money(today.total) }} collected today</div></div></div>
+        <div class="col-6 col-xl-3"><div class="kpi"><div class="d-flex justify-content-between"><div class="k">Online payments</div><div class="ic g"><i class="bi bi-phone"></i></div></div>
+            <div class="v">{{ money(period.online) }}</div><div class="d">{{ period.online_count }} mobile-money sale{{ '' if period.online_count == 1 else 's' }}</div></div></div>
+        <div class="col-6 col-xl-3"><div class="kpi"><div class="d-flex justify-content-between"><div class="k">Voucher sales</div><div class="ic o"><i class="bi bi-ticket-perforated"></i></div></div>
+            <div class="v">{{ money(period.vouchers) }}</div><div class="d">{{ period.voucher_count }} paid voucher{{ '' if period.voucher_count == 1 else 's' }} used</div></div></div>
+        <div class="col-6 col-xl-3"><div class="kpi"><div class="d-flex justify-content-between"><div class="k">Net income</div><div class="ic"><i class="bi bi-graph-up-arrow"></i></div></div>
+            <div class="v">{{ money(period.total - fees) }}</div><div class="d">{{ money(fees) }} in SafeNet fees this month</div></div></div>
+    </div>
+
+    <!-- Operations KPIs -->
+    <div class="row mb-4">
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Users online</div><div class="v">{{ users_online }}</div><div class="d">{{ via_hotspot }} on vouchers · {{ users_online - via_hotspot }} accounts</div></div></div>
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Total data used</div><div class="v">{{ total_bytes|filesizeformat }}</div><div class="d">All customers, all time</div></div></div>
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Data moved today</div><div class="v">{{ (down_today + up_today)|filesizeformat }}</div><div class="d">{{ down_today|filesizeformat }} down · {{ up_today|filesizeformat }} up</div></div></div>
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Average traffic</div><div class="v">{{ (avg_rate|int)|filesizeformat }}/s</div><div class="d">Average since midnight</div></div></div>
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Collections today</div><div class="v">{{ money(today.total) }}</div><div class="d">{{ money(week_total) }} in the last 7 days</div></div></div>
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Available balance</div><div class="v">{{ money(balance) if platform_mode else '—' }}</div><div class="d">{{ 'Ready to withdraw' if platform_mode else 'Paid straight to your ClickPesa' }}</div></div></div>
+    </div>
+
+    <!-- Earnings -->
+    <div class="panel mb-4">
+        <div class="eyebrow">Earnings</div><h2 class="sec mb-3">Total and where it came from</h2>
+        <div class="row">
+            <div class="col-lg-5">
+                <div class="sub text-uppercase small fw-semibold">Total earnings</div>
+                <div style="font-size: 2.1rem; font-weight: 700">{{ money(all_time.total) }}</div>
+                <div class="sub mb-3">All time{{ ', ' ~ site.name if site }}, collected from your customers.</div>
+                <div class="kv"><span>Online payments</span><strong>{{ money(all_time.online) }}</strong></div>
+                <div class="kv"><span>Voucher sales (cash)</span><strong>{{ money(all_time.vouchers) }}</strong></div>
+                {% if platform_mode %}
+                <div class="kv"><span>Withdrawn to you</span><strong>{{ money(withdrawn) }}</strong></div>
+                <div class="kv"><span>Available balance</span><strong class="text-success">{{ money(balance) }}</strong></div>
+                {% endif %}
+            </div>
+            <div class="col-lg-7 mt-4 mt-lg-0">
+                {% set tot = all_time.total %}
+                <div class="sub text-uppercase small fw-semibold mb-2">Distribution by sales channel</div>
+                {% if tot > 0 %}
+                <div class="split-bar mb-2" role="img" aria-label="Online {{ money(all_time.online) }}, vouchers {{ money(all_time.vouchers) }}">
+                    {% if all_time.online > 0 %}<span style="width: {{ (100 * all_time.online / tot)|round(1) }}%; background: var(--down)" title="Online payments {{ money(all_time.online) }}"></span>{% endif %}
+                    {% if all_time.vouchers > 0 %}<span style="width: {{ (100 * all_time.vouchers / tot)|round(1) }}%; background: var(--up)" title="Vouchers {{ money(all_time.vouchers) }}"></span>{% endif %}
                 </div>
+                <div class="small mb-4"><span class="legend-dot" style="background: var(--down)"></span>Online payments {{ (100 * all_time.online / tot)|round|int }}% &nbsp; <span class="legend-dot" style="background: var(--up)"></span>Vouchers {{ (100 * all_time.vouchers / tot)|round|int }}%</div>
                 {% else %}
-                <div class="p-4 text-center text-muted">
-                    <i class="bi bi-inbox" style="font-size: 2rem;"></i>
-                    <p class="mt-2">No recent sessions</p>
-                </div>
+                <div class="border rounded-3 text-center p-4 mb-3" style="border-style: dashed !important"><strong>No earnings yet</strong><div class="sub">Sell a voucher or take an online payment and the split appears here.</div></div>
+                {% endif %}
+                {% if site_split|length > 1 %}
+                {% set mtot = site_split|sum(attribute='total') %}
+                <div class="sub text-uppercase small fw-semibold mb-2">This month by site</div>
+                {% for r in site_split|sort(attribute='total', reverse=True) %}
+                <div class="kv"><span>{{ r.site.name }}</span><span><strong>{{ money(r.total) }}</strong>{% if mtot > 0 %} <small class="text-muted">{{ (100 * r.total / mtot)|round|int }}%</small>{% endif %}</span></div>
+                {% endfor %}
                 {% endif %}
             </div>
         </div>
     </div>
-    
-    <!-- Top Users by Data Usage -->
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-header">
-                <i class="bi bi-bar-chart"></i> Top Users by Data
-            </div>
-            <div class="card-body">
-                {% if top_users %}
-                <div class="list-group list-group-flush">
-                    {% for user in top_users %}
-                    <div class="list-group-item border-0 px-0">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <i class="bi bi-person-circle text-primary"></i>
-                                <strong>{{ user.username }}</strong>
-                            </div>
-                            <div>
-                                <span class="badge bg-info">
-                                    {{ "%.2f"|format((user.total_bytes or 0) / 1024 / 1024 / 1024) }} GB
-                                </span>
-                            </div>
-                        </div>
+
+    <!-- Recent connections -->
+    <div class="panel mb-4" style="padding-bottom: .5rem">
+        <div class="d-flex justify-content-between align-items-start">
+            <div><div class="eyebrow">Users &amp; devices</div><h2 class="sec">Last 10 connected users</h2><div class="sub">Most recent sessions{{ ' at ' ~ site.name if site }}.</div></div>
+            <a href="{{ url_for('live') }}" class="fw-semibold text-decoration-none">View live <i class="bi bi-arrow-right"></i></a>
+        </div>
+        <div class="table-responsive mt-3">
+            <table class="table table-dash align-middle">
+                <thead><tr><th>User / device</th><th>Access</th><th>Router</th><th>Last connected</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for r in recent %}
+                <tr>
+                    <td><strong class="font-monospace">{{ r.user }}</strong><small class="d-block text-muted">{{ r.mac or '' }}{{ ' · ' ~ r.ip if r.ip }}</small></td>
+                    <td>{{ r.access }}</td>
+                    <td>{{ r.router }}</td>
+                    <td>{{ ago(r.last) }}</td>
+                    <td>{% if r.online %}<span class="badge bg-success">Online</span>{% else %}<span class="badge bg-light text-dark border">Offline</span>{% endif %}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="text-center text-muted py-4">No connection history yet.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <!-- Traffic -->
+        <div class="col-xl-8">
+            <div class="panel">
+                <div class="d-flex flex-wrap justify-content-between gap-2">
+                    <div><div class="eyebrow">Network traffic</div><h2 class="sec">Usage over the last 24 hours</h2><div class="sub">Data of sessions by the hour they last reported.</div></div>
+                    <div class="small"><span class="legend-dot" style="background: var(--down)"></span>Download &nbsp; <span class="legend-dot" style="background: var(--up)"></span>Upload</div>
+                </div>
+                {% if peak > 1 %}
+                <div class="chart mt-3" role="img" aria-label="Hourly download and upload for the last 24 hours">
+                    {% for h in hours %}
+                    <div class="hcol" title="{{ h.label }}: {{ h.down|filesizeformat }} down, {{ h.up|filesizeformat }} up">
+                        <div class="b" style="height: {{ (100 * h.down / peak)|round(1) }}%; background: var(--down)"></div>
+                        <div class="b" style="height: {{ (100 * h.up / peak)|round(1) }}%; background: var(--up)"></div>
                     </div>
                     {% endfor %}
                 </div>
+                <div class="axis">{% for h in hours %}<span>{{ h.label[:2] if loop.index0 % 4 == 0 else '' }}</span>{% endfor %}</div>
+                <details class="mt-2 small"><summary class="text-muted">Show as table</summary>
+                    <table class="table table-sm mt-2"><thead><tr><th>Hour</th><th>Download</th><th>Upload</th></tr></thead>
+                    <tbody>{% for h in hours if h.down or h.up %}<tr><td>{{ h.label }}</td><td>{{ h.down|filesizeformat }}</td><td>{{ h.up|filesizeformat }}</td></tr>{% endfor %}</tbody></table>
+                </details>
                 {% else %}
-                <div class="text-center text-muted py-3">
-                    <i class="bi bi-inbox" style="font-size: 2rem;"></i>
-                    <p class="mt-2 mb-0">No data available</p>
-                </div>
+                <div class="text-center py-5"><i class="bi bi-bar-chart fs-3 text-muted"></i><div class="fw-semibold mt-2">Traffic appears once guests start browsing</div><div class="sub">Connect a SafeNet gateway or a MikroTik router that sends accounting.</div></div>
                 {% endif %}
             </div>
         </div>
-    </div>
-</div>
-
-<!-- Quick Actions -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header">
-                <i class="bi bi-lightning"></i> Quick Actions
+        <!-- Health -->
+        <div class="col-xl-4">
+            <div class="panel">
+                <div class="eyebrow">Network health</div><h2 class="sec mb-3">Gateways and routers</h2>
+                <div class="health mb-3">
+                    <div class="h-on">Online<strong>{{ health.online }}</strong></div>
+                    <div class="h-deg">Slow to report<strong>{{ health.degraded }}</strong></div>
+                    <div class="h-off">Offline<strong>{{ health.offline }}</strong></div>
+                </div>
+                <div class="sub">Online: reported in the last 3 minutes. Slow: 3–15 minutes. Offline: longer, or never.</div>
             </div>
-            <div class="card-body">
-                <div class="row">
-                    <div class="col-md-3 mb-2">
-                        <a href="{{ url_for('add_user') }}" class="btn btn-outline-primary w-100">
-                            <i class="bi bi-person-plus"></i> Add User
-                        </a>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <!-- Fleet -->
+        <div class="col-xl-7">
+            <div class="panel" style="padding-bottom: .5rem">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div><div class="eyebrow">Infrastructure</div><h2 class="sec">Device fleet</h2></div>
+                    {% if current_user.has_role('admin') %}<a href="{{ url_for('gateways') }}" class="fw-semibold text-decoration-none">Manage devices <i class="bi bi-arrow-right"></i></a>{% endif %}
+                </div>
+                <div class="table-responsive mt-2">
+                    <table class="table table-dash align-middle">
+                        <thead><tr><th>Device</th>{% if not site and sites|length > 1 %}<th>Site</th>{% endif %}<th>Last report</th><th class="text-end">Users online</th></tr></thead>
+                        <tbody>
+                        {% for d in devices %}
+                        <tr>
+                            <td><span class="dot {{ d.state }}"></span><strong>{{ d.name }}</strong><small class="d-block text-muted">{{ d.kind }}</small></td>
+                            {% if not site and sites|length > 1 %}<td>{% for s_ in sites if s_.id == d.site %}{{ s_.name }}{% endfor %}</td>{% endif %}
+                            <td>{{ ago(d.last) if d.last else 'Awaiting telemetry' }}</td>
+                            <td class="text-end">{{ d.users }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="4" class="text-center text-muted py-4">No gateways or routers yet. {% if current_user.has_role('admin') %}<a href="{{ url_for('gateways') }}">Add one</a>{% endif %}</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <!-- Revenue 7 days -->
+        <div class="col-xl-5">
+            <div class="panel">
+                <div class="eyebrow">Collections</div><h2 class="sec mb-3">Revenue, last 7 days</h2>
+                <div class="days" role="img" aria-label="Revenue per day for the last 7 days">
+                    {% for d in days %}
+                    <div class="slot" title="{{ d.date }}: {{ money(d.total) }}"><span style="height: {{ (100 * d.total / day_peak)|round(1) if d.total > 0 else 0 }}%"></span></div>
+                    {% endfor %}
+                </div>
+                <div class="days-l">{% for d in days %}<span>{{ d.label }}</span>{% endfor %}</div>
+                <hr>
+                <div class="d-flex justify-content-between align-items-end">
+                    <div><div class="sub">Seven-day collections</div><div style="font-size: 1.5rem; font-weight: 700">{{ money(week_total) }}</div></div>
+                    <a href="{{ url_for('payments') }}" class="fw-semibold text-decoration-none">Payments <i class="bi bi-arrow-right"></i></a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <!-- Subscribers -->
+        <div class="col-lg-4">
+            <div class="panel">
+                <div class="d-flex justify-content-between"><div><div class="eyebrow">Subscribers</div><h2 class="sec">Customer accounts</h2></div>
+                    <div class="text-end"><strong class="fs-4">{{ subs.total }}</strong><div class="sub">total</div></div></div>
+                {% set t = subs.total or 1 %}
+                {% set a1 = 100 * subs.active / t %}{% set a2 = a1 + 100 * subs.expiring / t %}{% set a3 = a2 + 100 * subs.expired / t %}
+                <div class="d-flex gap-4 align-items-center mt-3">
+                    <div class="donut" style="background: {% if subs.total %}conic-gradient(#15803D 0 {{ a1 }}%, #F59E0B 0 {{ a2 }}%, #B91C1C 0 {{ a3 }}%, #94A3B8 0 100%){% else %}#E5E7EB{% endif %}">
+                        <div><span><strong>{{ (100 * subs.active / t)|round|int if subs.total else 0 }}%</strong><br><small class="text-muted">active</small></span></div>
                     </div>
-                    <div class="col-md-3 mb-2">
-                        <a href="{{ url_for('add_plan') }}" class="btn btn-outline-success w-100">
-                            <i class="bi bi-box"></i> Add Plan
-                        </a>
-                    </div>
-                    <div class="col-md-3 mb-2">
-                        <a href="{{ url_for('add_nas') }}" class="btn btn-outline-info w-100">
-                            <i class="bi bi-router"></i> Add NAS
-                        </a>
-                    </div>
-                    <div class="col-md-3 mb-2">
-                        <a href="{{ url_for('accounting') }}" class="btn btn-outline-warning w-100">
-                            <i class="bi bi-graph-up"></i> View Sessions
-                        </a>
+                    <div class="flex-grow-1">
+                        <div class="kv"><span><span class="dot online"></span>Active</span><strong>{{ subs.active }}</strong></div>
+                        <div class="kv"><span><span class="dot" style="background: #F59E0B"></span>Expiring in 3 days</span><strong>{{ subs.expiring }}</strong></div>
+                        <div class="kv"><span><span class="dot" style="background: #B91C1C"></span>Expired</span><strong>{{ subs.expired }}</strong></div>
+                        <div class="kv"><span><span class="dot offline"></span>Disabled</span><strong>{{ subs.disabled }}</strong></div>
                     </div>
                 </div>
+            </div>
+        </div>
+        <!-- Alerts -->
+        <div class="col-lg-4">
+            <div class="panel">
+                <div class="d-flex justify-content-between align-items-start"><div><div class="eyebrow">Attention</div><h2 class="sec">Network alerts</h2></div>
+                    {% if not alerts %}<span class="badge rounded-pill" style="background: #EAF7EF; color: #15803D">All clear</span>{% else %}<span class="badge rounded-pill bg-danger">{{ alerts|length }}</span>{% endif %}</div>
+                <div class="mt-3">
+                {% for level, text in alerts[:6] %}
+                    <div class="alert-row"><i class="bi {{ 'bi-x-octagon text-danger' if level == 'danger' else ('bi-exclamation-triangle text-warning' if level == 'warning' else 'bi-info-circle text-primary') }}"></i><span>{{ text }}</span></div>
+                {% else %}
+                    <div class="text-center py-4"><i class="bi bi-check2-circle fs-3" style="color: #15803D"></i><div class="fw-semibold mt-1">No problems right now</div><div class="sub">Your devices are reporting and payments are flowing.</div></div>
+                {% endfor %}
+                </div>
+            </div>
+        </div>
+        <!-- Quick actions -->
+        <div class="col-lg-4">
+            <div class="panel quick">
+                <div class="eyebrow">Quick actions</div><h2 class="sec mb-3">Keep growing</h2>
+                <a href="{{ url_for('add_user') }}">Add customer <i class="bi bi-arrow-right"></i></a>
+                <a href="{{ url_for('generate_vouchers') }}">Generate vouchers <i class="bi bi-arrow-right"></i></a>
+                {% if current_user.has_role('admin') %}
+                <a href="{{ url_for('add_package') }}">Create package <i class="bi bi-arrow-right"></i></a>
+                <a href="{{ url_for('sites_page') }}">Manage sites <i class="bi bi-arrow-right"></i></a>
+                {% endif %}
             </div>
         </div>
     </div>
 </div>
 {% endblock %}
-
-

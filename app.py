@@ -2,11 +2,11 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway
+from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
-from sqlalchemy import func, or_, desc, text
+from sqlalchemy import func, or_, and_, not_, desc, text
 import clickpesa
 from gateway import portal_ui
 from sms import send_sms_async
@@ -18,7 +18,8 @@ import os
 import secretbox
 import migrations
 from mailer import send_mail
-from tenancy import current_tenant, tenant_id, scoped, owned_or_404, tenant_usernames, role_required, superadmin_required
+from tenancy import (current_tenant, tenant_id, scoped, owned_or_404, tenant_usernames, role_required, superadmin_required,
+                     tenant_sites, current_site, site_for_new_things)
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import hashlib
 import base64
@@ -70,6 +71,8 @@ def inject_globals():
         'impersonating': current_user.is_authenticated and bool(session.get('impersonator_id')),
         'signup_enabled': Config.SIGNUP_ENABLED,
         'billing': billing_state(tenant) if tenant else None,
+        'sites': tenant_sites(tenant.id) if tenant else [],
+        'site': current_site() if tenant else None,
     }
 
 
@@ -145,7 +148,7 @@ def login():
 def logout():
     if session.get('impersonator_id'):
         return redirect(url_for('stop_impersonating'))
-    session.pop('tenant_id', None)
+    session.pop('tenant_id', None); session.pop('site_id', None)
     logout_user()
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
@@ -164,48 +167,173 @@ def landing():
                            signup_enabled=Config.SIGNUP_ENABLED, year=datetime.utcnow().year)
 
 
+def _site_filters(tid, site):
+    """Query filters limiting sessions, payments and vouchers to one site (None = all sites)."""
+    mine = RadAcct.username.in_(tenant_usernames(tid))
+    if site is None:
+        return {'sessions': lambda q: q.filter(mine), 'payments': lambda q: q, 'vouchers': lambda q: q,
+                'devices': lambda q: q}
+    def names(sid):
+        q = db.session.query(Gateway.name).filter(Gateway.tenant_id == tid)
+        return [n for (n,) in (q.filter(Gateway.site_id == sid) if sid else q)]
+
+    def ips(sid):
+        q = db.session.query(Nas.nasname).filter(Nas.tenant_id == tid)
+        return [n for (n,) in (q.filter(Nas.site_id == sid) if sid else q)]
+
+    here = or_(RadAcct.calledstationid.in_(names(site.id) or ['-']), RadAcct.nasipaddress.in_(ips(site.id) or ['-']))
+    if site.id == tenant_sites(tid)[0].id:
+        # The main site also gets sessions from devices SafeNet doesn't know (e.g. an older shared gateway key)
+        here = or_(here, not_(or_(RadAcct.calledstationid.in_(names(None) or ['-']), RadAcct.nasipaddress.in_(ips(None) or ['-']))))
+    return {'sessions': lambda q: q.filter(mine, here),
+            'payments': lambda q: q.filter(Payment.site_id == site.id),
+            'vouchers': lambda q: q.filter(Voucher.site_id == site.id),
+            'devices': lambda q: q.filter_by(site_id=site.id)}
+
+
+def _collected(tid, site, since, until=None):
+    """Money in (online payments + cash vouchers first used) between two times."""
+    view = _site_filters(tid, site)
+    pay = view['payments'](Payment.query.filter(Payment.tenant_id == tid, Payment.status == 'paid', Payment.paid_at >= since))
+    cash = view['vouchers'](Voucher.query.filter(Voucher.tenant_id == tid, Voucher.first_used_at >= since,
+                                                 Voucher.batch != 'online-payments', Voucher.price.isnot(None)))
+    if until is not None:
+        pay, cash = pay.filter(Payment.paid_at < until), cash.filter(Voucher.first_used_at < until)
+    online = Decimal(str(pay.with_entities(func.coalesce(func.sum(Payment.amount), 0)).scalar()))
+    vouchers = Decimal(str(cash.with_entities(func.coalesce(func.sum(Voucher.price), 0)).scalar()))
+    return {'online': online, 'vouchers': vouchers, 'total': online + vouchers,
+            'online_count': pay.count(), 'voucher_count': cash.count()}
+
+
+def _device_state(last_seen, now):
+    if not last_seen:
+        return 'offline'
+    age = (now - last_seen).total_seconds()
+    return 'online' if age < 180 else ('degraded' if age < 900 else 'offline')
+
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    # Statistics
-    total_users = scoped(RadUser).count()
-    active_users = scoped(RadUser).filter_by(is_active=True).count()
-    total_plans = scoped(Plan).count()
-    total_nas = scoped(Nas).count()
-    mine = RadAcct.username.in_(tenant_usernames())
-    
-    # Active sessions
-    active_sessions = RadAcct.query.filter(mine, RadAcct.acctstoptime.is_(None)).count()
-    
-    # Recent sessions
-    recent_sessions = RadAcct.query.filter(mine).order_by(desc(RadAcct.acctstarttime)).limit(10).all()
-    
-    # Top users by data usage. COALESCE protects against rows where octet
-    # counters are NULL (no accounting yet) so the template never divides by None.
-    total_bytes_expr = func.coalesce(
-        func.sum(
-            func.coalesce(RadAcct.acctinputoctets, 0)
-            + func.coalesce(RadAcct.acctoutputoctets, 0)
-        ),
-        0,
-    ).label('total_bytes')
-    top_users = (
-        db.session.query(RadAcct.username, total_bytes_expr)
-        .filter(mine)
-        .group_by(RadAcct.username)
-        .order_by(desc('total_bytes'))
-        .limit(5)
-        .all()
-    )
-    
-    return render_template('dashboard.html',
-                         total_users=total_users,
-                         active_users=active_users,
-                         total_plans=total_plans,
-                         total_nas=total_nas,
-                         active_sessions=active_sessions,
-                         recent_sessions=recent_sessions,
-                         top_users=top_users)
+    tid, tenant, site = tenant_id(), current_tenant(), current_site()
+    view = _site_filters(tid, site)
+    now = datetime.utcnow()
+    midnight = _local_midnight_utc()
+    offset = datetime.now() - now                                  # server local time - UTC
+    month_start_local = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_start = month_start_local - offset
+    last_seen = func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime)
+    sessions = lambda: view['sessions'](RadAcct.query)
+
+    # Devices (gateways + VPN routers) and their health
+    devices = []
+    for gw in view['devices'](scoped(Gateway)).order_by(Gateway.name):
+        devices.append({'name': gw.name, 'kind': 'Gateway', 'site': gw.site_id, 'last': gw.last_seen_at,
+                        'state': _device_state(gw.last_seen_at, now) if gw.is_active else 'offline', 'where': gw.name})
+    for r in view['devices'](scoped(Router)).order_by(Router.name):
+        devices.append({'name': r.name, 'kind': 'MikroTik' if r.vendor == 'mikrotik' else 'Router', 'site': r.site_id,
+                        'last': r.last_handshake_at, 'state': _device_state(r.last_handshake_at, now) if r.is_active else 'offline',
+                        'where': r.tunnel_ip})
+    online_now = sessions().filter(RadAcct.acctstoptime.is_(None), last_seen >= now - timedelta(minutes=LIVE_STALE_MINUTES))
+    per_device = dict(online_now.with_entities(RadAcct.calledstationid, func.count()).group_by(RadAcct.calledstationid).all())
+    per_ip = dict(online_now.with_entities(RadAcct.nasipaddress, func.count()).group_by(RadAcct.nasipaddress).all())
+    for d in devices:
+        d['users'] = per_device.get(d['where'], 0) or per_ip.get(d['where'], 0)
+    health = {k: sum(1 for d in devices if d['state'] == k) for k in ('online', 'degraded', 'offline')}
+    last_telemetry = max((d['last'] for d in devices if d['last']), default=None)
+
+    users_online = online_now.count()
+    via_hotspot = online_now.filter(RadAcct.username.in_(db.session.query(Voucher.code).filter(Voucher.tenant_id == tid))).count()
+
+    # Traffic
+    today_rows = sessions().filter(or_(RadAcct.acctstoptime.is_(None), RadAcct.acctstoptime >= midnight),
+                                   last_seen >= midnight)
+    down_today, up_today = today_rows.with_entities(func.coalesce(func.sum(RadAcct.acctoutputoctets), 0),
+                                                    func.coalesce(func.sum(RadAcct.acctinputoctets), 0)).one()
+    down_today, up_today = int(down_today), int(up_today)
+    total_bytes = int(sessions().with_entities(func.coalesce(func.sum(func.coalesce(RadAcct.acctinputoctets, 0)
+                                                                      + func.coalesce(RadAcct.acctoutputoctets, 0)), 0)).scalar())
+    since_midnight = max(1, (now - midnight).total_seconds())
+    hours = []
+    for i in range(24):
+        start = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=23 - i)
+        hours.append({'label': (start + offset).strftime('%H:00'), 'start': start, 'down': 0, 'up': 0})
+    for last, down, up in sessions().filter(last_seen >= hours[0]['start']).with_entities(
+            last_seen, RadAcct.acctoutputoctets, RadAcct.acctinputoctets).limit(20000):
+        idx = int((last - hours[0]['start']).total_seconds() // 3600)
+        if 0 <= idx < 24:
+            hours[idx]['down'] += down or 0
+            hours[idx]['up'] += up or 0
+    peak = max([h['down'] + h['up'] for h in hours] + [1])
+
+    # Money
+    today = _collected(tid, site, midnight)
+    period = _collected(tid, site, month_start)
+    all_time = _collected(tid, site, datetime(2000, 1, 1))
+    fees = view['payments'](Payment.query.filter(Payment.tenant_id == tid, Payment.status == 'paid', Payment.paid_at >= month_start)) \
+        .with_entities(func.coalesce(func.sum(Payment.fee_amount), 0)).scalar()
+    balance, earned, withdrawn = tenant_balance(tid)
+    days = []
+    for i in range(7):
+        day_start = midnight - timedelta(days=6 - i)
+        c = _collected(tid, site, day_start, day_start + timedelta(days=1))
+        days.append({'label': (day_start + offset).strftime('%a'), 'date': (day_start + offset).strftime('%d %b'), 'total': c['total']})
+    week_total = sum(d['total'] for d in days)
+    day_peak = max([d['total'] for d in days] + [Decimal(1)])
+
+    # Sites split (all-sites view)
+    site_split = []
+    if site is None:
+        for s_ in tenant_sites(tid):
+            site_split.append({'site': s_, 'total': _collected(tid, s_, month_start)['total']})
+
+    # Subscribers
+    users = scoped(RadUser)
+    soon = now + timedelta(days=3)
+    subs = {
+        'active': users.filter(RadUser.is_active.is_(True), or_(RadUser.expires_at.is_(None), RadUser.expires_at > soon)).count(),
+        'expiring': users.filter(RadUser.is_active.is_(True), RadUser.expires_at > now, RadUser.expires_at <= soon).count(),
+        'expired': users.filter(RadUser.is_active.is_(True), RadUser.expires_at <= now).count(),
+        'disabled': users.filter(RadUser.is_active.is_(False)).count(),
+    }
+    subs['total'] = sum(subs.values())
+
+    # Recent connections
+    recent = sessions().order_by(desc(last_seen)).limit(10).all()
+    codes = {v.code: v for v in scoped(Voucher).filter(Voucher.code.in_([r.username for r in recent]))} if recent else {}
+    cutoff = now - timedelta(minutes=LIVE_STALE_MINUTES)
+    recent_rows = [{'user': r.username, 'mac': r.callingstationid, 'ip': r.framedipaddress,
+                    'access': ('Voucher' if r.username in codes else 'Account') + (f' · {r.groupname}' if r.groupname else ''),
+                    'router': r.calledstationid or r.nasipaddress, 'last': r.acctupdatetime or r.acctstarttime,
+                    'online': r.acctstoptime is None and (r.acctupdatetime or r.acctstarttime) >= cutoff} for r in recent]
+
+    # Alerts
+    alerts = []
+    for d in devices:
+        if d['state'] == 'offline':
+            alerts.append(('danger', f"{d['kind']} {d['name']} is offline" + (f" (last seen {(d['last'] + offset):%d %b %H:%M})" if d['last'] else ' (never connected)')))
+        elif d['state'] == 'degraded':
+            alerts.append(('warning', f"{d['kind']} {d['name']} has not reported for a few minutes"))
+    stuck = view['payments'](scoped(Payment).filter(Payment.status == 'pending', Payment.created_at < now - timedelta(minutes=10))).count()
+    if stuck:
+        alerts.append(('warning', f'{stuck} mobile-money payment{"s" if stuck > 1 else ""} still pending after 10 minutes'))
+    failed = view['payments'](scoped(Payment).filter(Payment.status == 'failed', Payment.created_at >= midnight)).count()
+    if failed:
+        alerts.append(('info', f'{failed} payment{"s" if failed > 1 else ""} failed today'))
+    if subs['expiring']:
+        alerts.append(('info', f"{subs['expiring']} customer account{'s' if subs['expiring'] > 1 else ''} expire within 3 days"))
+
+    hour = datetime.now().hour
+    greeting = 'Good morning' if hour < 12 else ('Good afternoon' if hour < 17 else 'Good evening')
+    return render_template('dashboard.html', greeting=greeting, site=site, devices=devices, health=health,
+                           last_telemetry=last_telemetry, users_online=users_online, via_hotspot=via_hotspot,
+                           down_today=down_today, up_today=up_today, total_bytes=total_bytes,
+                           avg_rate=(down_today + up_today) / since_midnight, hours=hours, peak=peak,
+                           today=today, period=period, all_time=all_time, fees=Decimal(str(fees)),
+                           balance=balance, withdrawn=withdrawn, days=days, week_total=week_total, day_peak=day_peak,
+                           site_split=site_split, subs=subs, recent=recent_rows, alerts=alerts, offset=offset,
+                           period_label=f"{month_start_local:%d %b %Y} – {datetime.now():%d %b %Y}",
+                           currency=tenant.currency, now=now, platform_mode=tenant.payment_mode == 'platform')
 
 
 # User management routes
@@ -693,6 +821,7 @@ def add_nas():
         
         nas = Nas(
             tenant_id=tenant_id(),
+            site_id=site_for_new_things().id,
             nasname=form.nasname.data,
             shortname=form.shortname.data,
             type=form.type.data,
@@ -1053,7 +1182,7 @@ def _new_group_name(plan_name):
     return name
 
 
-def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_devices=1, is_free=False):
+def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_devices=1, is_free=False, site_id=None):
     """Adds `count` vouchers (and their RADIUS rows) to the session; caller commits."""
     # Codes double as RADIUS usernames, so avoid clashes with both tables.
     taken = {c for (c,) in db.session.query(Voucher.code)}
@@ -1064,7 +1193,7 @@ def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_device
         voucher = Voucher(tenant_id=tenant if tenant is not None else tenant_id(),
                           code=code, plan_id=plan.id if plan else None, batch=batch,
                           validity_minutes=minutes, price=None if is_free else price,
-                          max_devices=max_devices or 1, is_free=bool(is_free))
+                          max_devices=max_devices or 1, is_free=bool(is_free), site_id=site_id)
         db.session.add(voucher)
         db.session.add(RadCheck(username=code, attribute='Cleartext-Password', op=':=', value=code))
         if plan:
@@ -1148,7 +1277,7 @@ def generate_vouchers():
             ('Free trial ' if form.is_free.data else '') + datetime.utcnow().strftime('%Y%m%d-%H%M%S')
 
         _create_vouchers(form.count.data, plan, minutes, price, batch, max_devices=form.max_devices.data,
-                         is_free=form.is_free.data)
+                         is_free=form.is_free.data, site_id=site_for_new_things().id)
         db.session.commit()
 
         flash(f'{form.count.data} vouchers created in batch "{batch}".', 'success')
@@ -1578,7 +1707,7 @@ def _fulfil_payment(payment):
     if payment.voucher_id:
         return
     voucher = _create_vouchers(1, payment.plan, payment.validity_minutes, payment.amount, 'online-payments',
-                               tenant=payment.tenant_id, max_devices=payment.max_devices)[0]
+                               tenant=payment.tenant_id, max_devices=payment.max_devices, site_id=payment.site_id)[0]
     db.session.flush()
     payment.voucher_id = voucher.id
     payment.status = 'paid'
@@ -1707,6 +1836,18 @@ def portal_api(fn):
     return wrapper
 
 
+def _api_site_id():
+    """Site of the gateway calling the API (older shared keys: the tenant's main site)."""
+    gw = getattr(g, 'api_gateway', None)
+    if gw is not None and gw.site_id:
+        return gw.site_id
+    return tenant_sites(g.api_tenant.id)[0].id
+
+
+def _site_packages(query):
+    return query.filter(or_(Package.site_id.is_(None), Package.site_id == _api_site_id()))
+
+
 def _payment_json(payment):
     data = {
         'reference': payment.reference,
@@ -1726,7 +1867,7 @@ def _payment_json(payment):
 @app.route('/api/portal/packages')
 @portal_api
 def api_portal_packages():
-    items = Package.query.filter_by(tenant_id=g.api_tenant.id, is_active=True, show_on_portal=True).order_by(
+    items = _site_packages(Package.query.filter_by(tenant_id=g.api_tenant.id, is_active=True, show_on_portal=True)).order_by(
         Package.sort_order, Package.price).all()
     return jsonify(packages=[{
         'id': p.id, 'name': p.name, 'description': p.description or '',
@@ -1740,8 +1881,8 @@ def api_portal_packages():
 @portal_api
 def api_portal_purchase():
     data = request.get_json(silent=True) or {}
-    package = Package.query.filter_by(id=data.get('package_id'), tenant_id=g.api_tenant.id,
-                                      is_active=True, show_on_portal=True).first()
+    package = _site_packages(Package.query.filter_by(id=data.get('package_id'), tenant_id=g.api_tenant.id,
+                                                     is_active=True, show_on_portal=True)).first()
     if not package:
         return jsonify(error='That package is no longer available.'), 404
     phone = _normalize_tz_phone(str(data.get('phone', '')))
@@ -1769,6 +1910,7 @@ def api_portal_purchase():
         provider_account=tenant.payment_mode,
         fee_amount=(package.price * _fee_percent(tenant) / 100).quantize(Decimal('0.01')) if tenant.payment_mode == 'platform' else Decimal(0),
         nas_identifier=str(data.get('nas', ''))[:64] or None,
+        site_id=_api_site_id(),
         client_mac=str(data.get('mac', ''))[:17] or None,
         client_ip=str(data.get('ip', ''))[:45] or None,
     )
@@ -2379,6 +2521,136 @@ def delete_team_member(member_id):
 # ---------------------------------------------------------------------------
 # Gateways (SafeNet gateway boxes, authenticated by API key)
 # ---------------------------------------------------------------------------
+SITE_ITEMS = {'gateway': Gateway, 'router': Router, 'nas': Nas, 'package': Package}
+
+
+def _site_from_form():
+    sid = request.form.get('site_id', type=int)
+    site = Site.query.filter_by(id=sid, tenant_id=tenant_id()).first() if sid else None
+    return site or site_for_new_things()
+
+
+def _safe_back(default):
+    ref = request.referrer or ''
+    path = urlparse(ref).path if urlparse(ref).netloc in ('', request.host) else ''
+    return path if path.startswith('/') and not path.startswith('//') else default
+
+
+@app.route('/sites')
+@login_required
+def sites_page():
+    tid = tenant_id()
+    items = tenant_sites(tid)
+    midnight = _local_midnight_utc()
+    month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    rows = []
+    for site in items:
+        view = _site_filters(tid, site)
+        rows.append({'site': site, 'gateways': scoped(Gateway).filter_by(site_id=site.id).count(),
+                     'routers': scoped(Router).filter_by(site_id=site.id).count(),
+                     'packages': scoped(Package).filter_by(site_id=site.id).count(),
+                     'online': view['sessions'](RadAcct.query.filter(RadAcct.acctstoptime.is_(None),
+                               func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime) >= datetime.utcnow() - timedelta(minutes=LIVE_STALE_MINUTES))).count(),
+                     'today': _collected(tid, site, midnight), 'month': _collected(tid, site, month_start)})
+    plan = current_tenant().billing_plan
+    return render_template('sites.html', rows=rows, currency=current_tenant().currency,
+                           limit=plan.max_sites if plan else None)
+
+
+@app.route('/sites/add', methods=['POST'])
+@login_required
+@role_required('admin')
+def add_site():
+    _check_csrf()
+    name = (request.form.get('name') or '').strip()[:64]
+    if not name:
+        flash('Give the site a name.', 'danger')
+    elif _plan_limit_reached(current_tenant(), 'sites'):
+        flash('Your plan does not allow more sites. Upgrade on the Billing page.', 'warning')
+    else:
+        site = Site(tenant_id=tenant_id(), name=name, location=(request.form.get('location') or '').strip()[:128] or None)
+        db.session.add(site)
+        db.session.commit()
+        session['site_id'] = site.id
+        flash(f'Site "{name}" added and selected. New gateways, routers and vouchers now go to it.', 'success')
+    return redirect(url_for('sites_page'))
+
+
+@app.route('/sites/<int:site_id>/edit', methods=['POST'])
+@login_required
+@role_required('admin')
+def edit_site(site_id):
+    _check_csrf()
+    site = owned_or_404(Site, site_id)
+    name = (request.form.get('name') or '').strip()[:64]
+    if name:
+        site.name = name
+        site.location = (request.form.get('location') or '').strip()[:128] or None
+        db.session.commit()
+        flash(f'Site "{name}" saved.', 'success')
+    return redirect(url_for('sites_page'))
+
+
+@app.route('/sites/<int:site_id>/delete', methods=['POST'])
+@login_required
+@role_required('admin')
+def delete_site(site_id):
+    _check_csrf()
+    site = owned_or_404(Site, site_id)
+    others = [x for x in tenant_sites() if x.id != site.id]
+    if not others:
+        flash('You need at least one site.', 'warning')
+        return redirect(url_for('sites_page'))
+    target = others[0]
+    for model in (Gateway, Router, Nas, Payment, Voucher):
+        scoped(model).filter_by(site_id=site.id).update({'site_id': target.id}, synchronize_session=False)
+    scoped(Package).filter_by(site_id=site.id).update({'site_id': target.id}, synchronize_session=False)
+    if session.get('site_id') == site.id:
+        session.pop('site_id', None)
+    db.session.delete(site)
+    db.session.commit()
+    flash(f'Site "{site.name}" deleted. Its devices, packages and sales moved to "{target.name}".', 'success')
+    return redirect(url_for('sites_page'))
+
+
+@app.route('/sites/switch', methods=['POST'])
+@login_required
+def switch_site():
+    _check_csrf()
+    sid = request.form.get('site_id', type=int)
+    if sid and Site.query.filter_by(id=sid, tenant_id=tenant_id()).first():
+        session['site_id'] = sid
+    else:
+        session.pop('site_id', None)
+    if request.form.get('to') == 'dashboard':
+        return redirect(url_for('dashboard'))
+    return redirect(_safe_back(url_for('dashboard')))
+
+
+@app.route('/sites/assign', methods=['POST'])
+@login_required
+@role_required('admin')
+def assign_site():
+    """Move a gateway, router, RADIUS client or package to another site."""
+    _check_csrf()
+    model = SITE_ITEMS.get(request.form.get('kind'))
+    if not model:
+        abort(400)
+    item = owned_or_404(model, request.form.get('id', type=int))
+    sid = request.form.get('site_id', type=int)
+    if sid:
+        item.site_id = owned_or_404(Site, sid).id
+    elif model is Package:
+        item.site_id = None                     # sold at every site
+    else:
+        abort(400)
+    if model is Router and item.nas:
+        item.nas.site_id = item.site_id
+    db.session.commit()
+    flash('Site updated.', 'success')
+    return redirect(_safe_back(url_for('sites_page')))
+
+
 @app.route('/gateways')
 @login_required
 @role_required('admin')
@@ -2399,7 +2671,8 @@ def add_gateway():
         flash('Give the gateway a name.', 'danger')
         return redirect(url_for('gateways'))
     key = 'sgw_' + secrets.token_urlsafe(32)
-    gw = Gateway(tenant_id=tenant_id(), name=form.name.data.strip(), key_prefix=key[:8], key_hash=_hash_key(key))
+    gw = Gateway(tenant_id=tenant_id(), name=form.name.data.strip(), key_prefix=key[:8], key_hash=_hash_key(key),
+                 site_id=_site_from_form().id)
     db.session.add(gw)
     db.session.commit()
     # The key is shown once and never stored in plain text
@@ -2500,6 +2773,7 @@ def platform_switch(tid):
     _check_csrf()
     tenant = db.get_or_404(Tenant, tid)
     session['tenant_id'] = tenant.id
+    session.pop('site_id', None)
     flash(f'You are now managing {tenant.name}.', 'info')
     return redirect(url_for('dashboard'))
 
@@ -2518,7 +2792,7 @@ def impersonate(tid):
         return redirect(url_for('platform_tenants'))
     admin_id = current_user.id
     app.logger.info('platform admin %s logged in as %s (%s)', current_user.username, owner.username, tenant.name)
-    session.pop('tenant_id', None)
+    session.pop('tenant_id', None); session.pop('site_id', None)
     login_user(owner)
     session['impersonator_id'] = admin_id
     flash(f'You are logged in as {owner.username}, the owner of {tenant.name}.', 'info')
@@ -2532,6 +2806,7 @@ def stop_impersonating():
     if not admin or not admin.is_superadmin or not admin.is_active:
         logout_user()
         return redirect(url_for('login'))
+    session.pop('site_id', None)
     login_user(admin)
     flash('Back to your platform account.', 'info')
     return redirect(url_for('platform_tenants'))
@@ -2542,7 +2817,7 @@ def stop_impersonating():
 @superadmin_required
 def platform_switch_back():
     _check_csrf()
-    session.pop('tenant_id', None)
+    session.pop('tenant_id', None); session.pop('site_id', None)
     return redirect(url_for('platform_tenants'))
 
 
@@ -2789,11 +3064,11 @@ def add_router():
     tunnel_ip = _next_tunnel_ip()
     nas = Nas(tenant_id=tenant_id(), nasname=tunnel_ip, shortname=re.sub(r'[^A-Za-z0-9_-]+', '-', name)[:32] or 'router',
               type='other', secret=secrets.token_urlsafe(18), vendor=vendor if vendor == 'mikrotik' else 'standard',
-              description=f'VPN router: {name}', is_active=True)
+              description=f'VPN router: {name}', is_active=True, site_id=_site_from_form().id)
     db.session.add(nas)
     db.session.flush()
     router = Router(tenant_id=tenant_id(), name=name, vendor=vendor, tunnel_ip=tunnel_ip, public_key=public,
-                    private_key_enc=secretbox.encrypt(private), nas_id=nas.id)
+                    private_key_enc=secretbox.encrypt(private), nas_id=nas.id, site_id=nas.site_id)
     db.session.add(router)
     db.session.commit()
     flash(f'Router "{name}" added with VPN address {tunnel_ip}. Paste the setup script into the router.', 'success')
@@ -2889,7 +3164,7 @@ def _plan_limit_reached(tenant, kind):
     limit = getattr(plan, f'max_{kind}', None) if plan else None
     if limit is None:
         return False
-    model = {'routers': Router, 'gateways': Gateway, 'customers': RadUser, 'staff': Admin}[kind]
+    model = {'routers': Router, 'gateways': Gateway, 'customers': RadUser, 'staff': Admin, 'sites': Site}[kind]
     return model.query.filter_by(tenant_id=tenant.id).count() >= limit
 
 
@@ -3078,7 +3353,7 @@ def platform_billing():
             yearly = (request.form.get('price_yearly') or '').strip()
             plan.price_yearly = Decimal(yearly) if yearly else None
             plan.max_routers = request.form.get('max_routers', type=int)
-            plan.max_gateways = request.form.get('max_gateways', type=int)
+            plan.max_sites = request.form.get('max_sites', type=int)
             plan.max_customers = request.form.get('max_customers', type=int)
             plan.max_staff = request.form.get('max_staff', type=int)
             plan.sort_order = request.form.get('sort_order', type=int) or 0

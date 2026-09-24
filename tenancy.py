@@ -11,7 +11,7 @@ from flask import abort, flash, redirect, session, url_for
 from flask_login import current_user
 from sqlalchemy import select, union
 
-from models import db, Tenant, RadUser, Voucher
+from models import db, Tenant, RadUser, Voucher, Site
 
 
 def current_tenant():
@@ -29,6 +29,32 @@ def tenant_id():
     if not tenant:
         abort(403)
     return tenant.id
+
+
+def tenant_sites(tid=None):
+    """The tenant's sites, oldest (the main site) first; creates one if there are none."""
+    tid = tid if tid is not None else tenant_id()
+    sites = Site.query.filter_by(tenant_id=tid).order_by(Site.id).all()
+    if not sites:
+        site = Site(tenant_id=tid, name='Main site')
+        db.session.add(site)
+        db.session.commit()
+        sites = [site]
+    return sites
+
+
+def current_site():
+    """The site picked in the top bar, or None for all sites."""
+    sid = session.get('site_id')
+    if not sid or not current_user.is_authenticated:
+        return None
+    site = db.session.get(Site, sid)
+    return site if site and site.tenant_id == tenant_id() else None
+
+
+def site_for_new_things():
+    """New devices and vouchers go to the picked site, or the main site."""
+    return current_site() or tenant_sites()[0]
 
 
 def scoped(model):
