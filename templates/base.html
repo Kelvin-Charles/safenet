@@ -263,6 +263,15 @@
         </div>
         {% endif %}
         
+        {% if impersonating %}
+        <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span><i class="bi bi-person-badge"></i> You are logged in as <strong>{{ current_user.username }}</strong> ({{ tenant.name if tenant else '' }} owner). Everything you do here is done as them.</span>
+            <form method="POST" action="{{ url_for('stop_impersonating') }}" class="m-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-dark" type="submit"><i class="bi bi-box-arrow-left"></i> Back to platform</button>
+            </form>
+        </div>
+        {% endif %}
         {% if current_user.is_authenticated and viewing_other_tenant %}
         <div class="alert alert-info d-flex justify-content-between align-items-center">
             <span><i class="bi bi-eye"></i> You are managing <strong>{{ tenant.name }}</strong> as platform admin.</span>

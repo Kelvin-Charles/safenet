@@ -67,6 +67,7 @@ def inject_globals():
         'csrf_token': generate_csrf,
         'tenant': tenant,
         'viewing_other_tenant': bool(tenant and current_user.is_authenticated and tenant.id != current_user.tenant_id),
+        'impersonating': current_user.is_authenticated and bool(session.get('impersonator_id')),
         'signup_enabled': Config.SIGNUP_ENABLED,
         'billing': billing_state(tenant) if tenant else None,
     }
@@ -79,6 +80,12 @@ BILLING_ENDPOINTS = {'billing', 'billing_pay', 'billing_payment', 'billing_payme
 def block_suspended_tenants():
     if current_user.is_authenticated and not current_user.is_superadmin:
         tenant = current_user.tenant
+        if session.get('impersonator_id'):
+            if request.endpoint in ('logout', 'stop_impersonating'):
+                return None
+            if tenant is not None and tenant.status == 'suspended':
+                flash(f'{tenant.name} is suspended, so its owner cannot use SafeNet.', 'warning')
+                return redirect(url_for('stop_impersonating'))
         if tenant is None or tenant.status == 'suspended' or not current_user.is_active:
             logout_user()
             flash('This account is suspended. Please contact support.', 'danger')
@@ -136,6 +143,8 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
+    if session.get('impersonator_id'):
+        return redirect(url_for('stop_impersonating'))
     session.pop('tenant_id', None)
     logout_user()
     flash('You have been logged out.', 'info')
@@ -224,6 +233,9 @@ def add_user():
     form.plan_id.choices = [(0, '-- No Plan --')] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
     
     if form.validate_on_submit():
+        if _plan_limit_reached(current_tenant(), 'customers'):
+            flash('Your plan does not allow more customers. Upgrade on the Billing page.', 'warning')
+            return redirect(url_for('users'))
         # Usernames are global in RADIUS: check every tenant's users and vouchers
         if _radius_username_taken(form.username.data):
             flash('That username is already taken. Choose another.', 'danger')
@@ -2312,6 +2324,9 @@ def add_team_member():
     if not (current_user.is_superadmin or current_user.role == 'owner'):
         form.role.choices = [c for c in form.role.choices if c[0] == 'staff']
     if form.validate_on_submit():
+        if _plan_limit_reached(current_tenant(), 'staff'):
+            flash('Your plan does not allow more staff accounts. Upgrade on the Billing page.', 'warning')
+            return redirect(url_for('team'))
         email = form.email.data.strip().lower()
         if Admin.query.filter_by(username=form.username.data).first():
             form.username.errors.append('That username is taken.')
@@ -2487,6 +2502,39 @@ def platform_switch(tid):
     session['tenant_id'] = tenant.id
     flash(f'You are now managing {tenant.name}.', 'info')
     return redirect(url_for('dashboard'))
+
+
+@app.route('/platform/impersonate/<int:tid>', methods=['POST'])
+@login_required
+@superadmin_required
+def impersonate(tid):
+    """Log in as the tenant's owner to see exactly what they see, without their password."""
+    _check_csrf()
+    tenant = db.get_or_404(Tenant, tid)
+    owner = Admin.query.filter_by(tenant_id=tenant.id, role='owner', is_superadmin=False) \
+        .order_by(Admin.is_active.desc(), Admin.id).first()
+    if not owner:
+        flash(f'{tenant.name} has no owner account to log in as. Use Manage instead.', 'warning')
+        return redirect(url_for('platform_tenants'))
+    admin_id = current_user.id
+    app.logger.info('platform admin %s logged in as %s (%s)', current_user.username, owner.username, tenant.name)
+    session.pop('tenant_id', None)
+    login_user(owner)
+    session['impersonator_id'] = admin_id
+    flash(f'You are logged in as {owner.username}, the owner of {tenant.name}.', 'info')
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/platform/impersonate/stop', methods=['GET', 'POST'])
+@login_required
+def stop_impersonating():
+    admin = db.session.get(Admin, session.pop('impersonator_id', 0) or 0)
+    if not admin or not admin.is_superadmin or not admin.is_active:
+        logout_user()
+        return redirect(url_for('login'))
+    login_user(admin)
+    flash('Back to your platform account.', 'info')
+    return redirect(url_for('platform_tenants'))
 
 
 @app.route('/platform/switch-back', methods=['POST'])
@@ -2841,7 +2889,7 @@ def _plan_limit_reached(tenant, kind):
     limit = getattr(plan, f'max_{kind}', None) if plan else None
     if limit is None:
         return False
-    model = Router if kind == 'routers' else Gateway
+    model = {'routers': Router, 'gateways': Gateway, 'customers': RadUser, 'staff': Admin}[kind]
     return model.query.filter_by(tenant_id=tenant.id).count() >= limit
 
 
@@ -2916,7 +2964,7 @@ def billing_pay():
     if not phone:
         flash('Enter a valid mobile money number, e.g. 0712 345 678.', 'danger')
         return redirect(url_for('billing'))
-    problem = check_network(phone, None, plan.price * months)
+    problem = check_network(phone, None, plan.amount_for(months))
     if problem:
         flash(problem, 'danger')
         return redirect(url_for('billing'))
@@ -2924,7 +2972,7 @@ def billing_pay():
         flash('Online payment is not available right now. Please contact SafeNet.', 'danger')
         return redirect(url_for('billing'))
     sp = SubscriptionPayment(tenant_id=tenant.id, billing_plan_id=plan.id, plan_name=plan.name, months=months,
-                             amount=plan.price * months, currency=plan.currency, phone=phone,
+                             amount=plan.amount_for(months), currency=plan.currency, phone=phone,
                              reference='SB' + secrets.token_hex(6).upper(), created_by_id=current_user.id)
     db.session.add(sp)
     db.session.commit()
@@ -3027,11 +3075,15 @@ def platform_billing():
             plan.name = request.form['name'].strip()[:64]
             plan.description = (request.form.get('description') or '').strip()[:255] or None
             plan.price = Decimal(request.form['price'])
+            yearly = (request.form.get('price_yearly') or '').strip()
+            plan.price_yearly = Decimal(yearly) if yearly else None
             plan.max_routers = request.form.get('max_routers', type=int)
             plan.max_gateways = request.form.get('max_gateways', type=int)
+            plan.max_customers = request.form.get('max_customers', type=int)
+            plan.max_staff = request.form.get('max_staff', type=int)
             plan.sort_order = request.form.get('sort_order', type=int) or 0
             plan.is_active = bool(request.form.get('is_active'))
-            if not plan.name or plan.price < 0:
+            if not plan.name or plan.price < 0 or (plan.price_yearly is not None and plan.price_yearly < 0):
                 raise ValueError
         except (KeyError, ValueError, ArithmeticError):
             db.session.rollback()

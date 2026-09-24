@@ -160,3 +160,29 @@ def run():
     # Free-trial (marketing) vouchers: one per phone
     _add_column('vouchers', 'is_free', 'BOOLEAN NOT NULL DEFAULT 0')
     _add_column('vouchers', 'first_mac', 'VARCHAR(17)')
+
+    # Plan limits for customers and staff, and a yearly price
+    _add_column('billing_plans', 'price_yearly', 'NUMERIC(10, 2)')
+    _add_column('billing_plans', 'max_customers', 'INTEGER')
+    _add_column('billing_plans', 'max_staff', 'INTEGER')
+    _seed_billing_plans()
+
+
+STARTER_PLANS = (
+    # name, monthly, yearly, customers, routers, sites (gateways), staff
+    ('Starter', 10000, 110000, 200, 1, 1, 2),
+    ('Business', 20000, 220000, 400, 10, 10, 10),
+    ('Economic', 30000, 339000, 1000, 20, 16, 20),
+)
+
+
+def _seed_billing_plans():
+    """First-time plans, only while there are none (edit them in Platform: Billing)."""
+    from models import BillingPlan
+    if db.session.query(BillingPlan.id).first():
+        return
+    for order, (name, month, year, customers, routers, sites, staff) in enumerate(STARTER_PLANS):
+        db.session.add(BillingPlan(name=name, price=month, price_yearly=year, currency='TZS', max_customers=customers,
+                                   max_routers=routers, max_gateways=sites, max_staff=staff, sort_order=order))
+    db.session.commit()
+    print('migrate: added starter billing plans')

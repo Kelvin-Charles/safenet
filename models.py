@@ -571,9 +571,17 @@ class BillingPlan(db.Model):
     name = db.Column(db.String(64), nullable=False)
     description = db.Column(db.String(255))
     price = db.Column(db.Numeric(10, 2), nullable=False)       # per 30 days
+    price_yearly = db.Column(db.Numeric(10, 2))                # 12 months at once; NULL = 12 x price
     currency = db.Column(db.String(3), nullable=False, default='TZS')
     max_routers = db.Column(db.Integer)                        # NULL = unlimited
-    max_gateways = db.Column(db.Integer)
+    max_gateways = db.Column(db.Integer)                       # "sites"
+    max_customers = db.Column(db.Integer)                      # subscriber accounts (vouchers are unlimited)
+    max_staff = db.Column(db.Integer)                          # team accounts, owner included
+
+    def amount_for(self, months):
+        if months == 12 and self.price_yearly is not None:
+            return self.price_yearly
+        return self.price * months
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     sort_order = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

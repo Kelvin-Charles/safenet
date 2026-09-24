@@ -310,20 +310,22 @@
                                 {% if loop.index0 == hl and plans|length > 1 %}<span class="tag">Popular</span><br>{% endif %}
                                 {{ p.name }}
                                 <span class="price">{{ p.currency }} {{ '{:,.0f}'.format(p.price) }}<small> / month</small></span>
+                                {% if p.price_yearly is not none %}<small style="font-size: 12px; opacity: .75">or {{ '{:,.0f}'.format(p.price_yearly) }} billed yearly</small>{% endif %}
                             </th>
                             {% endfor %}
                         </tr>
                     </thead>
                     <tbody>
                         {% macro yes() %}<i class="bi bi-check-circle-fill ok" aria-label="Included"></i>{% endmacro %}
+                        <tr><th scope="row">Customers</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ 'Unlimited' if p.max_customers is none else '{:,}'.format(p.max_customers) }}</td>{% endfor %}</tr>
                         <tr><th scope="row">Routers (MikroTik over VPN)</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ 'Unlimited' if p.max_routers is none else p.max_routers }}</td>{% endfor %}</tr>
-                        <tr><th scope="row">SafeNet gateways</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ 'Unlimited' if p.max_gateways is none else p.max_gateways }}</td>{% endfor %}</tr>
-                        <tr><th scope="row">Vouchers and users</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">Unlimited</td>{% endfor %}</tr>
+                        <tr><th scope="row">Sites (SafeNet gateways)</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ 'Unlimited' if p.max_gateways is none else p.max_gateways }}</td>{% endfor %}</tr>
+                        <tr><th scope="row">Vouchers</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">Unlimited</td>{% endfor %}</tr>
                         <tr><th scope="row">Mobile-money packages</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
                         <tr><th scope="row">Branded login page</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
                         <tr><th scope="row">Live dashboard and reports</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
                         <tr><th scope="row">SMS code for paying guests</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
-                        <tr><th scope="row">Team accounts</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
+                        <tr><th scope="row">Staff accounts</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ 'Unlimited' if p.max_staff is none else p.max_staff }}</td>{% endfor %}</tr>
                     </tbody>
                     <tfoot>
                         <tr>

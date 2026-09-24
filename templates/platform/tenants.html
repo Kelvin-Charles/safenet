@@ -46,9 +46,15 @@
                             {% endif %}
                         </td>
                         <td class="text-nowrap">
+                            {% if owners.get(t.id) and not owners.get(t.id).is_superadmin %}
+                            <form method="POST" action="{{ url_for('impersonate', tid=t.id) }}" style="display:inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button class="btn btn-sm btn-primary" type="submit" title="See exactly what {{ owners[t.id].username }} sees, no password needed"><i class="bi bi-person-badge"></i> Log in as owner</button>
+                            </form>
+                            {% endif %}
                             <form method="POST" action="{{ url_for('platform_switch', tid=t.id) }}" style="display:inline;">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button class="btn btn-sm btn-outline-primary" type="submit" title="Manage this tenant"><i class="bi bi-box-arrow-in-right"></i> Manage</button>
+                                <button class="btn btn-sm btn-outline-primary" type="submit" title="Manage this tenant as platform admin"><i class="bi bi-box-arrow-in-right"></i> Manage</button>
                             </form>
                             <div class="dropdown d-inline">
                                 <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">Status</button>
