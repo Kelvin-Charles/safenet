@@ -81,7 +81,7 @@
                                     <div class="border rounded p-2 bg-white">
                                         <strong>Platform admin, in SafeNet's Omada Controller:</strong>
                                         <ol class="mb-0 mt-1">
-                                            <li>Create a site for this customer, then run <code>python3 sync_operator.py</code> in <code>~/sandbox/applications/omada-controller</code> on the server so SafeNet can use the new site.</li>
+                                            <li>Create a site for this customer (SafeNet gets access to it within 5 minutes).</li>
                                             <li>Adopt the customer's EAPs into that site.</li>
                                             <li>Authentication → Portal → Create: their guest SSID, type <strong>External Portal Server</strong>, URL <code class="user-select-all">{{ portal_url }}</code>, and allow <code>{{ request.host }}</code> in Pre-Authentication Access.</li>
                                         </ol>
