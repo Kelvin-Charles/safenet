@@ -16,10 +16,16 @@ On the server: `~/sandbox/applications/omada-controller` (this folder's files).
   hotspot operator.
 - SafeNet reads `OMADA_HOSTED_URL=https://127.0.0.1:8043`, `OMADA_HOSTED_USER`
   and `OMADA_HOSTED_PASSWORD` from its `.env`.
+- Controller hostname (Settings → Controller → Access Config) is set to
+  `radius.safezonetz.com`, so its inform URL is
+  `omada://radius.safezonetz.com:8043?dPort=29810&mPort=29814&omadacId=…`.
+  Without it the controller hands out an internal server address.
+- `sync_operator.py` runs every 5 minutes from cron (log: `sync_operator.log`),
+  so new controller sites reach the SafeNet operator automatically.
 
 ## Adding a customer site
 1. In the controller, create a site for the customer and adopt their access points.
-2. Run `python3 sync_operator.py` here, so the SafeNet operator can use the new site.
+2. Wait up to 5 minutes (cron runs `sync_operator.py`) or run it yourself.
 3. In SafeNet (Sites → Omada → Use SafeNet's controller) copy the portal URL, then in
    the controller: Authentication → Portal → External Portal Server with that URL,
    and allow `radius.safezonetz.com` in Pre-Authentication Access.
