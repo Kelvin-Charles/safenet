@@ -10,7 +10,8 @@ On the server: `~/sandbox/applications/omada-controller` (this folder's files).
 - Start / update: `docker compose pull && docker compose up -d`
   (host network: Docker has no free bridge networks on this server).
 - Access points adopt to `radius.safezonetz.com` (UDP 29810, TCP 29811-29817).
-- Admin page: `https://radius.safezonetz.com:8043`.
+- Admin page: `https://omada.safezonetz.com` (Nginx Proxy Manager host with its own Let's Encrypt
+  certificate, forwarding to port 8043). `https://radius.safezonetz.com:8043` also works.
 - Logins are in `ADMIN_CREDENTIALS` (mode 600, not in git): controller admin,
   the device login the controller sets on adopted access points, and the
   hotspot operator.
