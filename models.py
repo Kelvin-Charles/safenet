@@ -74,7 +74,20 @@ class Site(db.Model):
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
     name = db.Column(db.String(64), nullable=False)
     location = db.Column(db.String(128))
+    # TP-Link Omada: guests are sent to SafeNet's login page (/omada/<portal_token>) and
+    # SafeNet tells the site's Omada Controller to let them online.
+    portal_token = db.Column(db.String(24))                # unique index added by migrations
+    omada_url = db.Column(db.String(255))              # e.g. https://203.0.113.5:8043
+    omada_user = db.Column(db.String(64))              # hotspot operator
+    omada_password_enc = db.Column(db.Text)            # secretbox
+    omada_verify_tls = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    omada_checked_at = db.Column(db.DateTime)          # last successful connection
+    omada_error = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def omada_ready(self):
+        return bool(self.omada_url and self.omada_user and self.omada_password_enc and self.portal_token)
 
     def __repr__(self):
         return f'<Site {self.name}>'

@@ -512,7 +512,8 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
     return page(th, lang, body, lang_url=_qs(lang_url, dst=dst), preview=preview)
 
 
-def status_page(th, lang, *, user, remaining, total=None, dst='', new_code=None, preview=False):
+def status_page(th, lang, *, user, remaining, total=None, dst='', new_code=None, preview=False, base='', logout=True,
+                lang_url='/'):
     remaining = max(0, int(remaining))
     bar = ''
     if total and total > 0:
@@ -538,17 +539,17 @@ def status_page(th, lang, *, user, remaining, total=None, dst='', new_code=None,
       {bar}
       {bought}
       <div style="margin-top:18px">{go}</div>
-      <form method="post" action="/logout"><button class="btn ghost" type="{'button' if preview else 'submit'}">{icon('logout', 18)} {t(lang, 'disconnect')}</button></form>
+      {f'<form method="post" action="{e(base)}/logout"><button class="btn ghost" type="{"button" if preview else "submit"}">{icon("logout", 18)} {t(lang, "disconnect")}</button></form>' if logout else ''}
       <script>
       function copyCode(b){{var c=document.getElementById('vcode').textContent,s=b.querySelector('span');
         function done(){{s.textContent='{t(lang, "copied")}';}}
         if(navigator.clipboard&&window.isSecureContext){{navigator.clipboard.writeText(c).then(done);return;}}
         var i=document.createElement('input');i.value=c;document.body.appendChild(i);i.select();try{{document.execCommand('copy');done();}}catch(x){{}}i.remove();}}
       </script>"""
-    return page(th, lang, body, hero_extra=False, preview=preview)
+    return page(th, lang, body, hero_extra=False, preview=preview, lang_url=lang_url)
 
 
-def waiting_page(th, lang, *, ref, info, timed_out=False):
+def waiting_page(th, lang, *, ref, info, timed_out=False, base='', lang_url='/'):
     amount = money(info.get('currency', 'TZS'), info.get('amount'))
     phone = info.get('phone', '')
     if timed_out:
@@ -558,9 +559,9 @@ def waiting_page(th, lang, *, ref, info, timed_out=False):
         <h2>{t(lang, 'still_waiting')}</h2>
         <p class="lead">{e(t(lang, 'still_lead', amount=amount, phone=phone))}</p>
       </div>
-      <a class="btn" href="{e(_qs('/buy/wait', ref=ref, again='1'))}">{t(lang, 'paid_check')}</a>
-      <a class="btn ghost" href="/">{t(lang, 'start_over')}</a>"""
-        return page(th, lang, body, hero_extra=False)
+      <a class="btn" href="{e(_qs(base + '/buy/wait', ref=ref, again='1'))}">{t(lang, 'paid_check')}</a>
+      <a class="btn ghost" href="{e(base or '/')}">{t(lang, 'start_over')}</a>"""
+        return page(th, lang, body, hero_extra=False, lang_url=lang_url)
     body = f"""
       <div class="center">
         <div class="state-ic wait">{icon('phone', 34)}</div>
@@ -573,8 +574,8 @@ def waiting_page(th, lang, *, ref, info, timed_out=False):
         <li><b>3</b><span>{t(lang, 'wait_step3')}</span></li>
       </ol>
       <p class="hint">{e(t(lang, 'sent_to', phone=phone))} · {t(lang, 'auto_update')}</p>"""
-    return page(th, lang, body, hero_extra=False,
-                head=f'<meta http-equiv="refresh" content="3;url={e(_qs("/buy/wait", ref=ref))}">')
+    return page(th, lang, body, hero_extra=False, lang_url=lang_url,
+                head=f'<meta http-equiv="refresh" content="3;url={e(_qs(base + "/buy/wait", ref=ref))}">')
 
 
 def instructions_page(th, lang, *, preview=False, lang_url='/'):

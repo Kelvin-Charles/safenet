@@ -914,7 +914,10 @@ class Server(ThreadingHTTPServer):
 
     def server_bind(self):
         # Bind even if LAN_ADDR isn't on the interface yet (Wi-Fi still connecting)
-        self.socket.setsockopt(socket.SOL_IP, getattr(socket, 'IP_FREEBIND', 15), 1)
+        try:
+            self.socket.setsockopt(socket.SOL_IP, getattr(socket, 'IP_FREEBIND', 15), 1)
+        except OSError:          # not Linux: bind normally
+            pass
         super().server_bind()
 
 

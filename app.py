@@ -16,6 +16,7 @@ import threading
 import math
 import os
 import secretbox
+import omada
 import migrations
 from mailer import send_mail
 from tenancy import (current_tenant, tenant_id, scoped, owned_or_404, tenant_usernames, role_required, superadmin_required,
@@ -175,7 +176,9 @@ def _site_filters(tid, site):
                 'devices': lambda q: q}
     def names(sid):
         q = db.session.query(Gateway.name).filter(Gateway.tenant_id == tid)
-        return [n for (n,) in (q.filter(Gateway.site_id == sid) if sid else q)]
+        found = [n for (n,) in (q.filter(Gateway.site_id == sid) if sid else q)]
+        omada_ids = [sid] if sid else [x.id for x in tenant_sites(tid)]
+        return found + [f'omada-{i}' for i in omada_ids]
 
     def ips(sid):
         q = db.session.query(Nas.nasname).filter(Nas.tenant_id == tid)
@@ -1486,6 +1489,232 @@ def _logo_response(tenant):
                     headers={'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff'})
 
 
+# ---------------------------------------------------------------------------
+# TP-Link Omada external portal: the controller sends guests here, SafeNet sells
+# or checks the code, then tells the controller to let the guest online.
+# ---------------------------------------------------------------------------
+OMADA_PARAMS = ('clientMac', 'clientIp', 'apMac', 'gatewayMac', 'ssidName', 'radioId', 'vid', 'site', 'redirectUrl')
+OMADA_DEFAULT_SECONDS = 86400
+_omada_failures = {}
+
+
+def _omada_site(token):
+    site = Site.query.filter_by(portal_token=token[:24]).first() if token else None
+    if site is None or not site.omada_ready:
+        abort(404)
+    tenant = db.session.get(Tenant, site.tenant_id)
+    if tenant is None or tenant_blocked(tenant):
+        abort(404)
+    return site, tenant
+
+
+def _omada_controller(site):
+    return omada.Controller(site.omada_url, site.omada_user, secretbox.decrypt(site.omada_password_enc),
+                            verify_tls=site.omada_verify_tls)
+
+
+def _omada_guest(token):
+    """The Omada details of this guest, kept from the controller's redirect."""
+    guest = session.get('omada') or {}
+    return guest if guest.get('token') == token else {}
+
+
+def _omada_too_many(key, limit):
+    now = time.time()
+    recent = [t for t in _omada_failures.get(key, []) if now - t < 300]
+    _omada_failures[key] = recent
+    return len(recent) >= limit
+
+
+def _omada_page(site, tenant, *, view='login', error='', tab=None, **extra):
+    cfg = portal_config(tenant)
+    if cfg.get('logo_version'):
+        cfg['logo_url'] = url_for('portal_logo', slug=tenant.slug, v=cfg['logo_version'])
+    th = portal_ui.theme(cfg)
+    wanted = request.args.get('lang')
+    lang = wanted if wanted in portal_ui.LANGS else request.cookies.get('sn_lang') if request.cookies.get('sn_lang') in portal_ui.LANGS else th['language']
+    base = url_for('omada_portal', token=site.portal_token)
+    if view == 'status':
+        html_out = portal_ui.status_page(th, lang, base=base, logout=False, lang_url=base, **extra)
+    elif view == 'wait':
+        html_out = portal_ui.waiting_page(th, lang, base=base, lang_url=base, **extra)
+    else:
+        packages = [{'id': p.id, 'name': p.name, 'description': p.description or '', 'price': f'{p.price:.0f}',
+                     'currency': p.currency, 'validity_minutes': p.validity_minutes}
+                    for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True),
+                                            site.id).order_by(Package.sort_order, Package.price)]
+        html_out = portal_ui.login_page(th, lang, packages=packages, error=error, tab=tab,
+                                        action=base + '/login', buy_action=base + '/buy',
+                                        buy_enabled=clickpesa.is_configured(_tenant_credentials(tenant)),
+                                        lang_url=base, networks=payment_networks(),
+                                        logo_base=url_for('static', filename='img/'))
+    resp = make_response(html_out)
+    resp.headers['Cache-Control'] = 'no-store'
+    if wanted in portal_ui.LANGS:
+        resp.set_cookie('sn_lang', wanted, max_age=31536000, samesite='Lax')
+    return resp
+
+
+def _omada_let_in(site, tenant, guest, username, password):
+    """Check the code, then ask the controller to let the guest online. Returns (info, error)."""
+    mac = guest.get('clientMac', '')
+    ok, message, info = _gateway_authenticate(tenant, username, password, mac)
+    _log_auth(username, ok)
+    if not ok:
+        db.session.commit()
+        return None, message
+    seconds = info['session_timeout'] or OMADA_DEFAULT_SECONDS
+    try:
+        _omada_controller(site).authorize(mac, seconds, site=guest.get('site'), ap_mac=guest.get('apMac'),
+                                          ssid=guest.get('ssidName'), radio_id=guest.get('radioId'),
+                                          gateway_mac=guest.get('gatewayMac'), vid=guest.get('vid'))
+    except omada.OmadaError as e:
+        db.session.rollback()
+        log.warning('Omada authorize for site %s failed: %s', site.id, e)
+        site.omada_error = str(e)[:255]
+        db.session.commit()
+        return None, "Your code is fine, but the Wi-Fi didn't accept the login. Please try again in a minute."
+    now = datetime.utcnow()
+    sid = secrets.token_hex(8)
+    db.session.add(RadAcct(acctsessionid=sid, acctuniqueid=hashlib.md5(f'omada:{site.id}:{sid}'.encode()).hexdigest(),
+                           username=username[:64], nasipaddress=(request.remote_addr or '')[:15], groupname='',
+                           acctterminatecause='', calledstationid=f'omada-{site.id}',
+                           callingstationid=mac.upper().replace(':', '-')[:50],
+                           framedipaddress=(guest.get('clientIp') or '')[:15], nasporttype='Wireless-802.11',
+                           acctstarttime=now, acctupdatetime=now, acctsessiontime=0,
+                           acctinputoctets=0, acctoutputoctets=0))
+    site.omada_checked_at, site.omada_error = now, None
+    db.session.commit()
+    return {'seconds': seconds, 'user': username}, None
+
+
+@app.route('/omada/<token>')
+def omada_portal(token):
+    site, tenant = _omada_site(token)
+    if request.args.get('clientMac'):
+        session['omada'] = {'token': site.portal_token, **{k: request.args.get(k, '')[:500] for k in OMADA_PARAMS}}
+    return _omada_page(site, tenant)
+
+
+@app.route('/omada/<token>/login', methods=['POST'])
+def omada_login(token):
+    site, tenant = _omada_site(token)
+    guest = _omada_guest(site.portal_token)
+    err = lambda m: _omada_page(site, tenant, error=m, tab='voucher')
+    if not guest.get('clientMac'):
+        return err('Please connect to the Wi-Fi again and open any website to get here.')
+    if not request.form.get('agree'):
+        return err('Please accept the terms of use to continue.')
+    # Wrong codes: a few per phone, more per site (every guest there shares one public IP)
+    key, site_key = f"{site.id}:{guest['clientMac']}", f'{site.id}:{request.remote_addr}'
+    if _omada_too_many(key, 6) or _omada_too_many(site_key, 60):
+        return err('Too many wrong attempts. Please wait a few minutes and try again.')
+    username = (request.form.get('username') or '').strip()[:64]
+    password = request.form.get('password') or ''
+    if not username:
+        username = password = re.sub(r'\s+', '', request.form.get('code') or '')[:32]
+    if not username:
+        return err('Enter your voucher code.')
+    info, error = _omada_let_in(site, tenant, guest, username, password)
+    if error:
+        _omada_failures.setdefault(key, []).append(time.time())
+        _omada_failures.setdefault(site_key, []).append(time.time())
+        return err(error)
+    return _omada_page(site, tenant, view='status', user=info['user'], remaining=info['seconds'],
+                       dst=guest.get('redirectUrl', ''))
+
+
+@app.route('/omada/<token>/buy', methods=['POST'])
+def omada_buy(token):
+    site, tenant = _omada_site(token)
+    guest = _omada_guest(site.portal_token)
+    err = lambda m: _omada_page(site, tenant, error=m, tab='buy')
+    if not guest.get('clientMac'):
+        return err('Please connect to the Wi-Fi again and open any website to get here.')
+    if not request.form.get('agree'):
+        return err('Please accept the terms of use to continue.')
+    package = _site_packages(Package.query.filter_by(id=request.form.get('package_id', type=int), tenant_id=tenant.id,
+                                                     is_active=True, show_on_portal=True), site.id).first()
+    if not package:
+        return err('Choose a package.')
+    phone = re.sub(r'\D', '', request.form.get('phone', ''))
+    if len(phone) == 9:                      # typed after the +255 prefix
+        phone = '255' + phone
+    network = (request.form.get('network') or '')[:16] or None
+    if payment_networks() and not network:
+        return err('Choose your mobile-money network.')
+    payment, error, _ = _start_purchase(tenant, site.id, package, phone, network, guest.get('clientMac'),
+                                        guest.get('clientIp'), f'omada-{site.id}')
+    if error:
+        return err(error)
+    session['omada_ref'] = payment.reference
+    return redirect(url_for('omada_wait', token=site.portal_token, ref=payment.reference))
+
+
+@app.route('/omada/<token>/buy/wait')
+def omada_wait(token):
+    site, tenant = _omada_site(token)
+    guest = _omada_guest(site.portal_token)
+    ref = (request.args.get('ref') or '')[:20]
+    if not guest.get('clientMac') or session.get('omada_ref') != ref:
+        return redirect(url_for('omada_portal', token=site.portal_token))
+    payment = _refresh_payment(ref)
+    if payment is None or payment.tenant_id != tenant.id:
+        return redirect(url_for('omada_portal', token=site.portal_token))
+    if payment.status == 'paid' and payment.voucher:
+        code = payment.voucher.code
+        session.pop('omada_ref', None)
+        info, error = _omada_let_in(site, tenant, guest, code, code)
+        if error:
+            return _omada_page(site, tenant, error=f'Payment received. Your voucher code is {code}. {error}', tab='voucher')
+        return _omada_page(site, tenant, view='status', user=code, remaining=info['seconds'], new_code=code,
+                           dst=guest.get('redirectUrl', ''))
+    if payment.status in ('failed', 'review'):
+        session.pop('omada_ref', None)
+        return _omada_page(site, tenant, error=f"Payment not completed: {payment.message or 'The payment was not completed.'}", tab='buy')
+    timed_out = (datetime.utcnow() - payment.created_at).total_seconds() > 120 and not request.args.get('again')
+    return _omada_page(site, tenant, view='wait', ref=ref, timed_out=timed_out,
+                       info={'amount': f'{payment.amount:.0f}', 'currency': payment.currency, 'phone': payment.phone,
+                             'package': payment.package_name})
+
+
+@app.route('/sites/<int:site_id>/omada', methods=['POST'])
+@login_required
+@role_required('admin')
+def site_omada(site_id):
+    """Save (or remove) a site's Omada Controller and test the connection."""
+    _check_csrf()
+    site = owned_or_404(Site, site_id)
+    if request.form.get('action') == 'remove':
+        site.omada_url = site.omada_user = site.omada_password_enc = site.omada_error = None
+        site.omada_checked_at = None
+        db.session.commit()
+        flash(f'Omada removed from "{site.name}".', 'success')
+        return redirect(url_for('sites_page'))
+    url = (request.form.get('omada_url') or '').strip().rstrip('/')[:255]
+    user = (request.form.get('omada_user') or '').strip()[:64]
+    password = request.form.get('omada_password') or ''
+    parsed = urlparse(url)
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname or not user or not (password or site.omada_password_enc):
+        flash('Enter the controller address (e.g. https://203.0.113.5:8043), the hotspot operator name and password.', 'danger')
+        return redirect(url_for('sites_page'))
+    site.omada_url, site.omada_user = url, user
+    if password:
+        site.omada_password_enc = secretbox.encrypt(password)
+    site.omada_verify_tls = bool(request.form.get('omada_verify_tls'))
+    if not site.portal_token:
+        site.portal_token = secrets.token_urlsafe(12)[:16]
+    try:
+        _omada_controller(site).check()
+        site.omada_checked_at, site.omada_error = datetime.utcnow(), None
+        flash(f'Connected to the Omada Controller for "{site.name}". Now set the portal in Omada (steps below).', 'success')
+    except omada.OmadaError as e:
+        site.omada_error = str(e)[:255]
+        flash(f'Saved, but SafeNet could not log in to the controller: {e}', 'warning')
+    db.session.commit()
+    return redirect(url_for('sites_page'))
+
+
 @app.route('/portal/logo/<slug>')
 def portal_logo(slug):
     return _logo_response(Tenant.query.filter_by(slug=slug[:64]).first())
@@ -1844,8 +2073,9 @@ def _api_site_id():
     return tenant_sites(g.api_tenant.id)[0].id
 
 
-def _site_packages(query):
-    return query.filter(or_(Package.site_id.is_(None), Package.site_id == _api_site_id()))
+def _site_packages(query, site_id=None):
+    """Packages sold at a site: its own plus the all-sites ones (default: the calling gateway's site)."""
+    return query.filter(or_(Package.site_id.is_(None), Package.site_id == (site_id or _api_site_id())))
 
 
 def _payment_json(payment):
@@ -1877,63 +2107,54 @@ def api_portal_packages():
                    networks=payment_networks())
 
 
-@app.route('/api/portal/purchase', methods=['POST'])
-@portal_api
-def api_portal_purchase():
-    data = request.get_json(silent=True) or {}
-    package = _site_packages(Package.query.filter_by(id=data.get('package_id'), tenant_id=g.api_tenant.id,
-                                                     is_active=True, show_on_portal=True)).first()
-    if not package:
-        return jsonify(error='That package is no longer available.'), 404
-    phone = _normalize_tz_phone(str(data.get('phone', '')))
+def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=None, nas=None):
+    """Create a payment and send the USSD push. Returns (payment or None, error, HTTP status)."""
+    phone = _normalize_tz_phone(str(phone or ''))
     if not phone:
-        return jsonify(error='Enter a valid mobile number, e.g. 0712 345 678.'), 400
-    tenant = g.api_tenant
+        return None, 'Enter a valid mobile number, e.g. 0712 345 678.', 400
     creds = _tenant_credentials(tenant)
     if not clickpesa.is_configured(creds):
-        return jsonify(error='Mobile payments are not available right now.'), 503
+        return None, 'Mobile payments are not available right now.', 503
     # Gateways send the network the guest picked; older ones don't, then the number decides
-    problem = check_network(phone, str(data.get('network') or '') or None, package.price, package.currency)
+    problem = check_network(phone, network or None, package.price, package.currency)
     if problem:
-        return jsonify(error=problem), 400
+        return None, problem, 400
     recent = Payment.query.filter(Payment.phone == phone, Payment.status == 'pending',
                                   Payment.created_at >= datetime.utcnow() - timedelta(seconds=90)).count()
     if recent:
-        return jsonify(error='A payment request was just sent to this number. Check your phone, or wait a minute.'), 429
+        return None, 'A payment request was just sent to this number. Check your phone, or wait a minute.', 429
 
     payment = Payment(
-        tenant_id=g.api_tenant.id,
+        tenant_id=tenant.id,
         reference='SN' + secrets.token_hex(6).upper(),
         package_id=package.id, package_name=package.name, plan_id=package.plan_id,
         validity_minutes=package.validity_minutes, max_devices=package.max_devices or 1, phone=phone,
         amount=package.price, currency=package.currency,
         provider_account=tenant.payment_mode,
         fee_amount=(package.price * _fee_percent(tenant) / 100).quantize(Decimal('0.01')) if tenant.payment_mode == 'platform' else Decimal(0),
-        nas_identifier=str(data.get('nas', ''))[:64] or None,
-        site_id=_api_site_id(),
-        client_mac=str(data.get('mac', ''))[:17] or None,
-        client_ip=str(data.get('ip', ''))[:45] or None,
+        nas_identifier=(nas or '')[:64] or None,
+        site_id=site_id,
+        client_mac=(mac or '')[:17] or None,
+        client_ip=(ip or '')[:45] or None,
     )
     payment.net_amount = payment.amount - payment.fee_amount
     db.session.add(payment)
     db.session.commit()
     try:
         available = clickpesa.preview_ussd_push(payment.amount, phone, payment.reference, creds)
-        chosen = str(data.get('network') or '')
+        chosen = network or ''
         offered = {portal_ui.network_for_method(m) for m in available}
         if available and chosen and chosen not in offered:
             payment.status = 'failed'
             payment.message = f'{chosen} not offered by ClickPesa for this number ({", ".join(available)})'
             db.session.commit()
             name = portal_ui.NETWORKS.get(chosen, {}).get('name', 'That network')
-            return jsonify({**_payment_json(payment),
-                            'error': f"{name} isn't available for this number right now. Try another network."}), 502
+            return payment, f"{name} isn't available for this number right now. Try another network.", 502
         if not available:
             payment.status = 'failed'
             payment.message = 'No mobile-money method available for this number'
             db.session.commit()
-            return jsonify({**_payment_json(payment),
-                            'error': "Mobile money for this number isn't available right now. Try another number or a voucher."}), 502
+            return payment, "Mobile money for this number isn't available right now. Try another number or a voucher.", 502
         tx = clickpesa.initiate_ussd_push(payment.amount, phone, payment.reference, creds) or {}
         payment.provider_id = tx.get('id')
         payment.provider_status = (tx.get('status') or '').upper() or None
@@ -1946,8 +2167,23 @@ def api_portal_purchase():
         payment.message = str(e)[:255]
     db.session.commit()
     if payment.status == 'failed':
-        return jsonify({**_payment_json(payment),
-                        'error': "We couldn't send the payment request. Check the number and try again."}), 502
+        return payment, "We couldn't send the payment request. Check the number and try again.", 502
+    return payment, None, 200
+
+
+@app.route('/api/portal/purchase', methods=['POST'])
+@portal_api
+def api_portal_purchase():
+    data = request.get_json(silent=True) or {}
+    package = _site_packages(Package.query.filter_by(id=data.get('package_id'), tenant_id=g.api_tenant.id,
+                                                     is_active=True, show_on_portal=True)).first()
+    if not package:
+        return jsonify(error='That package is no longer available.'), 404
+    payment, error, status = _start_purchase(g.api_tenant, _api_site_id(), package, data.get('phone', ''),
+                                             str(data.get('network') or '')[:16], str(data.get('mac', '')),
+                                             str(data.get('ip', '')), str(data.get('nas', '')))
+    if error:
+        return jsonify({**(_payment_json(payment) if payment else {}), 'error': error}), status
     return jsonify(_payment_json(payment))
 
 

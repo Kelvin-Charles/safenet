@@ -175,6 +175,15 @@ def run():
     # Sites: every tenant has at least one; existing devices and sales go to it
     for table in ('gateways', 'routers', 'nas', 'packages', 'payments', 'vouchers'):
         _add_column(table, 'site_id', 'INTEGER')
+    # TP-Link Omada external portal, per site
+    _add_column('sites', 'portal_token', 'VARCHAR(24)')
+    _add_column('sites', 'omada_url', 'VARCHAR(255)')
+    _add_column('sites', 'omada_user', 'VARCHAR(64)')
+    _add_column('sites', 'omada_password_enc', 'TEXT')
+    _add_column('sites', 'omada_verify_tls', 'BOOLEAN NOT NULL DEFAULT 0')
+    _add_column('sites', 'omada_checked_at', 'DATETIME')
+    _add_column('sites', 'omada_error', 'VARCHAR(255)')
+    _add_index('sites', 'uq_sites_portal_token', 'portal_token', unique=True)
     _ensure_sites()
 
 
