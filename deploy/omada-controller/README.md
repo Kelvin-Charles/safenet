@@ -22,6 +22,9 @@ On the server: `~/sandbox/applications/omada-controller` (this folder's files).
   Without it the controller hands out an internal server address.
 - `sync_operator.py` runs every 5 minutes from cron (log: `sync_operator.log`),
   so new controller sites reach the SafeNet operator automatically.
+- The admin page uses the same Let's Encrypt certificate as radius.safezonetz.com:
+  `update_cert.sh` copies it from Nginx Proxy Manager (`npm-230`) into `cert/` and
+  recreates the controller when it changed. Cron: Mondays 04:00 (log: `update_cert.log`).
 
 ## Adding a customer site
 1. In the controller, create a site for the customer and adopt their access points.

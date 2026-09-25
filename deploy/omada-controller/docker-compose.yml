@@ -17,10 +17,14 @@ services:
       PORTAL_HTTPS_PORT: "8843"
       SHOW_SERVER_LOGS: "true"
       SHOW_MONGODB_LOGS: "false"
+      # Same Let's Encrypt certificate as radius.safezonetz.com, imported at start (update_cert.sh)
+      SSL_CERT_NAME: tls.crt
+      SSL_KEY_NAME: tls.key
     network_mode: host   # docker has no free bridge networks here; ports 8088/8043/8843/29810-29817 are free
     volumes:
       - omada-data:/opt/tplink/EAPController/data
       - omada-logs:/opt/tplink/EAPController/logs
+      - ./cert:/cert:ro
 volumes:
   omada-data:
   omada-logs:
