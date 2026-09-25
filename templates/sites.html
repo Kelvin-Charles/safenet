@@ -59,7 +59,45 @@
                         <tr class="collapse" id="omada-{{ s.id }}"><td colspan="7" class="bg-light">
                             <div class="p-2">
                                 <h6 class="mb-1"><i class="bi bi-wifi"></i> TP-Link Omada access points at {{ s.name }}</h6>
-                                <p class="small text-muted mb-3">For Omada access points (EAP225 and others) managed by an Omada Controller (software, OC200 or OC300). Guests get SafeNet's login page with your packages and mobile money; SafeNet then tells the controller to let them online. No gateway box needed.</p>
+                                <p class="small text-muted mb-3">For Omada access points (EAP225 and others). Guests get SafeNet's login page with your packages and mobile money; SafeNet then lets them online through the Omada Controller. No gateway box needed.</p>
+                                {% set portal_url = url_for('omada_portal', token=s.portal_token, _external=True) if s.portal_token else '' %}
+                                {% if s.omada_hosted %}
+                                <div class="d-flex flex-wrap gap-3 align-items-center mb-2">
+                                    <span><i class="bi bi-cloud-check text-success"></i> Using <strong>SafeNet's Omada Controller</strong></span>
+                                    {% if s.omada_error %}<span class="small text-danger"><i class="bi bi-x-circle"></i> {{ s.omada_error }}</span>{% endif %}
+                                    <form method="POST" action="{{ url_for('site_omada', site_id=s.id) }}" class="m-0" onsubmit="return confirm('Stop using Omada at {{ s.name }}?')">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="remove">Remove</button>
+                                    </form>
+                                </div>
+                                <div class="small">
+                                    <strong>Connect your access points</strong>
+                                    <ol class="mb-2 mt-1">
+                                        <li>Plug each EAP into the site's internet router (it needs internet, nothing else).</li>
+                                        <li>Open the EAP's own page (or TP-Link's <em>Omada Discovery Utility</em>) and set the controller address to <code class="user-select-all">{{ omada_host }}</code>.</li>
+                                        <li>Tell SafeNet support the EAP's MAC address (on its label). We adopt it into your site and switch on your login page.</li>
+                                    </ol>
+                                    {% if current_user.is_superadmin or impersonating %}
+                                    <div class="border rounded p-2 bg-white">
+                                        <strong>Platform admin, in SafeNet's Omada Controller:</strong>
+                                        <ol class="mb-0 mt-1">
+                                            <li>Create a site for this customer, then run <code>python3 sync_operator.py</code> in <code>~/sandbox/applications/omada-controller</code> on the server so SafeNet can use the new site.</li>
+                                            <li>Adopt the customer's EAPs into that site.</li>
+                                            <li>Authentication → Portal → Create: their guest SSID, type <strong>External Portal Server</strong>, URL <code class="user-select-all">{{ portal_url }}</code>, and allow <code>{{ request.host }}</code> in Pre-Authentication Access.</li>
+                                        </ol>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% else %}
+                                {% if omada_hosted %}
+                                <form method="POST" action="{{ url_for('site_omada', site_id=s.id) }}" class="mb-3">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button class="btn btn-primary btn-sm" type="submit" name="action" value="hosted"><i class="bi bi-cloud"></i> Use SafeNet's controller (recommended)</button>
+                                    <span class="small text-muted ms-2">Nothing to install at the site: your access points connect to SafeNet over the internet.</span>
+                                </form>
+                                {% endif %}
+                                <details {{ 'open' if s.omada_url or not omada_hosted }}>
+                                <summary class="small mb-2">{{ 'Or use your own Omada Controller' if omada_hosted else 'Your Omada Controller' }}</summary>
                                 <form method="POST" action="{{ url_for('site_omada', site_id=s.id) }}" class="row g-2 mb-3">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <div class="col-md-5"><label class="form-label small">Controller address</label>
@@ -76,10 +114,9 @@
                                         {% elif s.omada_error %}<span class="small text-danger"><i class="bi bi-x-circle"></i> {{ s.omada_error }}</span>{% endif %}
                                     </div>
                                 </form>
-                                {% if s.portal_token %}
-                                {% set portal_url = url_for('omada_portal', token=s.portal_token, _external=True) %}
+                                {% if s.omada_url and s.portal_token %}
                                 <div class="small">
-                                    <strong>Then in the Omada Controller</strong> (Settings → Authentication → Portal → Create New Portal):
+                                    <strong>Then in your Omada Controller</strong> (Settings → Authentication → Portal → Create New Portal):
                                     <ol class="mb-0 mt-1">
                                         <li>SSID: your guest Wi-Fi. Authentication type: <strong>External Portal Server</strong>.</li>
                                         <li>Custom portal server URL: <code class="user-select-all">{{ portal_url }}</code></li>
@@ -88,6 +125,8 @@
                                         <li>The controller must be reachable from the internet at the address above (forward port 8043 on the site's router if it is on a local PC or OC200).</li>
                                     </ol>
                                 </div>
+                                {% endif %}
+                                </details>
                                 {% endif %}
                             </div>
                         </td></tr>

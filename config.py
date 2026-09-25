@@ -69,6 +69,11 @@ class Config:
 
     # WireGuard hub that tenants' routers connect to (safenet-wireguard service)
     WG_ENDPOINT = os.getenv('WG_ENDPOINT', 'radius.safezonetz.com')   # public host routers dial
+    # Omada Controller run by SafeNet: tenants' Omada access points adopt to it
+    OMADA_HOSTED_URL = os.getenv('OMADA_HOSTED_URL', '').rstrip('/')          # e.g. https://127.0.0.1:8043
+    OMADA_HOSTED_USER = os.getenv('OMADA_HOSTED_USER', '')
+    OMADA_HOSTED_PASSWORD = os.getenv('OMADA_HOSTED_PASSWORD', '')
+    OMADA_HOSTED_HOST = os.getenv('OMADA_HOSTED_HOST', '') or WG_ENDPOINT    # what access points are told to use
     WG_PORT = int(os.getenv('WG_PORT', '51820'))
     WG_SERVER_IP = os.getenv('WG_SERVER_IP', '10.200.0.1')           # hub's tunnel address = RADIUS server
     WG_SUBNET = os.getenv('WG_SUBNET', '10.200.0.0/16')

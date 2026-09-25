@@ -104,6 +104,10 @@ services:
       CLICKPESA_CHECKSUM_KEY: ${CLICKPESA_CHECKSUM_KEY:-}
       PORTAL_API_KEY: ${PORTAL_API_KEY:-}
       PAYMENT_NETWORKS: ${PAYMENT_NETWORKS:-mixx:1000,airtel,halopesa}
+      # Omada Controller hosted by SafeNet (hotspot operator it logs in as)
+      OMADA_HOSTED_URL: ${OMADA_HOSTED_URL:-}
+      OMADA_HOSTED_USER: ${OMADA_HOSTED_USER:-}
+      OMADA_HOSTED_PASSWORD: ${OMADA_HOSTED_PASSWORD:-}
       # Multi-tenant signup
       PUBLIC_URL: ${PUBLIC_URL:-https://radius.safezonetz.com}
       SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}

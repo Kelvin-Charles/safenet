@@ -181,6 +181,7 @@ def run():
     _add_column('sites', 'omada_user', 'VARCHAR(64)')
     _add_column('sites', 'omada_password_enc', 'TEXT')
     _add_column('sites', 'omada_verify_tls', 'BOOLEAN NOT NULL DEFAULT 0')
+    _add_column('sites', 'omada_hosted', 'BOOLEAN NOT NULL DEFAULT 0')
     _add_column('sites', 'omada_checked_at', 'DATETIME')
     _add_column('sites', 'omada_error', 'VARCHAR(255)')
     _add_index('sites', 'uq_sites_portal_token', 'portal_token', unique=True)

@@ -81,13 +81,14 @@ class Site(db.Model):
     omada_user = db.Column(db.String(64))              # hotspot operator
     omada_password_enc = db.Column(db.Text)            # secretbox
     omada_verify_tls = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    omada_hosted = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())  # SafeNet's own controller
     omada_checked_at = db.Column(db.DateTime)          # last successful connection
     omada_error = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     @property
     def omada_ready(self):
-        return bool(self.omada_url and self.omada_user and self.omada_password_enc and self.portal_token)
+        return bool(self.portal_token and (self.omada_hosted or (self.omada_url and self.omada_user and self.omada_password_enc)))
 
     def __repr__(self):
         return f'<Site {self.name}>'

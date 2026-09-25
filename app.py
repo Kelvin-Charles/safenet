@@ -1508,7 +1508,15 @@ def _omada_site(token):
     return site, tenant
 
 
+def _omada_hosted_available():
+    return bool(Config.OMADA_HOSTED_URL and Config.OMADA_HOSTED_USER and Config.OMADA_HOSTED_PASSWORD)
+
+
 def _omada_controller(site):
+    if site.omada_hosted:
+        if not _omada_hosted_available():
+            raise omada.OmadaError("SafeNet's Omada Controller is not set up on this server")
+        return omada.Controller(Config.OMADA_HOSTED_URL, Config.OMADA_HOSTED_USER, Config.OMADA_HOSTED_PASSWORD)
     return omada.Controller(site.omada_url, site.omada_user, secretbox.decrypt(site.omada_password_enc),
                             verify_tls=site.omada_verify_tls)
 
@@ -1685,11 +1693,28 @@ def site_omada(site_id):
     """Save (or remove) a site's Omada Controller and test the connection."""
     _check_csrf()
     site = owned_or_404(Site, site_id)
-    if request.form.get('action') == 'remove':
+    action = request.form.get('action')
+    if action == 'remove':
         site.omada_url = site.omada_user = site.omada_password_enc = site.omada_error = None
-        site.omada_checked_at = None
+        site.omada_checked_at, site.omada_hosted = None, False
         db.session.commit()
         flash(f'Omada removed from "{site.name}".', 'success')
+        return redirect(url_for('sites_page'))
+    if action == 'hosted':
+        if not _omada_hosted_available():
+            abort(404)
+        site.omada_hosted = True
+        site.omada_url = site.omada_user = site.omada_password_enc = None
+        if not site.portal_token:
+            site.portal_token = secrets.token_urlsafe(12)[:16]
+        try:
+            _omada_controller(site).check()
+            site.omada_checked_at, site.omada_error = datetime.utcnow(), None
+            flash(f'"{site.name}" now uses SafeNet\'s Omada Controller. Point your access points to {Config.OMADA_HOSTED_HOST} (steps below).', 'success')
+        except omada.OmadaError as e:
+            site.omada_error = str(e)[:255]
+            flash(f"Saved, but SafeNet's Omada Controller did not answer: {e}", 'warning')
+        db.session.commit()
         return redirect(url_for('sites_page'))
     url = (request.form.get('omada_url') or '').strip().rstrip('/')[:255]
     user = (request.form.get('omada_user') or '').strip()[:64]
@@ -1698,7 +1723,7 @@ def site_omada(site_id):
     if parsed.scheme not in ('http', 'https') or not parsed.hostname or not user or not (password or site.omada_password_enc):
         flash('Enter the controller address (e.g. https://203.0.113.5:8043), the hotspot operator name and password.', 'danger')
         return redirect(url_for('sites_page'))
-    site.omada_url, site.omada_user = url, user
+    site.omada_url, site.omada_user, site.omada_hosted = url, user, False
     if password:
         site.omada_password_enc = secretbox.encrypt(password)
     site.omada_verify_tls = bool(request.form.get('omada_verify_tls'))
@@ -2790,7 +2815,8 @@ def sites_page():
                      'today': _collected(tid, site, midnight), 'month': _collected(tid, site, month_start)})
     plan = current_tenant().billing_plan
     return render_template('sites.html', rows=rows, currency=current_tenant().currency,
-                           limit=plan.max_sites if plan else None)
+                           limit=plan.max_sites if plan else None, omada_hosted=_omada_hosted_available(),
+                           omada_host=Config.OMADA_HOSTED_HOST)
 
 
 @app.route('/sites/add', methods=['POST'])
