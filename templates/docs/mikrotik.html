@@ -1,0 +1,46 @@
+{% extends "docs/layout.html" %}
+{% block body %}
+<div class="flow" aria-label="How it connects">
+    <div class="box">Guest's phone</div><span class="arr">→</span>
+    <div class="box">MikroTik hotspot</div><span class="arr">→</span>
+    <div class="box">Internet</div>
+</div>
+<div class="flow">
+    <div class="box">MikroTik</div><span class="arr">⇄</span>
+    <div class="box hl">SafeNet<small>secure VPN tunnel</small></div>
+</div>
+<p>Your MikroTik keeps running its own hotspot and login page. SafeNet adds a secure VPN tunnel to the router, and the router asks SafeNet whether each voucher code or customer account is valid, how long it lasts and how fast it may go. It works from any internet connection, even without a fixed public IP.</p>
+
+<h2 id="need">What you need</h2>
+<ul>
+    <li>A MikroTik router with <strong>RouterOS 7</strong> (for example hAP ax lite, hAP ac², hEX with an access point).</li>
+    <li><strong>Winbox</strong> or the router's web page (WebFig) to open a terminal.</li>
+</ul>
+
+<h2 id="hotspot">1. Set up the hotspot on the MikroTik</h2>
+<p>If the router already runs a hotspot, skip this. Otherwise, in Winbox: <strong>IP → Hotspot → Hotspot Setup</strong>, choose the interface guests connect to (usually the bridge or Wi-Fi), and accept the defaults. Skip creating a local hotspot user.</p>
+
+<h2 id="safenet">2. Add the router in SafeNet</h2>
+<ol class="steps">
+    <li><strong>Pick the site</strong>Choose the site in SafeNet's top bar.</li>
+    <li><strong>Add the router</strong>Open <strong>Routers (VPN)</strong>, type a name (for example "Kariakoo hotspot"), choose <strong>MikroTik</strong>, and click <strong>Add router</strong>.</li>
+    <li><strong>Copy the script</strong>SafeNet shows a setup script made for this router. Click <strong>Copy script</strong>. Keep it private: it contains the router's VPN key and RADIUS secret.</li>
+</ol>
+
+<h2 id="script">3. Paste the script into the router</h2>
+<ol class="steps">
+    <li><strong>Open a terminal</strong>In Winbox or WebFig, click <strong>New Terminal</strong>.</li>
+    <li><strong>Paste and run</strong>Paste the whole script and press Enter. It creates the VPN tunnel, points the hotspot at SafeNet, and allows one device per code.</li>
+    <li><strong>Check the connection</strong>Run:
+        <pre><code>/interface wireguard peers print</code></pre>
+        A recent "last-handshake" means the tunnel works. Within a minute the router shows as <strong>Connected</strong> on SafeNet's Routers page.</li>
+</ol>
+
+<h2 id="test">4. Test it</h2>
+<ol class="steps">
+    <li><strong>Make a voucher</strong>In SafeNet: <strong>Vouchers → Generate</strong>, one voucher for 1 hour.</li>
+    <li><strong>Log in</strong>Join the hotspot Wi-Fi. On the MikroTik login page, type the voucher code as both the username and the password.</li>
+    <li><strong>See it in SafeNet</strong>The session appears on the <strong>Live</strong> page with its data usage.</li>
+</ol>
+<div class="note tip"><i class="bi bi-info-circle"></i><p>Speed limits from your SafeNet plans are sent to the MikroTik automatically. Buying packages with mobile money on the login page is available with Omada access points and the SafeNet gateway box; on MikroTik, sell vouchers.</p></div>
+{% endblock %}

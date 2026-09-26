@@ -161,6 +161,7 @@
             <a href="#how">How it works</a>
             <a href="#pricing">Pricing</a>
             <a href="#faq">FAQ</a>
+            <a href="{{ url_for('docs') }}">Guides</a>
         </nav>
         <div class="actions">
             {% if current_user.is_authenticated %}
@@ -409,7 +410,7 @@
             </div>
             <div>
                 <h4>Product</h4>
-                <ul><li><a href="#features">Features</a></li><li><a href="#how">How it works</a></li><li><a href="#pricing">Pricing</a></li><li><a href="#faq">FAQ</a></li></ul>
+                <ul><li><a href="#features">Features</a></li><li><a href="#how">How it works</a></li><li><a href="#pricing">Pricing</a></li><li><a href="#faq">FAQ</a></li><li><a href="{{ url_for('docs') }}">Setup guides</a></li></ul>
             </div>
             <div>
                 <h4>Account</h4>

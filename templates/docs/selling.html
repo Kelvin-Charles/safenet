@@ -1,0 +1,35 @@
+{% extends "docs/layout.html" %}
+{% block body %}
+<h2 id="packages">1. Packages: what guests can buy</h2>
+<ol class="steps">
+    <li><strong>Create packages</strong>Open <strong>Packages → New Package</strong>: a name guests understand ("1 Hour", "1 Day", "1 Week"), the price, how long it lasts, and how many devices can use it at once.</li>
+    <li><strong>Choose where it is sold</strong>In the package list, the <strong>Sold at</strong> column sets each package to one site or to <strong>All sites</strong>, so each location can have its own prices.</li>
+    <li><strong>Optional: speed limits</strong>Create a speed plan under <strong>Plans</strong> (for example 5 Mbps down, 2 Mbps up) and choose it in the package.</li>
+</ol>
+<div class="note tip"><i class="bi bi-phone"></i><p>Yas (Mixx) payments start at TZS 1,000. For cheaper packages the login page greys out Yas, so those guests pay with another network or a voucher. Keep at least one package at TZS 1,000 or more.</p></div>
+
+<h2 id="portal">2. Your login page</h2>
+<p>Open <strong>Captive portal</strong> to add your <strong>logo</strong>, choose your <strong>colour</strong>, write a welcome title and message, and pick English or Kiswahili (guests can switch). The preview shows the page as guests see it. Your support number and terms of use come from <strong>Settings</strong>.</p>
+
+<h2 id="vouchers">3. Vouchers for cash sales</h2>
+<ol class="steps">
+    <li><strong>Generate a batch</strong><strong>Vouchers → Generate</strong>: how many, how long each lasts, the price printed on it, and devices per voucher.</li>
+    <li><strong>Print them</strong>Open the batch and click <strong>Print</strong>. Each card shows the code, the price and how to use it. The time starts when the guest first logs in, not when you print.</li>
+    <li><strong>Free trials for marketing</strong>Tick <strong>Free trial (marketing)</strong> to give away codes that aren't counted as sales. Each phone can use only one free trial (on Omada and gateway sites), and the Vouchers page shows how many trial users bought a package afterwards.</li>
+</ol>
+
+<h2 id="payments">4. Getting paid</h2>
+<p>In <strong>Settings → Payments</strong>, choose how mobile-money payments reach you:</p>
+<ul>
+    <li><strong>SafeNet collects for you:</strong> no setup. Your balance grows with every sale, and you request a withdrawal on the <strong>Earnings</strong> page.</li>
+    <li><strong>Your own ClickPesa account:</strong> enter your ClickPesa keys and payments go straight to you.</li>
+</ul>
+<p>Every paying guest gets an SMS with their voucher code, so they can reconnect later.</p>
+
+<h2 id="daily">5. Every day</h2>
+<ul>
+    <li><strong>Dashboard:</strong> earnings, users online, data used and device health. Pick a site in the top bar to see just that location.</li>
+    <li><strong>Live:</strong> who is online right now, with a <strong>Disconnect</strong> button.</li>
+    <li><strong>Payments</strong> and <strong>Earnings:</strong> every sale and your balance.</li>
+</ul>
+{% endblock %}

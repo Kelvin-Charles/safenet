@@ -1,0 +1,96 @@
+{% extends "docs/layout.html" %}
+{% block body %}
+<div class="flow" aria-label="How it connects">
+    <div class="box">Guest's phone</div><span class="arr">→</span>
+    <div class="box">Any access point<small>AP mode, DHCP off</small></div><span class="arr">→</span>
+    <div class="box hl">SafeNet gateway<small>mini PC</small></div><span class="arr">→</span>
+    <div class="box">Internet router</div><span class="arr">→</span>
+    <div class="box">Internet</div>
+</div>
+<p>The gateway is a small Linux computer that sits between your access point and the internet. It gives guests their addresses, shows your login page, sells packages, and opens the internet only for guests who paid. It works with <strong>any</strong> access point (TP-Link, Comfast, Tenda, Ubiquiti…) because the access point only has to broadcast Wi-Fi.</p>
+
+<h2 id="need">What you need</h2>
+<ul>
+    <li>A <strong>mini PC with two network (Ethernet) ports</strong>, for example a fanless Intel N100 "dual LAN" model. A Raspberry Pi 4/5 with a USB network adapter works for small sites.</li>
+    <li><strong>Ubuntu Server 24.04</strong> (or Debian 12) installed on it, with internet during setup.</li>
+    <li>Any Wi-Fi <strong>access point</strong>, and two network cables.</li>
+</ul>
+<div class="note tip"><i class="bi bi-lightning-charge"></i><p>Set the mini PC's BIOS to <strong>power on after power loss</strong> ("Restore on AC power loss: Power On"), so it starts by itself after a power cut. A small UPS keeps it running through short cuts.</p></div>
+
+<h2 id="key">1. Create a gateway key in SafeNet</h2>
+<ol class="steps">
+    <li><strong>Pick the site</strong>In SafeNet, choose the site in the top bar (or on <strong>Sites</strong>, click <strong>View</strong> on it).</li>
+    <li><strong>Create the key</strong>Open <strong>Gateways</strong>, type a name (for example "Mwenge gateway") and click <strong>Create gateway key</strong>.</li>
+    <li><strong>Copy it now</strong>SafeNet shows two lines starting with <code>SAFENET_API_URL</code> and <code>SAFENET_API_KEY</code>. Copy them somewhere safe: the key is shown only once.</li>
+</ol>
+
+<h2 id="cables">2. Connect the cables</h2>
+<ol class="steps">
+    <li><strong>Internet port</strong>Cable from the <strong>internet router</strong> to the mini PC's <strong>first</strong> network port.</li>
+    <li><strong>Access point port</strong>Cable from the mini PC's <strong>second</strong> network port to the <strong>access point</strong> (or its PoE adapter's LAN port).</li>
+</ol>
+
+<h2 id="install">3. Install the gateway</h2>
+<p>On the mini PC, log in and run these commands.</p>
+<ol class="steps">
+    <li><strong>Find the port names</strong>
+        <pre><code>ip -br link</code></pre>
+        You see names like <code>enp1s0</code> and <code>enp2s0</code>. The one connected to the internet router shows an address in <code>ip -br addr</code>; the other one is the access point port. Below we use <code>enp1s0</code> = internet and <code>enp2s0</code> = access point: change them to yours.</li>
+    <li><strong>Give the access point port its address</strong>Create a network file:
+        <pre><code>sudo nano /etc/netplan/60-safenet.yaml</code></pre>
+        paste this (with your access point port name) and save:
+        <pre><code>network:
+  version: 2
+  ethernets:
+    enp2s0:
+      dhcp4: false
+      addresses: [10.10.0.1/24]</code></pre>
+        then apply it:
+        <pre><code>sudo chmod 600 /etc/netplan/60-safenet.yaml
+sudo netplan apply</code></pre></li>
+    <li><strong>Install the software</strong>
+        <pre><code>sudo apt update
+sudo apt install -y git nftables dnsmasq-base python3
+git clone {{ repo_url }} ~/safenet
+sudo ~/safenet/gateway/install.sh</code></pre></li>
+    <li><strong>Enter your settings</strong>
+        <pre><code>sudo nano /etc/safenet-gateway/gateway.env</code></pre>
+        Change these lines (use your port names and the key from step 1):
+        <pre><code>LAN_IFS="enp2s0"
+WAN_IF="enp1s0"
+DHCP_ENABLED="yes"
+SAFENET_API_URL="{{ public_url }}"
+SAFENET_API_KEY="sgw_…your key…"</code></pre></li>
+    <li><strong>Start it, and make it start on boot</strong>
+        <pre><code>sudo systemctl enable --now safenet-gw-firewall safenet-gw-dns safenet-gw-portal
+systemctl is-active safenet-gw-firewall safenet-gw-dns safenet-gw-portal</code></pre>
+        All three lines should say <code>active</code>. In SafeNet, the <strong>Gateways</strong> page now shows the gateway as seen "just now".</li>
+</ol>
+
+<h2 id="ap">4. Set up the access point</h2>
+<p>Open the access point's own setup page and set:</p>
+<ul>
+    <li><strong>Mode: Access Point</strong> (also called AP mode or bridge). <strong>Not</strong> router, WISP or repeater-router mode.</li>
+    <li><strong>DHCP server: off.</strong> The gateway gives guests their addresses.</li>
+    <li><strong>Wi-Fi: open, no password</strong>, with your Wi-Fi name. Your login page controls access.</li>
+    <li>If it has <strong>client isolation</strong> or <strong>guest network</strong>, turn it on.</li>
+</ul>
+<div class="note warn"><i class="bi bi-exclamation-triangle"></i><p><strong>Repeaters:</strong> extra repeaters are fine, but set them to <strong>repeater / range extender</strong> mode. In router or WISP mode every guest behind them looks like they are sharing a hotspot and is blocked.</p></div>
+
+<h2 id="test">5. Test it</h2>
+<ol class="steps">
+    <li><strong>Join the Wi-Fi</strong>Your phone gets an address like <code>10.10.0.x</code> and the login page opens. If it does not, open <code>http://neverssl.com</code>.</li>
+    <li><strong>Log in</strong>Use a voucher from <strong>Vouchers → Generate</strong>, or buy a package. You see "You're online" and can browse.</li>
+</ol>
+
+<h2 id="features">What the gateway adds</h2>
+<ul>
+    <li><strong>Hotspot-sharing block:</strong> guests can't share their connection through their own phone or laptop hotspot. Turn it on or off in <strong>Settings → Block hotspot sharing</strong>.</li>
+    <li><strong>One device per code</strong>, <strong>speed limits</strong> from your plans, and <strong>data usage</strong> per customer on the Live page.</li>
+    <li><strong>Instant disconnect</strong> from the Live page, and when you disable a voucher.</li>
+</ul>
+
+<h2 id="update">Updating the gateway</h2>
+<pre><code>cd ~/safenet && git pull && sudo gateway/install.sh</code></pre>
+<p>Your settings in <code>/etc/safenet-gateway/gateway.env</code> are kept. Guests who are online stay online.</p>
+{% endblock %}

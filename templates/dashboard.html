@@ -332,6 +332,7 @@
                 <div class="eyebrow">Quick actions</div><h2 class="sec mb-3">Keep growing</h2>
                 <a href="{{ url_for('add_user') }}">Add customer <i class="bi bi-arrow-right"></i></a>
                 <a href="{{ url_for('generate_vouchers') }}">Generate vouchers <i class="bi bi-arrow-right"></i></a>
+                <a href="{{ url_for('docs') }}" target="_blank" rel="noopener">Connect a Wi-Fi device <i class="bi bi-arrow-right"></i></a>
                 {% if current_user.has_role('admin') %}
                 <a href="{{ url_for('add_package') }}">Create package <i class="bi bi-arrow-right"></i></a>
                 <a href="{{ url_for('sites_page') }}">Manage sites <i class="bi bi-arrow-right"></i></a>

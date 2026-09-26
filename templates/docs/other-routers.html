@@ -1,0 +1,28 @@
+{% extends "docs/layout.html" %}
+{% block body %}
+<p>Many routers, controllers and hotspot systems can check logins with a <strong>RADIUS server</strong>. SafeNet includes one, so these devices can accept SafeNet vouchers and customer accounts.</p>
+<div class="note warn"><i class="bi bi-exclamation-triangle"></i><p>This only works if the location has a <strong>fixed public IP address</strong> (ask your internet provider). If it does not, use a MikroTik (VPN tunnel), Omada access points, or the SafeNet gateway box instead.</p></div>
+
+<h2 id="safenet">1. Add the router in SafeNet</h2>
+<ol class="steps">
+    <li><strong>Find your public IP</strong>From the location, open a site such as <code>ifconfig.me</code>. That is the address SafeNet will see.</li>
+    <li><strong>Add a RADIUS client</strong>In SafeNet open <strong>RADIUS clients (NAS)</strong> → <strong>Add</strong>: the public IP, a short name, the vendor, and a <strong>secret</strong> (a long password, at least 6 characters).</li>
+</ol>
+
+<h2 id="router">2. Point the router to SafeNet</h2>
+<p>In your router's hotspot or RADIUS settings, enter:</p>
+<div class="table-scroll">
+<table>
+    <tbody>
+        <tr><th>RADIUS server</th><td><code>{{ public_host }}</code></td></tr>
+        <tr><th>Authentication port</th><td><code>1812</code></td></tr>
+        <tr><th>Accounting port</th><td><code>1813</code> (turn accounting on, so SafeNet sees usage)</td></tr>
+        <tr><th>Secret</th><td>the secret you entered in SafeNet</td></tr>
+    </tbody>
+</table>
+</div>
+<p>Guests then log in on the router's own login page with a voucher code (as both username and password) or with a customer account from SafeNet's <strong>Users</strong> page.</p>
+
+<h2 id="test">3. Test it</h2>
+<p>Make a voucher (<strong>Vouchers → Generate</strong>) and log in with it. SafeNet's <strong>Auth Logs</strong> page shows every accepted or rejected login, which helps when something does not work.</p>
+{% endblock %}

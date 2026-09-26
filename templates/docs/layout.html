@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page.title }} - SafeNet guides</title>
+    <meta name="description" content="{{ page.summary }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.2/font/bootstrap-icons.css">
+    <style>
+        :root { --ink: #051D60; --ink-2: #334155; --muted: #64748b; --line: #e2e8f0; --soft: #F6F8FC; --paper: #ffffff;
+                --tint: #DCE3F5; --ok: #15803D; --ok-bg: #EAF7EF; --warn: #92400E; --warn-bg: #FFF7E6; --bad: #B91C1C; --bad-bg: #FDECEC; }
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body { margin: 0; font-family: 'Poppins', system-ui, sans-serif; color: #0f172a; background: var(--paper); line-height: 1.7; font-size: 16px; }
+        a { color: #1E3A8A; }
+        header { position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,.96); border-bottom: 1px solid var(--line); }
+        header .in { max-width: 1180px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-weight: 700; font-size: 20px; }
+        .brand img { width: 34px; height: auto; }
+        .brand small { font-weight: 500; font-size: 14px; color: var(--muted); border-left: 1px solid var(--line); padding-left: 10px; }
+        header nav { display: flex; gap: 22px; font-size: 15px; }
+        header nav a { color: var(--ink-2); text-decoration: none; }
+        header nav a:hover { color: var(--ink); }
+        header nav .login { color: var(--paper); background: var(--ink); padding: 6px 16px; border-radius: 8px; }
+
+        .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 20px 64px; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 48px; }
+        aside nav { position: sticky; top: 88px; }
+        aside .label { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+        aside a { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 8px; color: var(--ink-2); text-decoration: none; font-size: 15px; }
+        aside a:hover { background: var(--soft); color: var(--ink); }
+        aside a.on { background: var(--tint); color: var(--ink); font-weight: 600; }
+        aside a i { color: var(--ink); opacity: .8; }
+
+        article { min-width: 0; max-width: 780px; }
+        .crumbs { font-size: 14px; color: var(--muted); margin-bottom: 8px; }
+        .crumbs a { color: var(--muted); }
+        h1 { font-size: 34px; line-height: 1.25; color: var(--ink); margin: 0 0 12px; }
+        .lead { font-size: 18px; color: var(--ink-2); margin: 0 0 28px; }
+        h2 { font-size: 23px; color: var(--ink); margin: 44px 0 12px; padding-top: 8px; scroll-margin-top: 90px; }
+        h3 { font-size: 18px; color: var(--ink); margin: 28px 0 8px; scroll-margin-top: 90px; }
+        p, li { color: #1f2937; }
+        code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .9em; background: var(--soft); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; }
+        pre { background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 16px 18px; overflow-x: auto; font-size: 14px; line-height: 1.6; }
+        pre code { background: none; border: 0; padding: 0; color: inherit; }
+        .copy-wrap { position: relative; }
+        .copy-btn { position: absolute; top: 8px; right: 8px; background: #1e293b; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; font: 500 12px Poppins, sans-serif; padding: 4px 10px; cursor: pointer; }
+
+        ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 16px 0; }
+        ol.steps > li { counter-increment: s; position: relative; padding: 0 0 18px 52px; }
+        ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 34px; height: 34px; border-radius: 50%;
+                                background: var(--ink); color: #fff; font-weight: 600; display: grid; place-items: center; font-size: 15px; }
+        ol.steps > li::after { content: ''; position: absolute; left: 16px; top: 38px; bottom: 4px; width: 2px; background: var(--line); }
+        ol.steps > li:last-child::after { display: none; }
+        ol.steps > li > strong:first-child { display: block; color: var(--ink); font-size: 17px; margin-bottom: 2px; }
+
+        .note { border-radius: 10px; padding: 14px 16px 14px 48px; position: relative; margin: 18px 0; font-size: 15px; }
+        .note i { position: absolute; left: 16px; top: 15px; font-size: 18px; }
+        .note p { margin: 0; }
+        .note.tip { background: var(--soft); border: 1px solid var(--tint); } .note.tip i { color: var(--ink); }
+        .note.ok { background: var(--ok-bg); } .note.ok i { color: var(--ok); }
+        .note.warn { background: var(--warn-bg); } .note.warn i { color: var(--warn); }
+        .note.stop { background: var(--bad-bg); } .note.stop i { color: var(--bad); }
+
+        .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 20px 0; }
+        @media (max-width: 560px) { .cards { grid-template-columns: 1fr; } }
+        .card { border: 1px solid var(--line); border-radius: 14px; padding: 20px; text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 6px; transition: border-color .15s, transform .15s; }
+        .card:hover { border-color: var(--ink); transform: translateY(-2px); }
+        .card .ic { width: 42px; height: 42px; border-radius: 10px; background: var(--tint); color: var(--ink); display: grid; place-items: center; font-size: 20px; }
+        .card b { color: var(--ink); font-size: 17px; }
+        .card span { color: var(--ink-2); font-size: 14px; }
+        .card .tag { align-self: flex-start; font-size: 12px; font-weight: 600; background: var(--ok-bg); color: var(--ok); border-radius: 999px; padding: 2px 10px; }
+
+        .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 18px 0; font-size: 14px; }
+        .flow .box { border: 1.5px solid var(--ink); border-radius: 10px; padding: 8px 12px; background: var(--paper); color: var(--ink); font-weight: 500; text-align: center; }
+        .flow .box small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
+        .flow .box.hl { background: var(--ink); color: #fff; } .flow .box.hl small { color: var(--tint); }
+        .flow .arr { color: var(--muted); font-size: 18px; }
+
+        table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 15px; }
+        th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+        th { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+        .table-scroll { overflow-x: auto; }
+        .next { display: flex; justify-content: space-between; gap: 16px; margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); }
+        .next a { text-decoration: none; font-weight: 500; }
+        footer { border-top: 1px solid var(--line); text-align: center; color: var(--muted); font-size: 13px; padding: 20px; }
+
+        @media (max-width: 900px) {
+            .wrap { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 16px; }
+            aside { min-width: 0; }
+            aside nav { position: static; display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; }
+            aside .label { display: none; }
+            aside a { white-space: nowrap; border: 1px solid var(--line); }
+            header nav .hide-sm { display: none; }
+            h1 { font-size: 27px; }
+            .brand small { display: none; }
+        }
+        @media print { header, aside, .next, .copy-btn { display: none; } .wrap { display: block; } }
+    </style>
+</head>
+<body>
+<header>
+    <div class="in">
+        <a href="{{ url_for('docs') }}" class="brand"><img src="{{ url_for('static', filename='img/safenet-mark.png') }}" alt="">SafeNet <small>Setup guides</small></a>
+        <nav>
+            <a href="{{ url_for('landing') }}" class="hide-sm">Home</a>
+            {% if current_user.is_authenticated %}<a href="{{ url_for('dashboard') }}" class="login">Dashboard</a>
+            {% else %}<a href="{{ url_for('login') }}" class="login">Log in</a>{% endif %}
+        </nav>
+    </div>
+</header>
+<div class="wrap">
+    <aside>
+        <nav aria-label="Guides">
+            <p class="label">Guides</p>
+            {% for p in pages %}
+            <a href="{{ url_for('docs', slug=p.slug) if p.slug != 'start' else url_for('docs') }}" class="{{ 'on' if p.slug == page.slug }}"><i class="bi {{ p.icon }}"></i>{{ p.short }}</a>
+            {% endfor %}
+        </nav>
+    </aside>
+    <article>
+        {% if page.slug != 'start' %}<div class="crumbs"><a href="{{ url_for('docs') }}">Guides</a> / {{ page.short }}</div>{% endif %}
+        <h1>{{ page.title }}</h1>
+        <p class="lead">{{ page.summary }}</p>
+        {% block body %}{% endblock %}
+        <div class="next">
+            <span>{% if prev %}<a href="{{ url_for('docs', slug=prev.slug) if prev.slug != 'start' else url_for('docs') }}">← {{ prev.short }}</a>{% endif %}</span>
+            <span>{% if next %}<a href="{{ url_for('docs', slug=next.slug) }}">{{ next.short }} →</a>{% endif %}</span>
+        </div>
+    </article>
+</div>
+<footer>SafeNet · Powered by Safezone Tech{% if support %} · Help: {{ support }}{% endif %}</footer>
+<script>
+document.querySelectorAll('pre').forEach(function (pre) {
+    var w = document.createElement('div'); w.className = 'copy-wrap'; pre.parentNode.insertBefore(w, pre); w.appendChild(pre);
+    var b = document.createElement('button'); b.className = 'copy-btn'; b.type = 'button'; b.textContent = 'Copy';
+    b.onclick = function () { navigator.clipboard && navigator.clipboard.writeText(pre.innerText).then(function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1500); }); };
+    w.appendChild(b);
+});
+</script>
+</body>
+</html>

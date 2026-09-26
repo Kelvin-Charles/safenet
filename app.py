@@ -215,6 +215,45 @@ def _device_state(last_seen, now):
     return 'online' if age < 180 else ('degraded' if age < 900 else 'offline')
 
 
+DOCS = [
+    # slug, short name, icon, title, summary
+    ('start', 'Start here', 'bi-signpost-split', 'Connect your Wi-Fi to SafeNet',
+     'Pick the setup that matches the equipment you have, then follow its step-by-step guide.'),
+    ('omada', 'TP-Link Omada (EAP)', 'bi-wifi', 'TP-Link Omada access points',
+     'EAP225 and other Omada access points: plug in, point them to SafeNet, and sell internet. No extra box needed.'),
+    ('gateway', 'SafeNet gateway box', 'bi-hdd-network', 'SafeNet gateway box with any access point',
+     'A small Linux computer between the internet and any access point. Every SafeNet feature, with any brand of Wi-Fi.'),
+    ('mikrotik', 'MikroTik', 'bi-router', 'MikroTik routers',
+     'Connect a MikroTik hotspot to SafeNet with one script. Vouchers, customer accounts and speed limits.'),
+    ('other-routers', 'Other routers', 'bi-diagram-3', 'Other routers (RADIUS)',
+     'Any router or controller that can check logins with a RADIUS server.'),
+    ('selling', 'Start selling', 'bi-bag-check', 'After connecting: start selling',
+     'Packages, the login page, vouchers and payments: what to set up once your Wi-Fi is connected.'),
+    ('troubleshooting', 'Troubleshooting', 'bi-life-preserver', 'Troubleshooting',
+     'The common problems, what causes them and how to fix them.'),
+]
+DOC_PAGES = [dict(zip(('slug', 'short', 'icon', 'title', 'summary'), d)) for d in DOCS]
+
+
+@app.route('/docs')
+@app.route('/docs/<slug>')
+def docs(slug='start'):
+    """Public setup guides (no login needed, so installers can follow them too)."""
+    index = {p['slug']: i for i, p in enumerate(DOC_PAGES)}
+    if slug not in index:
+        abort(404)
+    i = index[slug]
+    home = Tenant.query.filter_by(slug=migrations.DEFAULT_TENANT_SLUG).first()
+    public = Config.PUBLIC_URL or request.host_url.rstrip('/')
+    return render_template(f'docs/{slug}.html', pages=DOC_PAGES, page=DOC_PAGES[i],
+                           prev=DOC_PAGES[i - 1] if i > 0 else None,
+                           next=DOC_PAGES[i + 1] if i + 1 < len(DOC_PAGES) else None,
+                           public_url=public, public_host=urlparse(public).hostname or request.host,
+                           omada_host=Config.OMADA_HOSTED_HOST, omada_hosted=_omada_hosted_available(),
+                           repo_url='https://github.com/Kelvin-Charles/safenet.git',
+                           support=(home.support_phone if home else None) or Config.HOTSPOT_SUPPORT)
+
+
 @app.route('/dashboard')
 @login_required
 def dashboard():
