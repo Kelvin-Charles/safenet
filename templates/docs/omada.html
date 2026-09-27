@@ -10,7 +10,7 @@
     <div class="box">Omada access point</div><span class="arr">⇄</span>
     <div class="box hl">SafeNet<small>{{ omada_host }}</small></div>
 </div>
-<p>Your access points connect to SafeNet over the internet. SafeNet runs the Omada Controller that manages them and shows your login page. When a guest pays or enters a voucher, SafeNet lets that phone online for the time they bought. Browsing goes straight from your access point to the internet; it does not pass through SafeNet.</p>
+<p>Your access points connect to SafeNet over the internet. SafeNet runs the Omada Controller for you, so you set everything up inside SafeNet: <strong>no Omada account needed</strong>. When a guest pays or enters a voucher, SafeNet lets that phone online for the time they bought. Browsing goes straight from your access point to the internet; it does not pass through SafeNet.</p>
 
 <h2 id="need">What you need</h2>
 <ul>
@@ -20,42 +20,39 @@
     <li>A laptop or phone to set up the access point.</li>
 </ul>
 
-<h2 id="safenet">1. Turn on Omada in SafeNet</h2>
+<h2 id="safenet">1. Create your Wi-Fi in SafeNet</h2>
 <ol class="steps">
-    <li><strong>Open your site</strong>Log in to SafeNet, open <strong>Sites</strong>, and click the <strong>Omada</strong> button next to the site where the access point will be.</li>
-    <li><strong>Choose SafeNet's controller</strong>Click <strong>Use SafeNet's controller (recommended)</strong>. SafeNet shows a green "Using SafeNet's Omada Controller" message.</li>
-    <li><strong>Add packages</strong>On the <strong>Packages</strong> page, make sure you have at least one package on sale at this site (or at "All sites"). Guests buy these on the login page.</li>
+    <li><strong>Open your site</strong>Log in to SafeNet, open <strong>Sites</strong>, click <strong>Omada</strong> next to the site, then <strong>Set up Wi-Fi access points</strong>.</li>
+    <li><strong>Name your Wi-Fi</strong>Type the name guests will see (for example "Zulu Connect WiFi") and click <strong>Create my Wi-Fi</strong>. SafeNet prepares everything: an open Wi-Fi with your login page.</li>
+    <li><strong>Add packages</strong>On the <strong>Packages</strong> page, make sure at least one package is on sale at this site (or at "All sites").</li>
 </ol>
 
-<h2 id="connect">2. Connect the access point</h2>
+<h2 id="connect">2. Prepare the access point</h2>
 <ol class="steps">
     <li><strong>Plug it in</strong>On the PoE adapter: the <strong>PoE</strong> port goes to the access point, the <strong>LAN</strong> port goes to your internet router. Plug the adapter into power and wait about 2 minutes.</li>
     <li><strong>Reset it if it was used before</strong>If the access point was set up before (or added to a TP-Link cloud account), hold its <strong>Reset</strong> button for about 10 seconds with the power on, until the light flashes. Wait 3 minutes.</li>
-    <li><strong>Open its setup page</strong>Connect your laptop or phone to the same router. Find the access point in your router's list of connected devices (it is usually called "EAP225" or similar) and open its address in a browser, for example <code>https://192.168.1.33</code>. Accept the browser's security warning.</li>
+    <li><strong>Open its setup page</strong>Connect your laptop or phone to the same router. Find the access point in your router's list of connected devices (usually called "EAP225" or similar) and open its address in a browser, for example <code>https://192.168.1.33</code>. Accept the browser's security warning.</li>
     <li><strong>Finish its quick setup</strong>Log in with <code>admin</code> / <code>admin</code>. When asked:
         <ul>
             <li>Operation mode: <strong>AP Mode</strong>.</li>
             <li>Create a username and password for the device, and write them down.</li>
-            <li>Leave the Wi-Fi names as they are. SafeNet replaces them later.</li>
-            <li>If it offers to <strong>sign in with a TP-Link ID or cloud account, skip it</strong>. A cloud account ties the access point to TP-Link's cloud instead of SafeNet.</li>
+            <li>Leave the Wi-Fi names as they are. SafeNet replaces them.</li>
+            <li>If it offers to <strong>sign in with a TP-Link ID or cloud account, skip it</strong>. That would tie it to TP-Link's cloud instead of SafeNet.</li>
         </ul>
     </li>
-    <li><strong>Point it to SafeNet</strong>Open <strong>Controller Settings</strong> (under <em>System</em> or <em>Management</em>, depending on the firmware). Turn on <strong>Cloud-Based Controller Management</strong> (also called <em>Controller Inform URL</em> or <em>Controller Hostname/IP</em>) and enter:
+    <li><strong>Point it to SafeNet</strong>Open <strong>Controller Settings</strong> (under <em>System</em> or <em>Management</em>). Turn on <strong>Cloud-Based Controller Management</strong> (also called <em>Controller Inform URL</em> or <em>Controller Hostname/IP</em>) and enter:
         <pre><code>{{ omada_host }}</code></pre>
         Click <strong>Save</strong>.</li>
 </ol>
 <div class="note tip"><i class="bi bi-windows"></i><p><strong>Setting up many access points?</strong> On a Windows laptop, TP-Link's free <em>Omada Discovery Utility</em> finds every access point on the network. Tick them, click <strong>Batch Setting</strong>, and enter <code>{{ omada_host }}</code> as the Controller Hostname/IP.</p></div>
 <div class="note warn"><i class="bi bi-exclamation-triangle"></i><p><strong>No "Controller Settings" on the page?</strong> The firmware is too old. Download the newest firmware for your model <em>and hardware version</em> (printed on the label, for example "Ver: 5.0") from tp-link.com, install it under <strong>System → Firmware Update</strong>, then try again.</p></div>
 
-<h2 id="finish">3. Send us the details</h2>
-<p>Send SafeNet support{% if support %} ({{ support }}){% endif %}:</p>
-<ul>
-    <li>the <strong>MAC address</strong> on the access point's label (for example <code>B8-FB-B3-79-C7-E6</code>),</li>
-    <li>your <strong>SafeNet site name</strong>,</li>
-    <li>the <strong>Wi-Fi name</strong> you want guests to see (for example "Zulu Connect WiFi"),</li>
-    <li>the device <strong>username and password</strong> you created in step 2.4.</li>
-</ul>
-<p>We add the access point to your site, create your Wi-Fi and switch on your login page, usually within a few minutes. The access point restarts once while it takes the new settings.</p>
+<h2 id="finish">3. Add it in SafeNet</h2>
+<ol class="steps">
+    <li><strong>Enter its MAC address</strong>Back on SafeNet's <strong>Wi-Fi access points</strong> page, type the MAC address from the label (for example <code>B8-FB-B3-79-C7-E6</code>). If you created a username and password on the access point, enter them too. Click <strong>Add</strong>.</li>
+    <li><strong>Wait for "Online"</strong>The access point restarts once while it takes your Wi-Fi settings. After 1–3 minutes it shows <strong>Online</strong> in the list (click <strong>Refresh</strong>).</li>
+</ol>
+<div class="note tip"><i class="bi bi-info-circle"></i><p><strong>"SafeNet can't see it yet"?</strong> The access point hasn't reached SafeNet: check it has internet and that the controller address in step 2.5 is exactly <code>{{ omada_host }}</code>, wait 2 minutes, and try again.</p></div>
 
 <h2 id="test">4. Test it</h2>
 <ol class="steps">
@@ -66,7 +63,7 @@
 </ol>
 
 <h2 id="more">Adding more access points</h2>
-<p>Repeat section 2 for each new access point and send us its MAC address. It joins the same site, broadcasts the same Wi-Fi and uses the same login page. Guests move between access points without logging in again.</p>
+<p>Repeat sections 2 and 3 for each new access point. It joins the same site, broadcasts the same Wi-Fi and uses the same login page. Guests move between access points without logging in again.</p>
 
 <h2 id="own-controller">Already have your own Omada Controller?</h2>
 <p>If you run your own controller (software, OC200 or OC300), you can keep it:</p>
@@ -77,8 +74,8 @@
     <li><strong>Create the portal</strong>Follow <a href="#support">the portal steps below</a> in your own controller, using the portal URL SafeNet shows.</li>
 </ol>
 
-<h2 id="support">For SafeNet support: finishing the setup</h2>
-<p>These steps are done by SafeNet support in the Omada Controller (<code>https://omada.safezonetz.com</code>).</p>
+<h2 id="support">For SafeNet support: doing it by hand</h2>
+<p>SafeNet does all of this automatically. Only if the automatic setup is unavailable, support can do it in the Omada Controller (<code>https://omada.safezonetz.com</code>):</p>
 <ol class="steps">
     <li><strong>Create the customer's site</strong>Site menu (top left) → <strong>Add Site</strong>. Use the customer's name, country Tanzania, time zone Nairobi (UTC+3). SafeNet gets access to new sites automatically within 5 minutes.</li>
     <li><strong>Adopt the access point</strong>In that site: <strong>Devices</strong> → the access point shows as <strong>Pending</strong> → <strong>Adopt</strong>. Enter the device username and password the customer set. Wait until it is <strong>Connected</strong>.</li>

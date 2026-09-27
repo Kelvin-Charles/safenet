@@ -74,6 +74,9 @@ class Config:
     OMADA_HOSTED_USER = os.getenv('OMADA_HOSTED_USER', '')
     OMADA_HOSTED_PASSWORD = os.getenv('OMADA_HOSTED_PASSWORD', '')
     OMADA_HOSTED_HOST = os.getenv('OMADA_HOSTED_HOST', '') or WG_ENDPOINT    # what access points are told to use
+    # Open API app on SafeNet's controller: lets tenants add access points from SafeNet alone
+    OMADA_OPENAPI_CLIENT_ID = os.getenv('OMADA_OPENAPI_CLIENT_ID', '')
+    OMADA_OPENAPI_CLIENT_SECRET = os.getenv('OMADA_OPENAPI_CLIENT_SECRET', '')
     # WiFiDog access points call SafeNet over plain HTTP (many can't follow the HTTPS redirect of
     # the public site), so they use the app port directly; guests' browsers move to HTTPS.
     WIFIDOG_BASE = os.getenv('WIFIDOG_BASE', f'http://{WG_ENDPOINT}:5001').rstrip('/')

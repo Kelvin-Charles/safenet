@@ -82,6 +82,9 @@ class Site(db.Model):
     omada_password_enc = db.Column(db.Text)            # secretbox
     omada_verify_tls = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     omada_hosted = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())  # SafeNet's own controller
+    omada_site_id = db.Column(db.String(64))            # the site SafeNet created for it in its controller
+    omada_ssid = db.Column(db.String(32))               # guest Wi-Fi name SafeNet created
+    omada_device_password_enc = db.Column(db.Text)      # login the controller sets on adopted access points
     # WiFiDog access points (Ruijie RG-AP and others) use /wifidog/<portal_token>/ as their auth server
     wifidog_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     wifidog_seen_at = db.Column(db.DateTime)            # last ping or request from an access point

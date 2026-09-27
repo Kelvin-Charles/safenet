@@ -16,6 +16,7 @@ Controllers usually have a self-signed certificate, so TLS checking is optional.
 """
 import http.cookiejar
 import json
+import re
 import ssl
 import urllib.error
 import urllib.request
@@ -111,3 +112,159 @@ class Controller:
         cid = self.controller_id()
         self.login()
         return cid
+
+
+class OpenApi:
+    """Omada Open API (client-credentials app) used to set sites up for tenants:
+    create the site, adopt access points, create the guest Wi-Fi and the portal
+    that sends guests to SafeNet, and cut guests off."""
+
+    def __init__(self, url, client_id, client_secret, verify_tls=False, timeout=15):
+        self.web = Controller(url, '', '', verify_tls=verify_tls, timeout=timeout)
+        self.client_id, self.client_secret = client_id or '', client_secret or ''
+        self._token, self._token_until = None, 0
+
+    # -- plumbing --------------------------------------------------------
+    def _cid(self):
+        cid = self.web.controller_id()
+        if not cid:
+            raise OmadaError('the controller did not report its ID')
+        return cid
+
+    def _authorize(self):
+        import time as _time
+        if self._token and _time.time() < self._token_until:
+            return self._token
+        result = self.web._request('POST', '/openapi/authorize/token?grant_type=client_credentials',
+                                   {'omadacId': self._cid(), 'client_id': self.client_id, 'client_secret': self.client_secret})
+        token = result.get('accessToken')
+        if not token:
+            raise OmadaError('the controller gave no access token: check the Open API app in the controller')
+        self._token, self._token_until = token, _time.time() + max(60, int(result.get('expiresIn') or 3600) - 60)
+        return token
+
+    def _call(self, method, path, body=None):
+        data = json.dumps(body).encode() if body is not None else None
+        url = f'{self.web.base}/openapi/v1/{self._cid()}{path}' if not path.startswith('/openapi/') else self.web.base + path.replace('{cid}', self._cid())
+        for attempt in (1, 2):
+            req = urllib.request.Request(url, data=data, method=method)
+            req.add_header('Accept', 'application/json')
+            req.add_header('Content-Type', 'application/json')
+            req.add_header('Authorization', f'AccessToken={self._authorize()}')
+            try:
+                with self.web.opener.open(req, timeout=self.web.timeout) as resp:
+                    reply = json.loads(resp.read() or b'{}')
+            except urllib.error.HTTPError as e:
+                raise OmadaError(f'controller answered HTTP {e.code} for {path}') from e
+            except (urllib.error.URLError, OSError) as e:
+                raise OmadaError(f"can't reach the controller ({getattr(e, 'reason', e)})") from e
+            except ValueError as e:
+                raise OmadaError(f'controller sent something that is not JSON for {path}') from e
+            code = reply.get('errorCode', 0)
+            if code in (-44106, -44112, -44113) and attempt == 1:     # token expired or invalid: get a new one
+                self._token = None
+                continue
+            if code != 0:
+                raise OmadaError(f"controller refused {path}: {reply.get('msg') or code}")
+            return reply.get('result')
+        raise OmadaError('controller kept refusing the access token')
+
+    @staticmethod
+    def mac(value):
+        raw = re.sub(r'[^0-9A-Fa-f]', '', value or '').upper()
+        if len(raw) != 12:
+            raise OmadaError('enter the MAC address from the label, e.g. B8-FB-B3-79-C7-E6')
+        return '-'.join(raw[i:i + 2] for i in range(0, 12, 2))
+
+    def _pages(self, path, key='data'):
+        result = self._call('GET', f'{path}{"&" if "?" in path else "?"}page=1&pageSize=1000') or {}
+        return result.get(key, []) if isinstance(result, dict) else result
+
+    # -- sites -----------------------------------------------------------
+    def find_site(self, name):
+        for s in self._pages('/sites?searchKey=' + urllib.request.quote(name)):
+            if s.get('name') == name:
+                return s.get('siteId')
+        return None
+
+    def create_site(self, name, device_user, device_password, region='Tanzania', time_zone='Africa/Nairobi'):
+        scenarios = self._call('GET', '/scenarios') or []
+        scenario = 'Hotel' if 'Hotel' in scenarios else (scenarios[0] if scenarios else 'Hotel')
+        result = self._call('POST', '/sites', {'name': name[:64], 'type': 0, 'region': region, 'timeZone': time_zone,
+                                              'scenario': scenario, 'supportES': False, 'supportL2': True,
+                                              'deviceAccountSetting': {'username': device_user, 'password': device_password}}) or {}
+        return result.get('siteId') or self.find_site(name[:64])
+
+    # -- devices ---------------------------------------------------------
+    def devices(self, site_id):
+        return self._pages(f'/sites/{site_id}/devices')
+
+    def pending(self, site_id):
+        return self._pages(f'/sites/{site_id}/grid/devices/pending')
+
+    def adopt(self, site_id, mac, username=None, password=None):
+        body = {'username': username, 'password': password} if username and password else {}
+        self._call('POST', f'/sites/{site_id}/devices/{mac}/start-adopt', body)
+
+    def adopt_result(self, site_id, mac):
+        return self._call('GET', f'/sites/{site_id}/devices/{mac}/adopt-result') or {}
+
+    # -- guest Wi-Fi and portal --------------------------------------------
+    def ensure_ssid(self, site_id, name):
+        groups = self._call('GET', f'/sites/{site_id}/wireless-network/ssids') or []
+        for g in groups:
+            for s in g.get('ssidList') or []:
+                if s.get('ssidName') == name:
+                    return s.get('ssidId')
+        wlans = self._call('GET', f'/sites/{site_id}/wireless-network/wlans') or []
+        wlan = next((w for w in wlans if w.get('primary')), wlans[0] if wlans else None)
+        if not wlan:
+            raise OmadaError('the site has no WLAN group')
+        self._call('POST', f'/openapi/v2/{{cid}}/sites/{site_id}/wireless-network/wlans/{wlan["wlanId"]}/ssids',
+                   {'name': name[:32], 'deviceType': 1, 'band': 3, 'guestNetEnable': True, 'security': 0, 'broadcast': True})
+        for g in self._call('GET', f'/sites/{site_id}/wireless-network/ssids') or []:
+            for s in g.get('ssidList') or []:
+                if s.get('ssidName') == name[:32]:
+                    return s.get('ssidId')
+        raise OmadaError('the Wi-Fi was not created')
+
+    def ensure_portal(self, site_id, ssid_id, portal_url, name='SafeNet'):
+        scheme, _, rest = portal_url.partition('://')
+        body = {'name': name, 'enable': True, 'ssidList': [ssid_id], 'authType': 4,
+                'authTimeout': {'customTimeout': 1, 'customTimeoutUnit': 3},
+                'httpsRedirectEnable': False, 'landingPage': 1,
+                'externalPortal': {'hostType': 2, 'serverUrlScheme': scheme or 'https', 'serverUrl': rest}}
+        existing = next((p for p in (self._call('GET', f'/sites/{site_id}/portals') or []) if p.get('name') == name), None)
+        if existing:
+            ssids = sorted(set((existing.get('ssidList') or []) + [ssid_id]))
+            self._call('PATCH', f'/sites/{site_id}/portal/{existing["id"]}', {**body, 'ssidList': ssids})
+            return existing['id']
+        self._call('POST', f'/sites/{site_id}/portal', body)
+        return next((p.get('id') for p in (self._call('GET', f'/sites/{site_id}/portals') or []) if p.get('name') == name), None)
+
+    def ensure_pre_auth(self, site_id, host):
+        current = self._call('GET', f'/sites/{site_id}/setting/access-control') or {}
+        policies = current.get('preAuthAccessPolicies') or []
+        if not any(p.get('type') == 2 and p.get('url') == host for p in policies):
+            policies = policies + [{'type': 2, 'url': host}]
+        self._call('PATCH', f'/sites/{site_id}/setting/access-control',
+                   {'preAuthAccessEnable': True, 'preAuthAccessPolicies': policies,
+                    'freeAuthClientEnable': bool(current.get('freeAuthClientEnable')),
+                    'freeAuthClientPolicies': current.get('freeAuthClientPolicies') or []})
+
+    def ensure_operator_site(self, site_id, operator, operator_password, any_site_id):
+        """Give SafeNet's hotspot operator access to a new site."""
+        ops = self._pages(f'/sites/{any_site_id}/hotspot/operators')
+        op = next((o for o in ops if o.get('name') == operator), None)
+        if op is None:
+            return False
+        sites = [s.get('siteId') if isinstance(s, dict) else s for s in (op.get('sites') or op.get('selectedSites') or [])]
+        if site_id in sites:
+            return True
+        self._call('PATCH', f'/sites/{any_site_id}/hotspot/operators/{op["id"]}',
+                   {'name': operator, 'password': operator_password, 'operatorRoleType': op.get('operatorRoleType', 0),
+                    'selectedSites': [s for s in sites if s] + [site_id]})
+        return True
+
+    def unauth(self, site_id, client_mac):
+        self._call('POST', f'/sites/{site_id}/hotspot/clients/{self.mac(client_mac)}/unauth')

@@ -1195,6 +1195,14 @@ def disconnect_subscriber(tid, username):
         if nas and nas.secret:
             targets.append((s.nasipaddress, nas.secret, username, s.acctsessionid, s.framedipaddress))
 
+    for s in RadAcct.query.filter(RadAcct.username == username, RadAcct.acctstoptime.is_(None),
+                                  RadAcct.calledstationid.like('omada-%'),
+                                  func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime) >= recent):
+        site = db.session.get(Site, int(s.calledstationid.split('-', 1)[1])) if s.calledstationid[6:].isdigit() else None
+        if site is not None and site.tenant_id == tid:
+            _omada_unauth_async(site, s.callingstationid)
+            s.acctstoptime, s.acctterminatecause = datetime.utcnow(), 'Admin-Reset'
+
     def send():
         for target in targets:
             ok, message = radclient.disconnect(*target)
@@ -1734,6 +1742,162 @@ def omada_wait(token):
     return _omada_page(site, tenant, view='wait', ref=ref, timed_out=timed_out,
                        info={'amount': f'{payment.amount:.0f}', 'currency': payment.currency, 'phone': payment.phone,
                              'package': payment.package_name})
+
+
+# ---------------------------------------------------------------------------
+# Omada access points managed from SafeNet alone (Open API on SafeNet's controller):
+# SafeNet creates the controller site, the guest Wi-Fi and the portal, and adopts
+# the tenant's access points. Tenants never open the controller.
+# ---------------------------------------------------------------------------
+OMADA_STATUS = {0: ('Offline', 'secondary'), 1: ('Online', 'success'), 2: ('Waiting to be added', 'warning'),
+                3: ('Not responding', 'warning'), 4: ('Isolated', 'danger')}
+OMADA_DETAIL = {10: 'Setting up', 11: 'Setting up', 12: 'Updating firmware', 13: 'Restarting', 22: 'Adding',
+                23: 'Adding', 24: 'Adding failed', 25: 'Adding failed', 26: 'Managed by another controller',
+                27: 'Managed by another controller'}
+
+
+def _omada_openapi_available():
+    return bool(_omada_hosted_available() and Config.OMADA_OPENAPI_CLIENT_ID and Config.OMADA_OPENAPI_CLIENT_SECRET)
+
+
+_openapi_clients = {}
+
+
+def _openapi():
+    """One client per controller/app, so its access token is reused until it expires."""
+    key = (Config.OMADA_HOSTED_URL, Config.OMADA_OPENAPI_CLIENT_ID, Config.OMADA_OPENAPI_CLIENT_SECRET)
+    if key not in _openapi_clients:
+        _openapi_clients[key] = omada.OpenApi(*key)
+    return _openapi_clients[key]
+
+
+def _omada_site_name(site, tenant):
+    many = Site.query.filter_by(tenant_id=tenant.id).count() > 1
+    return (f'{tenant.name} - {site.name}' if many else tenant.name)[:64]
+
+
+def _omada_provision(site, tenant, wifi_name):
+    """Create or update everything in the controller for this site. Raises OmadaError."""
+    api = _openapi()
+    if not site.portal_token:
+        site.portal_token = secrets.token_urlsafe(12)[:16]
+    site.omada_hosted = True
+    if not site.omada_site_id:
+        name = _omada_site_name(site, tenant)
+        site_id = api.find_site(name)
+        if not site_id:
+            device_pw = secrets.token_urlsafe(14) + 'a1A'
+            site_id = api.create_site(name, 'safenet', device_pw)
+            site.omada_device_password_enc = secretbox.encrypt(device_pw)
+        if not site_id:
+            raise omada.OmadaError('the controller did not create the site')
+        site.omada_site_id = site_id
+    ssid_id = api.ensure_ssid(site.omada_site_id, wifi_name)
+    public = Config.PUBLIC_URL.rstrip('/')
+    api.ensure_portal(site.omada_site_id, ssid_id, f"{public}/omada/{site.portal_token}")
+    api.ensure_pre_auth(site.omada_site_id, urlparse(public).hostname)
+    others = [x.omada_site_id for x in Site.query.filter(Site.omada_site_id.isnot(None), Site.id != site.id)]
+    api.ensure_operator_site(site.omada_site_id, Config.OMADA_HOSTED_USER, Config.OMADA_HOSTED_PASSWORD,
+                             others[0] if others else site.omada_site_id)
+    site.omada_ssid = wifi_name[:32]
+    site.omada_checked_at, site.omada_error = datetime.utcnow(), None
+
+
+def _omada_unauth_async(site, mac):
+    if not (site and site.omada_hosted and site.omada_site_id and mac and _omada_openapi_available()):
+        return
+    site_id = site.omada_site_id
+
+    def run():
+        try:
+            _openapi().unauth(site_id, mac)
+            log.info('omada unauth %s at %s', mac, site_id)
+        except omada.OmadaError as e:
+            log.warning('omada unauth %s failed: %s', mac, e)
+    threading.Thread(target=run, daemon=True).start()
+
+
+@app.route('/sites/<int:site_id>/wifi')
+@login_required
+@role_required('admin')
+def site_wifi(site_id):
+    site = owned_or_404(Site, site_id)
+    if not _omada_openapi_available():
+        flash("Adding access points from SafeNet isn't switched on for this server yet.", 'warning')
+        return redirect(url_for('sites_page'))
+    devices, error = [], None
+    if site.omada_site_id:
+        try:
+            devices = _openapi().devices(site.omada_site_id)
+        except omada.OmadaError as e:
+            error = str(e)
+    for d in devices:
+        label, color = OMADA_STATUS.get(d.get('status'), ('Unknown', 'secondary'))
+        d['label'], d['color'] = OMADA_DETAIL.get(d.get('detailStatus'), label), color
+    return render_template('sites_wifi.html', site=site, devices=devices, error=error,
+                           omada_host=Config.OMADA_HOSTED_HOST)
+
+
+@app.route('/sites/<int:site_id>/wifi/setup', methods=['POST'])
+@login_required
+@role_required('admin')
+def site_wifi_setup(site_id):
+    _check_csrf()
+    site = owned_or_404(Site, site_id)
+    if not _omada_openapi_available():
+        abort(404)
+    name = (request.form.get('wifi_name') or '').strip()[:32]
+    if not name:
+        flash('Enter the Wi-Fi name guests will see.', 'danger')
+        return redirect(url_for('site_wifi', site_id=site.id))
+    try:
+        _omada_provision(site, current_tenant(), name)
+        flash(f'Your Wi-Fi "{name}" is ready. Now add your access point below.', 'success')
+    except omada.OmadaError as e:
+        site.omada_error = str(e)[:255]
+        flash(f'Could not set up the Wi-Fi: {e}', 'danger')
+    db.session.commit()
+    return redirect(url_for('site_wifi', site_id=site.id))
+
+
+@app.route('/sites/<int:site_id>/wifi/adopt', methods=['POST'])
+@login_required
+@role_required('admin')
+def site_wifi_adopt(site_id):
+    _check_csrf()
+    site = owned_or_404(Site, site_id)
+    if not _omada_openapi_available() or not site.omada_site_id:
+        abort(404)
+    back = redirect(url_for('site_wifi', site_id=site.id))
+    api = _openapi()
+    try:
+        mac = api.mac(request.form.get('mac'))
+        known = {(d.get('mac') or '').upper() for d in api.devices(site.omada_site_id)}
+        if mac in known:
+            flash(f'{mac} is already one of your access points.', 'info')
+            return back
+        if mac not in {(d.get('mac') or '').upper() for d in api.pending(site.omada_site_id)}:
+            flash(f"SafeNet can't see {mac} yet. Check it is plugged in with internet and pointed to {Config.OMADA_HOSTED_HOST}, "
+                  'wait 2 minutes, then try again.', 'warning')
+            return back
+        user, password = (request.form.get('username') or '').strip(), request.form.get('password') or ''
+        api.adopt(site.omada_site_id, mac, user or None, password or None)
+        result = {}
+        for _ in range(8):
+            time.sleep(1.5)
+            result = api.adopt_result(site.omada_site_id, mac)
+            if result.get('adoptErrorCode') is not None:
+                break
+        code = result.get('adoptErrorCode')
+        if code == 0 or code is None:
+            flash(f'{mac} is being added. It restarts once and shows "Online" in 1–3 minutes.', 'success')
+        elif result.get('adoptFailedType') == -2:
+            flash(f'{mac} needs its own login: enter the username and password you set on the access point, then try again.', 'warning')
+        else:
+            flash(f'The access point did not accept (code {code}). Restart it and try again in 2 minutes.', 'danger')
+    except omada.OmadaError as e:
+        flash(str(e)[0].upper() + str(e)[1:], 'danger')
+    return back
 
 
 # ---------------------------------------------------------------------------
@@ -3203,6 +3367,7 @@ def sites_page():
     return render_template('sites.html', rows=rows, currency=current_tenant().currency,
                            limit=plan.max_sites if plan else None, omada_hosted=_omada_hosted_available(),
                            omada_host=Config.OMADA_HOSTED_HOST, wifidog_base=Config.WIFIDOG_BASE,
+                           omada_openapi=_omada_openapi_available(),
                            server_ip=_server_ip(), now=datetime.utcnow())
 
 

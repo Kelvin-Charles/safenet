@@ -62,6 +62,10 @@
                             <div class="p-2">
                                 <h6 class="mb-1"><i class="bi bi-wifi"></i> TP-Link Omada access points at {{ s.name }}</h6>
                                 <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='omada') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> Step-by-step guide</a> · For Omada access points (EAP225 and others). Guests get SafeNet's login page with your packages and mobile money; SafeNet then lets them online through the Omada Controller. No gateway box needed.</p>
+                                {% if omada_openapi %}
+                                <a href="{{ url_for('site_wifi', site_id=s.id) }}" class="btn btn-primary btn-sm mb-3"><i class="bi bi-wifi"></i> {{ 'Manage Wi-Fi access points' if s.omada_site_id else 'Set up Wi-Fi access points' }}</a>
+                                <span class="small text-muted ms-2">Everything happens here in SafeNet: no Omada account needed.</span>
+                                {% endif %}
                                 {% set portal_url = url_for('omada_portal', token=s.portal_token, _external=True) if s.portal_token else '' %}
                                 {% if s.omada_hosted %}
                                 <div class="d-flex flex-wrap gap-3 align-items-center mb-2">
