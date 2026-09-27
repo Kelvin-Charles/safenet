@@ -154,6 +154,14 @@ assert 'AA-AA-AA-AA-AA-01' in c.get(f'/sites/{SID}/wifi').text      # now adopte
 st['pending']['DD-DD-DD-DD-DD-99'] = {'mac': 'DD-DD-DD-DD-DD-99', 'model': 'EAP610'}
 assert 'DD-DD-DD-DD-DD-99' not in c.get(f'/sites/{SID}/wifi').text
 
+# a portal set up by hand on the Wi-Fi is reused, not doubled
+with app.app_context(): ssid_id = next(k for k, v in st['ssids'].items() if v['site'] == OSID)
+for k in [k for k, v in st['portals'].items() if v['site'] == OSID]: del st['portals'][k]
+st['portals']['PH'] = {'name': 'Zulu Connect Kitonga', 'authType': 4, 'ssidList': [ssid_id], 'site': OSID}
+c.post(f'/sites/{SID}/wifi/setup', data={'csrf_token': tok(w), 'wifi_name': 'Zulu Connect WiFi'})
+mine = [v for v in st['portals'].values() if v['site'] == OSID]
+assert len(mine) == 1 and mine[0]['name'] == 'Zulu Connect Kitonga' and mine[0]['externalPortal']['serverUrl'].endswith(f'/omada/{TOKEN}'), mine
+
 # a second site of the same tenant gets its own controller site, named after both
 p = c.get('/sites').text
 c.post('/sites/add', data={'csrf_token': tok(p), 'name': 'Mwenge'})

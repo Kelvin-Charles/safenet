@@ -250,10 +250,13 @@ class OpenApi:
                 # required even though guests see SafeNet's page, not Omada's
                 'portalCustomize': {'defaultLanguage': 1, 'logoDisplay': False, 'welcomeEnable': False,
                                     'termsOfServiceEnable': False, 'copyrightEnable': False}}
-        existing = next((p for p in (self._call('GET', f'/sites/{site_id}/portals') or []) if p.get('name') == name), None)
+        portals = self._call('GET', f'/sites/{site_id}/portals') or []
+        # reuse our portal, or one already attached to this Wi-Fi (e.g. set up by hand), never add a second
+        existing = next((p for p in portals if p.get('name') == name), None) or \
+            next((p for p in portals if ssid_id in (p.get('ssidList') or [])), None)
         if existing:
             ssids = sorted(set((existing.get('ssidList') or []) + [ssid_id]))
-            self._call('PATCH', f'/sites/{site_id}/portal/{existing["id"]}', {**body, 'ssidList': ssids})
+            self._call('PATCH', f'/sites/{site_id}/portal/{existing["id"]}', {**body, 'name': existing.get('name') or name, 'ssidList': ssids})
             return existing['id']
         self._call('POST', f'/sites/{site_id}/portal', body)
         return next((p.get('id') for p in (self._call('GET', f'/sites/{site_id}/portals') or []) if p.get('name') == name), None)
