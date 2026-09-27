@@ -1,0 +1,72 @@
+{% extends "docs/layout.html" %}
+{% block body %}
+<div class="flow" aria-label="How it connects">
+    <div class="box">Guest's phone</div><span class="arr">→</span>
+    <div class="box">Ruijie access point<small>RG-AP820-L…</small></div><span class="arr">→</span>
+    <div class="box">Your internet router</div><span class="arr">→</span>
+    <div class="box">Internet</div>
+</div>
+<div class="flow">
+    <div class="box">Ruijie access point</div><span class="arr">⇄</span>
+    <div class="box hl">SafeNet<small>WiFiDog</small></div>
+</div>
+<p>Ruijie's enterprise access points have <strong>WiFiDog web authentication</strong> built in. You point them at SafeNet, and they send new guests to your SafeNet login page, let them online after they pay or enter a voucher, and check with SafeNet every minute or so. That check means SafeNet sees each guest's data usage and can cut them off the moment their time ends or you press <strong>Disconnect</strong>.</p>
+
+<h2 id="models">Which Ruijie devices work</h2>
+<div class="table-scroll"><table>
+    <thead><tr><th>Device</th><th>Works with SafeNet directly?</th></tr></thead>
+    <tbody>
+        <tr><td><strong>Ruijie enterprise access points</strong>: RG-AP820-L(V2), RG-AP820-L(V3), RG-AP840-L, RG-AP880 and other <code>RG-AP…</code> models</td><td>✅ Yes, just the access point and internet</td></tr>
+        <tr><td><strong>Reyee gateway routers</strong>: <code>RG-EG…</code> models, with any Reyee access point</td><td>✅ Yes, through the router's WiFiDog setting</td></tr>
+        <tr><td><strong>Reyee access points</strong>: <code>RG-RAP…</code> models on their own</td><td>❌ No. Reyee access points only offer Ruijie's own login page. Add a Reyee gateway router, or use a <a href="{{ url_for('docs', slug='gateway') }}">SafeNet gateway box</a>.</td></tr>
+    </tbody>
+</table></div>
+<div class="note tip"><i class="bi bi-lightbulb"></i><p><strong>Buying new?</strong> Choose <strong>RG-AP820-L(V3)</strong> (indoor, Wi-Fi 6) rather than Reyee RG-RAP models if you want no extra box.</p></div>
+
+<h2 id="safenet">1. Switch it on in SafeNet</h2>
+<ol class="steps">
+    <li><strong>Open your site</strong>In SafeNet open <strong>Sites</strong> and click <strong>Ruijie</strong> next to the site where the access point will be.</li>
+    <li><strong>Switch it on</strong>Click <strong>Switch on Ruijie access points</strong>. SafeNet shows the two values the access point needs:
+        <ul>
+            <li><strong>Authentication server URL</strong>: looks like <code>{{ wifidog_base }}/wifidog/Ab3xY…/</code> (yours is on the Sites page).</li>
+            <li><strong>Portal server IP</strong>: <code>{{ server_ip or 'shown on the Sites page' }}</code></li>
+        </ul></li>
+    <li><strong>Add packages</strong>Make sure at least one package is sold at this site (or at "All sites") on the <strong>Packages</strong> page.</li>
+</ol>
+
+<h2 id="ap">2. Set up the access point</h2>
+<ol class="steps">
+    <li><strong>Plug it in</strong>Connect the access point (or its PoE adapter's LAN port) to your internet router and wait until it has started.</li>
+    <li><strong>Create the guest Wi-Fi</strong>In the access point's web page or in Ruijie Cloud, create your guest Wi-Fi with <strong>no password (open)</strong>. Note its WLAN ID (1 for the first Wi-Fi).</li>
+    <li><strong>Turn on web authentication with SafeNet</strong>Open the access point's command line (<em>eWeb → Command Line</em>, or SSH/Telnet) and enter the commands from the Sites page. They look like this:
+        <pre><code>config
+web-auth template safenet
+ ip {{ server_ip or 'SAFENET_IP' }}
+ url {{ wifidog_base }}/wifidog/YOUR-SITE-CODE/
+ exit
+wlansec 1
+ web-auth portal safenet
+ webauth
+ end
+write</code></pre>
+        Use the exact <code>url</code> from your Sites page, and your Wi-Fi's WLAN ID after <code>wlansec</code>.</li>
+    <li><strong>Check it is talking to SafeNet</strong>Within a few minutes the Sites page shows <strong>Access point last heard … min ago</strong>, and the dashboard lists it under devices.</li>
+</ol>
+<div class="note warn"><i class="bi bi-exclamation-triangle"></i><p><strong>Managed by Ruijie Cloud?</strong> Ruijie Cloud may overwrite settings made on the access point itself. Either remove the access point from Ruijie Cloud, or set the same values in Ruijie Cloud's captive portal settings (policy mode <strong>External</strong>, the authentication server URL above as the portal server URL, and the portal server IP). Firmware menus differ between models; if yours looks different, contact support with a screenshot.</p></div>
+
+<h2 id="test">3. Test it</h2>
+<ol class="steps">
+    <li><strong>Make a voucher</strong>In SafeNet: <strong>Vouchers → Generate</strong>, one voucher for 1 hour.</li>
+    <li><strong>Join the Wi-Fi</strong>Your phone opens the SafeNet login page with your logo and packages. If not, open <code>http://neverssl.com</code>.</li>
+    <li><strong>Log in</strong>Enter the voucher. The access point lets you online and shows <strong>"You're online"</strong>. The session appears on the <strong>Live</strong> page with its data usage.</li>
+    <li><strong>Try disconnecting</strong>Press <strong>Disconnect</strong> on the Live page. The phone loses internet within about a minute.</li>
+</ol>
+
+<h2 id="notes">Good to know</h2>
+<ul>
+    <li>The access point contacts SafeNet over the internet on port <strong>5001</strong>. Nothing needs changing on your internet router.</li>
+    <li>Guests' login and payment pages use secure HTTPS.</li>
+    <li>Speed limits are set on the access point (per Wi-Fi or per user), not by SafeNet plans.</li>
+    <li>This setup follows the open WiFiDog standard. It has been tested with a simulated access point; for your first Ruijie installation, contact SafeNet support{% if support %} ({{ support }}){% endif %} so we can watch it connect.</li>
+</ul>
+{% endblock %}

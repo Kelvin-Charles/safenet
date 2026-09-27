@@ -74,6 +74,9 @@ class Config:
     OMADA_HOSTED_USER = os.getenv('OMADA_HOSTED_USER', '')
     OMADA_HOSTED_PASSWORD = os.getenv('OMADA_HOSTED_PASSWORD', '')
     OMADA_HOSTED_HOST = os.getenv('OMADA_HOSTED_HOST', '') or WG_ENDPOINT    # what access points are told to use
+    # WiFiDog access points call SafeNet over plain HTTP (many can't follow the HTTPS redirect of
+    # the public site), so they use the app port directly; guests' browsers move to HTTPS.
+    WIFIDOG_BASE = os.getenv('WIFIDOG_BASE', f'http://{WG_ENDPOINT}:5001').rstrip('/')
     WG_PORT = int(os.getenv('WG_PORT', '51820'))
     WG_SERVER_IP = os.getenv('WG_SERVER_IP', '10.200.0.1')           # hub's tunnel address = RADIUS server
     WG_SUBNET = os.getenv('WG_SUBNET', '10.200.0.0/16')

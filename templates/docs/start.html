@@ -1,7 +1,7 @@
 {% extends "docs/layout.html" %}
 {% block body %}
 <p>SafeNet sells internet on your Wi-Fi: guests see your login page, buy a package with mobile money or type a voucher code, and get online for the time they paid for. You manage packages, prices, customers and earnings from the SafeNet dashboard.</p>
-<p>Your Wi-Fi equipment only has to do one thing: <strong>keep guests off the internet until SafeNet says they have paid</strong>. There are four ways to do that. Choose the one that matches what you have.</p>
+<p>Your Wi-Fi equipment only has to do one thing: <strong>keep guests off the internet until SafeNet says they have paid</strong>. There are several ways to do that. Choose the one that matches what you have.</p>
 
 <div class="cards">
     <a class="card" href="{{ url_for('docs', slug='omada') }}">
@@ -9,6 +9,11 @@
         <span class="tag">Recommended</span>
         <b>TP-Link Omada access points</b>
         <span>EAP225, EAP610 and other Omada (EAP) models. Plug in and point them to SafeNet. Nothing else to buy.</span>
+    </a>
+    <a class="card" href="{{ url_for('docs', slug='ruijie') }}">
+        <span class="ic"><i class="bi bi-broadcast-pin"></i></span>
+        <b>Ruijie access points</b>
+        <span>Ruijie enterprise RG-AP models (RG-AP820-L…) connect straight to SafeNet. Nothing else to buy.</span>
     </a>
     <a class="card" href="{{ url_for('docs', slug='gateway') }}">
         <span class="ic"><i class="bi bi-hdd-network"></i></span>
@@ -30,16 +35,16 @@
 <h2 id="compare">Which one should I choose?</h2>
 <div class="table-scroll">
 <table>
-    <thead><tr><th></th><th>Omada access points</th><th>Gateway box</th><th>MikroTik</th><th>Other routers</th></tr></thead>
+    <thead><tr><th></th><th>Omada access points</th><th>Ruijie RG-AP</th><th>Gateway box</th><th>MikroTik</th><th>Other routers</th></tr></thead>
     <tbody>
-        <tr><td>Extra equipment</td><td>None</td><td>Mini PC (2 network ports)</td><td>MikroTik router</td><td>Your router</td></tr>
-        <tr><td>Buy with mobile money on the login page</td><td>✅</td><td>✅</td><td>—</td><td>—</td></tr>
-        <tr><td>Vouchers and customer accounts</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-        <tr><td>Your logo and colours on the login page</td><td>✅</td><td>✅</td><td>MikroTik's page</td><td>Router's page</td></tr>
-        <tr><td>One device per code</td><td>✅</td><td>✅</td><td>✅</td><td>—</td></tr>
-        <tr><td>Blocks sharing through a phone hotspot</td><td>—</td><td>✅</td><td>—</td><td>—</td></tr>
-        <tr><td>Data usage per customer</td><td>—</td><td>✅</td><td>✅</td><td>If the router reports it</td></tr>
-        <tr><td>Setup effort</td><td>Easy</td><td>Medium (Linux)</td><td>Easy</td><td>Depends on the router</td></tr>
+        <tr><td>Extra equipment</td><td>None</td><td>None</td><td>Mini PC (2 network ports)</td><td>MikroTik router</td><td>Your router</td></tr>
+        <tr><td>Buy with mobile money on the login page</td><td>✅</td><td>✅</td><td>✅</td><td>—</td><td>—</td></tr>
+        <tr><td>Vouchers and customer accounts</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
+        <tr><td>Your logo and colours on the login page</td><td>✅</td><td>✅</td><td>✅</td><td>MikroTik's page</td><td>Router's page</td></tr>
+        <tr><td>One device per code</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>—</td></tr>
+        <tr><td>Blocks sharing through a phone hotspot</td><td>—</td><td>—</td><td>✅</td><td>—</td><td>—</td></tr>
+        <tr><td>Data usage per customer</td><td>—</td><td>✅</td><td>✅</td><td>✅</td><td>If the router reports it</td></tr>
+        <tr><td>Setup effort</td><td>Easy</td><td>Medium (commands)</td><td>Medium (Linux)</td><td>Easy</td><td>Depends on the router</td></tr>
     </tbody>
 </table>
 </div>

@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site
+from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -177,8 +177,8 @@ def _site_filters(tid, site):
     def names(sid):
         q = db.session.query(Gateway.name).filter(Gateway.tenant_id == tid)
         found = [n for (n,) in (q.filter(Gateway.site_id == sid) if sid else q)]
-        omada_ids = [sid] if sid else [x.id for x in tenant_sites(tid)]
-        return found + [f'omada-{i}' for i in omada_ids]
+        site_ids = [sid] if sid else [x.id for x in tenant_sites(tid)]
+        return found + [f'omada-{i}' for i in site_ids] + [f'wifidog-{i}' for i in site_ids]
 
     def ips(sid):
         q = db.session.query(Nas.nasname).filter(Nas.tenant_id == tid)
@@ -221,6 +221,8 @@ DOCS = [
      'Pick the setup that matches the equipment you have, then follow its step-by-step guide.'),
     ('omada', 'TP-Link Omada (EAP)', 'bi-wifi', 'TP-Link Omada access points',
      'EAP225 and other Omada access points: plug in, point them to SafeNet, and sell internet. No extra box needed.'),
+    ('ruijie', 'Ruijie (RG-AP)', 'bi-broadcast-pin', 'Ruijie access points',
+     'Ruijie enterprise access points (RG-AP820-L and others) connect straight to SafeNet with WiFiDog. Just the access point and internet.'),
     ('gateway', 'SafeNet gateway box', 'bi-hdd-network', 'SafeNet gateway box with any access point',
      'A small Linux computer between the internet and any access point. Every SafeNet feature, with any brand of Wi-Fi.'),
     ('mikrotik', 'MikroTik', 'bi-router', 'MikroTik routers',
@@ -245,7 +247,8 @@ def docs(slug='start'):
     i = index[slug]
     home = Tenant.query.filter_by(slug=migrations.DEFAULT_TENANT_SLUG).first()
     public = Config.PUBLIC_URL or request.host_url.rstrip('/')
-    return render_template(f'docs/{slug}.html', pages=DOC_PAGES, page=DOC_PAGES[i],
+    return render_template(f'docs/{slug}.html', pages=DOC_PAGES, page=DOC_PAGES[i], wifidog_base=Config.WIFIDOG_BASE,
+                           server_ip=_server_ip(),
                            prev=DOC_PAGES[i - 1] if i > 0 else None,
                            next=DOC_PAGES[i + 1] if i + 1 < len(DOC_PAGES) else None,
                            public_url=public, public_host=urlparse(public).hostname or request.host,
@@ -276,6 +279,10 @@ def dashboard():
         devices.append({'name': r.name, 'kind': 'MikroTik' if r.vendor == 'mikrotik' else 'Router', 'site': r.site_id,
                         'last': r.last_handshake_at, 'state': _device_state(r.last_handshake_at, now) if r.is_active else 'offline',
                         'where': r.tunnel_ip})
+    for st in ([site] if site else tenant_sites(tid)):
+        if st.wifidog_enabled:
+            devices.append({'name': f'{st.name} access points', 'kind': 'Ruijie / WiFiDog', 'site': st.id, 'last': st.wifidog_seen_at,
+                            'state': _device_state(st.wifidog_seen_at, now), 'where': f'wifidog-{st.id}'})
     online_now = sessions().filter(RadAcct.acctstoptime.is_(None), last_seen >= now - timedelta(minutes=LIVE_STALE_MINUTES))
     per_device = dict(online_now.with_entities(RadAcct.calledstationid, func.count()).group_by(RadAcct.calledstationid).all())
     per_ip = dict(online_now.with_entities(RadAcct.nasipaddress, func.count()).group_by(RadAcct.nasipaddress).all())
@@ -1573,14 +1580,18 @@ def _omada_too_many(key, limit):
     return len(recent) >= limit
 
 
-def _omada_page(site, tenant, *, view='login', error='', tab=None, **extra):
+def _omada_page(site, tenant, **kw):
+    return _hotspot_page(site, tenant, url_for('omada_portal', token=site.portal_token), **kw)
+
+
+def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, **extra):
+    """SafeNet's guest login/status/waiting page for a site, with its forms posting under `base`."""
     cfg = portal_config(tenant)
     if cfg.get('logo_version'):
         cfg['logo_url'] = url_for('portal_logo', slug=tenant.slug, v=cfg['logo_version'])
     th = portal_ui.theme(cfg)
     wanted = request.args.get('lang')
     lang = wanted if wanted in portal_ui.LANGS else request.cookies.get('sn_lang') if request.cookies.get('sn_lang') in portal_ui.LANGS else th['language']
-    base = url_for('omada_portal', token=site.portal_token)
     if view == 'status':
         html_out = portal_ui.status_page(th, lang, base=base, logout=False, lang_url=base, **extra)
     elif view == 'wait':
@@ -1723,6 +1734,330 @@ def omada_wait(token):
     return _omada_page(site, tenant, view='wait', ref=ref, timed_out=timed_out,
                        info={'amount': f'{payment.amount:.0f}', 'currency': payment.currency, 'phone': payment.phone,
                              'package': payment.package_name})
+
+
+# ---------------------------------------------------------------------------
+# WiFiDog: access points with a WiFiDog client (Ruijie RG-AP series, Reyee
+# gateways and others) use SafeNet as their authentication server at
+# /wifidog/<site token>/  (login/ auth/ ping/ portal/ gw_message.php).
+# The access point redirects guests to login/, SafeNet sells or checks the code,
+# sends the browser back to the access point with a one-time token, and the
+# access point asks auth/?stage=login|counters|logout, expecting "Auth: 1" or "Auth: 0".
+# ---------------------------------------------------------------------------
+WIFIDOG_PARAMS = ('gw_address', 'gw_port', 'gw_id', 'mac', 'ip', 'url')
+WIFIDOG_MAX_SECONDS = 30 * 86400
+# Where an access point's own address can be (local networks only)
+WIFIDOG_LOCAL_NETS = [ipaddress.ip_network(n) for n in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16',
+                                                         '100.64.0.0/10', '169.254.0.0/16', 'fc00::/7', 'fe80::/10')]
+
+
+def _wifidog_site(token):
+    site = Site.query.filter_by(portal_token=(token or '')[:24]).first()
+    if site is None or not site.wifidog_enabled:
+        return None, None
+    tenant = db.session.get(Tenant, site.tenant_id)
+    if tenant is None or tenant_blocked(tenant):
+        return None, None
+    return site, tenant
+
+
+def _wifidog_text(body):
+    resp = make_response(body)
+    resp.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+def _wifidog_mac(value):
+    mac = re.sub(r'[^0-9A-Fa-f]', '', value or '').upper()
+    return '-'.join(mac[i:i + 2] for i in range(0, 12, 2)) if len(mac) == 12 else ''
+
+
+def _wifidog_guest(token):
+    guest = session.get('wifidog') or {}
+    return guest if guest.get('token') == token else {}
+
+
+def _wifidog_back_to_gateway(guest, token):
+    """URL on the access point that finishes the login (it then asks us auth/?stage=login)."""
+    try:
+        address = ipaddress.ip_address(guest.get('gw_address', ''))
+        port = int(guest.get('gw_port') or 2060)
+    except ValueError:
+        return None
+    if not any(address in net for net in WIFIDOG_LOCAL_NETS) or not 0 < port < 65536:
+        return None                                   # never send guests to an arbitrary host
+    host = f'[{address}]' if address.version == 6 else str(address)
+    return f'http://{host}:{port}/wifidog/auth?token={token}'
+
+
+def _wifidog_let_in(site, tenant, guest, username, password):
+    """Check the code and create the one-time token. Returns (redirect URL, error)."""
+    mac = _wifidog_mac(guest.get('mac'))
+    ok, message, info = _gateway_authenticate(tenant, username, password, mac)
+    _log_auth(username, ok)
+    if not ok:
+        db.session.commit()
+        return None, message
+    seconds = min(info['session_timeout'] or OMADA_DEFAULT_SECONDS, WIFIDOG_MAX_SECONDS)
+    token = secrets.token_urlsafe(24)
+    back = _wifidog_back_to_gateway(guest, token)
+    if not back:
+        db.session.rollback()
+        return None, 'Please connect to the Wi-Fi again and open any website to get here.'
+    db.session.add(WifidogSession(tenant_id=tenant.id, site_id=site.id, token=token, username=username[:64], mac=mac or None,
+                                  ip=(guest.get('ip') or '')[:45] or None, gw_id=(guest.get('gw_id') or '')[:64] or None,
+                                  expires_at=datetime.utcnow() + timedelta(seconds=seconds)))
+    db.session.commit()
+    session['wifidog_token'] = token
+    return back, None
+
+
+def _wifidog_still_allowed(ws, tenant):
+    """Why a guest must now be cut off, or None."""
+    now = datetime.utcnow()
+    if now >= ws.expires_at:
+        return 'Session-Timeout'
+    if tenant_blocked(tenant):
+        return 'Admin-Reset'
+    voucher = Voucher.query.filter_by(code=ws.username, tenant_id=tenant.id).first()
+    if voucher is not None:
+        if voucher.status == 'disabled' or (voucher.expires_at and voucher.expires_at <= now):
+            return 'Session-Timeout' if voucher.status != 'disabled' else 'Admin-Reset'
+    else:
+        user = RadUser.query.filter_by(username=ws.username, tenant_id=tenant.id).first()
+        if user is None or not user.is_active or (user.expires_at and user.expires_at <= now):
+            return 'Admin-Reset'
+    if SessionKick.query.filter(SessionKick.tenant_id == tenant.id, SessionKick.username == ws.username,
+                                SessionKick.created_at >= ws.created_at).first():
+        return 'Admin-Reset'
+    return None
+
+
+def _wifidog_end(ws, cause):
+    now = datetime.utcnow()
+    ws.status, ws.ended_at = 'ended', now
+    row = RadAcct.query.filter_by(acctuniqueid=ws.acct_uid).first() if ws.acct_uid else None
+    if row is not None and row.acctstoptime is None:
+        row.acctstoptime, row.acctterminatecause = now, cause
+        row.acctsessiontime = int((now - row.acctstarttime).total_seconds())
+
+
+def _wifidog_auth(site, tenant):
+    """auth/?stage=login|counters|logout&ip=&mac=&token=&incoming=&outgoing=&gw_id="""
+    stage = (request.args.get('stage') or '').lower()
+    ws = WifidogSession.query.filter_by(token=(request.args.get('token') or '')[:48], site_id=site.id).first()
+    if ws is None or ws.status == 'ended':
+        return _wifidog_text('Auth: 0')
+    now = datetime.utcnow()
+    mac = _wifidog_mac(request.args.get('mac'))
+    if mac and ws.mac and mac != ws.mac:
+        log.info('wifidog token for %s used by %s: refused', ws.mac, mac)
+        return _wifidog_text('Auth: 0')
+    try:
+        incoming = max(0, int(request.args.get('incoming') or 0))
+        outgoing = max(0, int(request.args.get('outgoing') or 0))
+    except ValueError:
+        incoming = outgoing = 0
+    ws.last_seen_at = now
+    if stage == 'login':
+        if ws.status != 'new' or _wifidog_still_allowed(ws, tenant):
+            db.session.commit()
+            return _wifidog_text('Auth: 0')
+        ws.status, ws.mac = 'active', ws.mac or mac or None
+        ws.ip = (request.args.get('ip') or ws.ip or '')[:45] or None
+        ws.gw_id = (request.args.get('gw_id') or ws.gw_id or '')[:64] or None
+        ws.acct_uid = hashlib.md5(f'wifidog:{site.id}:{ws.token}'.encode()).hexdigest()
+        db.session.add(RadAcct(acctsessionid=ws.token[:32], acctuniqueid=ws.acct_uid, username=ws.username,
+                               nasipaddress=(request.remote_addr or '')[:15], groupname='', acctterminatecause='',
+                               calledstationid=f'wifidog-{site.id}', callingstationid=(ws.mac or '')[:50],
+                               framedipaddress=(ws.ip or '')[:15], nasporttype='Wireless-802.11',
+                               acctstarttime=now, acctupdatetime=now, acctsessiontime=0,
+                               acctinputoctets=0, acctoutputoctets=0))
+        site.wifidog_seen_at = now
+        db.session.commit()
+        log.info('wifidog login %s mac=%s site=%s', ws.username, ws.mac, site.id)
+        return _wifidog_text('Auth: 1')
+    if ws.status != 'active':
+        return _wifidog_text('Auth: 0')
+    ws.incoming, ws.outgoing = max(ws.incoming or 0, incoming), max(ws.outgoing or 0, outgoing)
+    row = RadAcct.query.filter_by(acctuniqueid=ws.acct_uid).first() if ws.acct_uid else None
+    if row is not None:
+        # WiFiDog "incoming" is what the guest downloaded; radacct output = to the user
+        row.acctoutputoctets, row.acctinputoctets = ws.incoming, ws.outgoing
+        row.acctupdatetime = now
+        row.acctsessiontime = int((now - row.acctstarttime).total_seconds())
+    site.wifidog_seen_at = now
+    if stage == 'logout':
+        _wifidog_end(ws, 'User-Request')
+        db.session.commit()
+        return _wifidog_text('Auth: 0')
+    cause = _wifidog_still_allowed(ws, tenant)
+    if cause:
+        _wifidog_end(ws, cause)
+        db.session.commit()
+        log.info('wifidog cut off %s (%s)', ws.username, cause)
+        return _wifidog_text('Auth: 0')
+    db.session.commit()
+    return _wifidog_text('Auth: 1')
+
+
+@app.route('/wifidog/<token>/', defaults={'rest': ''}, methods=['GET', 'POST'])
+@app.route('/wifidog/<token>/<path:rest>', methods=['GET', 'POST'])
+def wifidog(token, rest):
+    """Everything the access point calls. Paths are matched loosely because firmwares differ
+    in how they join the server path and the WiFiDog endpoint names."""
+    parts = [p for p in rest.lower().split('/') if p]
+    log.info('wifidog %s /%s %s', token[:6], rest, {k: v for k, v in request.args.items() if k != 'token'})
+    site, tenant = _wifidog_site(token)
+    if 'ping' in parts:
+        if site is not None:
+            site.wifidog_seen_at = datetime.utcnow()
+            site.wifidog_gw_id = (request.args.get('gw_id') or site.wifidog_gw_id or '')[:64] or None
+            db.session.commit()
+        return _wifidog_text('Pong')
+    if site is None:
+        return _wifidog_text('Auth: 0') if (request.args.get('stage') or 'auth' in parts) else ('', 404)
+    if request.args.get('stage') or 'auth' in parts:
+        return _wifidog_auth(site, tenant)
+    public = Config.PUBLIC_URL.rstrip('/')
+    if request.host.endswith(':5001') and public.startswith('https://'):
+        # Access points reach us over plain HTTP; guests' browsers continue on HTTPS
+        qs = request.query_string.decode('latin-1')
+        return redirect(f"{public}/wifidog/{token}/{rest}" + (f'?{qs}' if qs else ''))
+    base = f'/wifidog/{site.portal_token}/guest'
+    if 'portal' in parts:
+        ws = WifidogSession.query.filter_by(token=session.get('wifidog_token') or '-', site_id=site.id).first()
+        if ws is not None and ws.status != 'ended':
+            guest = _wifidog_guest(site.portal_token)
+            return _hotspot_page(site, tenant, base, view='status', user=ws.username,
+                                 remaining=max(0, int((ws.expires_at - datetime.utcnow()).total_seconds())),
+                                 new_code=session.pop('wifidog_new_code', None), dst=guest.get('url', ''))
+        return redirect(base)
+    if any(p.startswith('gw_message') for p in parts):
+        message = {'denied': 'Your session has ended. Log in again or buy a package.',
+                   'activate': 'Please log in to continue.',
+                   'failed_validation': 'Your code could not be confirmed. Please try again.'}.get(
+            (request.args.get('message') or '').lower(), 'Please log in to continue.')
+        return _hotspot_page(site, tenant, base, error=message)
+    # login/ (or the bare server path): the access point sends a new guest here
+    if request.args.get('gw_address') or request.args.get('mac'):
+        session['wifidog'] = {'token': site.portal_token, **{k: (request.args.get(k) or '')[:500] for k in WIFIDOG_PARAMS}}
+        site.wifidog_seen_at = datetime.utcnow()
+        site.wifidog_gw_id = (request.args.get('gw_id') or site.wifidog_gw_id or '')[:64] or None
+        db.session.commit()
+    return _hotspot_page(site, tenant, base)
+
+
+@app.route('/wifidog/<token>/guest')
+def wifidog_guest_page(token):
+    site, tenant = _wifidog_site(token)
+    if site is None:
+        abort(404)
+    return _hotspot_page(site, tenant, f'/wifidog/{site.portal_token}/guest')
+
+
+@app.route('/wifidog/<token>/guest/login', methods=['POST'])
+def wifidog_login(token):
+    site, tenant = _wifidog_site(token)
+    if site is None:
+        abort(404)
+    base = f'/wifidog/{site.portal_token}/guest'
+    guest = _wifidog_guest(site.portal_token)
+    err = lambda m: _hotspot_page(site, tenant, base, error=m, tab='voucher')
+    if not guest.get('gw_address'):
+        return err('Please connect to the Wi-Fi again and open any website to get here.')
+    if not request.form.get('agree'):
+        return err('Please accept the terms of use to continue.')
+    key, site_key = f"wd:{site.id}:{guest.get('mac')}", f'wd:{site.id}:{request.remote_addr}'
+    if _omada_too_many(key, 6) or _omada_too_many(site_key, 60):
+        return err('Too many wrong attempts. Please wait a few minutes and try again.')
+    username = (request.form.get('username') or '').strip()[:64]
+    password = request.form.get('password') or ''
+    if not username:
+        username = password = re.sub(r'\s+', '', request.form.get('code') or '')[:32]
+    if not username:
+        return err('Enter your voucher code.')
+    back, error = _wifidog_let_in(site, tenant, guest, username, password)
+    if error:
+        _omada_failures.setdefault(key, []).append(time.time())
+        _omada_failures.setdefault(site_key, []).append(time.time())
+        return err(error)
+    return redirect(back)
+
+
+@app.route('/wifidog/<token>/guest/buy', methods=['POST'])
+def wifidog_buy(token):
+    site, tenant = _wifidog_site(token)
+    if site is None:
+        abort(404)
+    base = f'/wifidog/{site.portal_token}/guest'
+    guest = _wifidog_guest(site.portal_token)
+    err = lambda m: _hotspot_page(site, tenant, base, error=m, tab='buy')
+    if not guest.get('gw_address'):
+        return err('Please connect to the Wi-Fi again and open any website to get here.')
+    if not request.form.get('agree'):
+        return err('Please accept the terms of use to continue.')
+    package = _site_packages(Package.query.filter_by(id=request.form.get('package_id', type=int), tenant_id=tenant.id,
+                                                     is_active=True, show_on_portal=True), site.id).first()
+    if not package:
+        return err('Choose a package.')
+    phone = re.sub(r'\D', '', request.form.get('phone', ''))
+    if len(phone) == 9:
+        phone = '255' + phone
+    network = (request.form.get('network') or '')[:16] or None
+    if payment_networks() and not network:
+        return err('Choose your mobile-money network.')
+    payment, error, _ = _start_purchase(tenant, site.id, package, phone, network, _wifidog_mac(guest.get('mac')),
+                                        guest.get('ip'), f'wifidog-{site.id}')
+    if error:
+        return err(error)
+    session['wifidog_ref'] = payment.reference
+    return redirect(f'{base}/buy/wait?ref={payment.reference}')
+
+
+@app.route('/wifidog/<token>/guest/buy/wait')
+def wifidog_wait(token):
+    site, tenant = _wifidog_site(token)
+    if site is None:
+        abort(404)
+    base = f'/wifidog/{site.portal_token}/guest'
+    guest = _wifidog_guest(site.portal_token)
+    ref = (request.args.get('ref') or '')[:20]
+    if not guest.get('gw_address') or session.get('wifidog_ref') != ref:
+        return redirect(base)
+    payment = _refresh_payment(ref)
+    if payment is None or payment.tenant_id != tenant.id:
+        return redirect(base)
+    if payment.status == 'paid' and payment.voucher:
+        code = payment.voucher.code
+        session.pop('wifidog_ref', None)
+        back, error = _wifidog_let_in(site, tenant, guest, code, code)
+        if error:
+            return _hotspot_page(site, tenant, base, error=f'Payment received. Your voucher code is {code}. {error}', tab='voucher')
+        session['wifidog_new_code'] = code
+        return redirect(back)
+    if payment.status in ('failed', 'review'):
+        session.pop('wifidog_ref', None)
+        return _hotspot_page(site, tenant, base, error=f"Payment not completed: {payment.message or 'The payment was not completed.'}", tab='buy')
+    timed_out = (datetime.utcnow() - payment.created_at).total_seconds() > 120 and not request.args.get('again')
+    return _hotspot_page(site, tenant, base, view='wait', ref=ref, timed_out=timed_out,
+                         info={'amount': f'{payment.amount:.0f}', 'currency': payment.currency, 'phone': payment.phone,
+                               'package': payment.package_name})
+
+
+@app.route('/sites/<int:site_id>/wifidog', methods=['POST'])
+@login_required
+@role_required('admin')
+def site_wifidog(site_id):
+    _check_csrf()
+    site = owned_or_404(Site, site_id)
+    site.wifidog_enabled = request.form.get('action') == 'enable'
+    if site.wifidog_enabled and not site.portal_token:
+        site.portal_token = secrets.token_urlsafe(12)[:16]
+    db.session.commit()
+    flash(f'Ruijie / WiFiDog access points {"switched on" if site.wifidog_enabled else "switched off"} for "{site.name}".', 'success')
+    return redirect(url_for('sites_page'))
 
 
 @app.route('/sites/<int:site_id>/omada', methods=['POST'])
@@ -2822,6 +3157,18 @@ def delete_team_member(member_id):
 # Gateways (SafeNet gateway boxes, authenticated by API key)
 # ---------------------------------------------------------------------------
 SITE_ITEMS = {'gateway': Gateway, 'router': Router, 'nas': Nas, 'package': Package}
+_server_ip_cache = {}
+
+
+def _server_ip():
+    """Public IP of SafeNet (access points allow it before guests log in)."""
+    host = urlparse(Config.WIFIDOG_BASE).hostname or Config.WG_ENDPOINT
+    if host not in _server_ip_cache:
+        try:
+            _server_ip_cache[host] = socket.gethostbyname(host)
+        except OSError:
+            return ''
+    return _server_ip_cache[host]
 
 
 def _site_from_form():
@@ -2855,7 +3202,8 @@ def sites_page():
     plan = current_tenant().billing_plan
     return render_template('sites.html', rows=rows, currency=current_tenant().currency,
                            limit=plan.max_sites if plan else None, omada_hosted=_omada_hosted_available(),
-                           omada_host=Config.OMADA_HOSTED_HOST)
+                           omada_host=Config.OMADA_HOSTED_HOST, wifidog_base=Config.WIFIDOG_BASE,
+                           server_ip=_server_ip(), now=datetime.utcnow())
 
 
 @app.route('/sites/add', methods=['POST'])

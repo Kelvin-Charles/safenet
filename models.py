@@ -82,6 +82,10 @@ class Site(db.Model):
     omada_password_enc = db.Column(db.Text)            # secretbox
     omada_verify_tls = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     omada_hosted = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())  # SafeNet's own controller
+    # WiFiDog access points (Ruijie RG-AP and others) use /wifidog/<portal_token>/ as their auth server
+    wifidog_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    wifidog_seen_at = db.Column(db.DateTime)            # last ping or request from an access point
+    wifidog_gw_id = db.Column(db.String(64))            # last access point id seen
     omada_checked_at = db.Column(db.DateTime)          # last successful connection
     omada_error = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -584,6 +588,29 @@ class Router(db.Model):
 
     def __repr__(self):
         return f'<Router {self.name} {self.tunnel_ip}>'
+
+
+class WifidogSession(db.Model):
+    """A guest let in through a WiFiDog access point: the token SafeNet hands the
+    access point, and the session it then reports on (counters every minute or so)."""
+    __tablename__ = 'wifidog_sessions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='CASCADE'), nullable=False, index=True)
+    token = db.Column(db.String(48), unique=True, nullable=False, index=True)
+    username = db.Column(db.String(64), nullable=False, index=True)
+    mac = db.Column(db.String(17))
+    ip = db.Column(db.String(45))
+    gw_id = db.Column(db.String(64))
+    status = db.Column(db.String(12), nullable=False, default='new')   # new, active, ended
+    expires_at = db.Column(db.DateTime, nullable=False)
+    acct_uid = db.Column(db.String(32))                                 # radacct.acctuniqueid of the session
+    incoming = db.Column(db.BigInteger, default=0)                      # bytes to the guest
+    outgoing = db.Column(db.BigInteger, default=0)                      # bytes from the guest
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_seen_at = db.Column(db.DateTime)
+    ended_at = db.Column(db.DateTime)
 
 
 class SessionKick(db.Model):

@@ -22,6 +22,7 @@
                         <tr>
                             <td><strong>{{ s.name }}</strong>{% if loop.first %} <span class="badge bg-light text-dark border">Main</span>{% endif %}
                                 {% if s.omada_ready %}<span class="badge {{ 'bg-danger' if s.omada_error else 'bg-success' }}" title="{{ s.omada_error or 'TP-Link Omada connected' }}">Omada</span>{% endif %}
+                                {% if s.wifidog_enabled %}<span class="badge bg-success">Ruijie</span>{% endif %}
                                 {% if s.location %}<small class="d-block text-muted">{{ s.location }}</small>{% endif %}</td>
                             <td>{{ r.gateways }} gateway{{ '' if r.gateways == 1 else 's' }} · {{ r.routers }} router{{ '' if r.routers == 1 else 's' }}</td>
                             <td>{{ r.packages }}</td>
@@ -38,6 +39,7 @@
                                 {% if current_user.has_role('admin') %}
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ s.id }}" title="Rename"><i class="bi bi-pencil"></i></button>
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#omada-{{ s.id }}" title="TP-Link Omada access points"><i class="bi bi-wifi"></i> Omada</button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#wifidog-{{ s.id }}" title="Ruijie RG-AP and other WiFiDog access points"><i class="bi bi-broadcast-pin"></i> Ruijie</button>
                                 {% if rows|length > 1 %}
                                 <form method="POST" action="{{ url_for('delete_site', site_id=s.id) }}" style="display:inline;" onsubmit="return confirm('Delete {{ s.name }}? Its devices, packages and sales move to {{ (rows[1] if loop.first else rows[0]).site.name }}.');">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -127,6 +129,46 @@
                                 </div>
                                 {% endif %}
                                 </details>
+                                {% endif %}
+                            </div>
+                        </td></tr>
+                        <tr class="collapse" id="wifidog-{{ s.id }}"><td colspan="7" class="bg-light">
+                            <div class="p-2">
+                                <h6 class="mb-1"><i class="bi bi-broadcast-pin"></i> Ruijie access points at {{ s.name }}</h6>
+                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='ruijie') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> Step-by-step guide</a> · For Ruijie enterprise access points (RG-AP820-L, RG-AP840-L, RG-AP880…) and other devices with WiFiDog web authentication. Just the access point and internet: guests get SafeNet's login page with your packages and mobile money.</p>
+                                <form method="POST" action="{{ url_for('site_wifidog', site_id=s.id) }}" class="mb-3">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    {% if s.wifidog_enabled %}
+                                    <span class="me-2"><i class="bi bi-check-circle text-success"></i> Switched on</span>
+                                    {% if s.wifidog_seen_at %}<span class="small text-muted me-2">Access point last heard {{ ((now - s.wifidog_seen_at).total_seconds() // 60)|int }} min ago{% if s.wifidog_gw_id %} ({{ s.wifidog_gw_id }}){% endif %}</span>
+                                    {% else %}<span class="small text-muted me-2">No access point has contacted SafeNet yet</span>{% endif %}
+                                    <button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="disable">Switch off</button>
+                                    {% else %}
+                                    <button class="btn btn-primary btn-sm" type="submit" name="action" value="enable"><i class="bi bi-broadcast-pin"></i> Switch on Ruijie access points</button>
+                                    {% endif %}
+                                </form>
+                                {% if s.wifidog_enabled and s.portal_token %}
+                                {% set auth_url = wifidog_base ~ '/wifidog/' ~ s.portal_token ~ '/' %}
+                                <div class="small">
+                                    <strong>Enter these on the access point</strong>
+                                    <table class="table table-sm table-bordered bg-white mt-1 mb-2" style="max-width: 720px">
+                                        <tr><th style="width: 190px">Authentication server URL</th><td><code class="user-select-all">{{ auth_url }}</code></td></tr>
+                                        <tr><th>Portal server IP</th><td><code class="user-select-all">{{ server_ip or '(the IP of ' ~ request.host ~ ')' }}</code></td></tr>
+                                        <tr><th>Protocol</th><td>WiFiDog</td></tr>
+                                        <tr><th>Wi-Fi security</th><td>Open (no password), web authentication on</td></tr>
+                                    </table>
+                                    <p class="mb-1">Ruijie access point command line (replace <code>1</code> with your Wi-Fi's WLAN ID):</p>
+<pre class="bg-dark text-light p-2 rounded small mb-0">config
+web-auth template safenet
+ ip {{ server_ip or 'SAFENET_IP' }}
+ url {{ auth_url }}
+ exit
+wlansec 1
+ web-auth portal safenet
+ webauth
+ end
+write</pre>
+                                </div>
                                 {% endif %}
                             </div>
                         </td></tr>
