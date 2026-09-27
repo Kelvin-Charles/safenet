@@ -1786,7 +1786,7 @@ def _omada_provision(site, tenant, wifi_name):
         name = _omada_site_name(site, tenant)
         site_id = api.find_site(name)
         if not site_id:
-            device_pw = secrets.token_urlsafe(14) + 'a1A'
+            device_pw = omada.device_password()
             site_id = api.create_site(name, 'safenet', device_pw)
             site.omada_device_password_enc = secretbox.encrypt(device_pw)
         if not site_id:

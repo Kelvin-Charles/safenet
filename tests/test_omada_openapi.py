@@ -19,7 +19,7 @@ CID = 'cid123'
 st = {'sites': {'S0': {'siteId': 'S0', 'name': 'SafeNet Main'}}, 'ssids': {}, 'portals': {}, 'acl': {},
       'pending': {'B8-FB-B3-79-C7-E6': {'mac': 'B8-FB-B3-79-C7-E6', 'model': 'EAP225-Outdoor(EU) v3.0'},
                   'AA-AA-AA-AA-AA-01': {'mac': 'AA-AA-AA-AA-AA-01', 'model': 'EAP225 v5.0'}},
-      'devices': {}, 'operator': {'id': 'OP1', 'name': 'safenet-portal', 'sites': ['S0'], 'operatorRoleType': 0},
+      'devices': {}, 'operator': {'id': 'OP1', 'name': 'safenet-portal', 'sites': ['S0'], 'operatorRoleType': 0},   # the real list reports no sites
       'calls': [], 'unauth': [], 'tokens': 0, 'needs_login': {'AA-AA-AA-AA-AA-01'}}
 class Fake(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
@@ -52,7 +52,10 @@ class Fake(BaseHTTPRequestHandler):
             return self.out({'data': [s for s in st['sites'].values() if key in s['name']]})
         if p == '/sites' and method == 'POST':
             sid = f"S{len(st['sites'])}"; st['sites'][sid] = {'siteId': sid, **b}
-            assert b['region'] and b['timeZone'] and b['scenario'] == 'Hotel' and len(b['deviceAccountSetting']['password']) >= 10, b
+            pw = b['deviceAccountSetting']['password']
+            assert b['region'] and b['timeZone'] and b['scenario'] == 'Hotel' and 10 <= len(pw) <= 64, b
+            assert re.search('[A-Z]', pw) and re.search('[a-z]', pw) and re.search('[0-9]', pw) and re.search('[#@%&*]', pw), pw
+            assert not re.search(r'(.)\1', pw), pw
             return self.out({})
         sid, rest = m.group(1), (m.group(2) or '')
         if rest == '/devices': return self.out({'data': [d for d in st['devices'].values() if d['site'] == sid]})
@@ -70,12 +73,14 @@ class Fake(BaseHTTPRequestHandler):
             return self.out({'deviceMac': mac, 'adoptErrorCode': 0 if ok else -39003, 'adoptFailedType': -1 if ok else -2})
         if rest == '/wireless-network/wlans': return self.out([{'wlanId': f'W-{sid}', 'name': 'Default', 'primary': True}])
         if rest == '/wireless-network/ssids':
+            assert q.get('type') == ['1'], q
             return self.out([{'wlanId': f'W-{sid}', 'ssidList': [{'ssidId': k, 'ssidName': v['name']} for k, v in st['ssids'].items() if v['site'] == sid]}])
         if re.match(r'/wireless-network/wlans/[^/]+/ssids$', rest) and method == 'POST':
             assert b == {'name': b['name'], 'deviceType': 1, 'band': 3, 'guestNetEnable': True, 'security': 0, 'broadcast': True}, b
             st['ssids'][f"SS{len(st['ssids'])}"] = {**b, 'site': sid}; return self.out({})
         if rest == '/portals': return self.out([{'id': k, **v} for k, v in st['portals'].items() if v['site'] == sid])
         if rest == '/portal' and method == 'POST':
+            assert set(b['portalCustomize']) >= {'copyrightEnable', 'defaultLanguage', 'logoDisplay', 'termsOfServiceEnable', 'welcomeEnable'}, b
             st['portals'][f"P{len(st['portals'])}"] = {**b, 'site': sid}; return self.out({})
         pm = re.match(r'/portal/([^/]+)$', rest)
         if pm and method == 'PATCH':
@@ -83,7 +88,7 @@ class Fake(BaseHTTPRequestHandler):
         if rest == '/setting/access-control':
             if method == 'GET': return self.out(st['acl'].get(sid, {'preAuthAccessEnable': False, 'preAuthAccessPolicies': [], 'freeAuthClientEnable': False}))
             st['acl'][sid] = b; return self.out({})
-        if rest == '/hotspot/operators': return self.out({'data': [st['operator']]})
+        if rest == '/hotspot/operators': return self.out({'data': [{**st['operator'], 'sites': None}]})
         if rest == '/hotspot/operators/OP1' and method == 'PATCH':
             assert b['password'] == 'op-pass', b
             st['operator']['sites'] = b['selectedSites']; return self.out({})
@@ -124,7 +129,7 @@ assert st['sites'][OSID]['name'] == 'Zulu Connect'
 portal = [v for v in st['portals'].values() if v['site'] == OSID][0]
 assert portal['authType'] == 4 and portal['externalPortal'] == {'hostType': 2, 'serverUrlScheme': 'https', 'serverUrl': f'radius.example.tz/omada/{TOKEN}'} and portal['enable']
 assert st['acl'][OSID]['preAuthAccessEnable'] and {'type': 2, 'url': 'radius.example.tz'} in st['acl'][OSID]['preAuthAccessPolicies']
-assert OSID in st['operator']['sites'] and 'S0' in st['operator']['sites']
+assert set(st['operator']['sites']) == set(st['sites'])            # every site, the old ones kept
 # running it again (e.g. renaming) doesn't duplicate anything
 n_sites, n_portals = len(st['sites']), len(st['portals'])
 c.post(f'/sites/{SID}/wifi/setup', data={'csrf_token': tok(w), 'wifi_name': 'Zulu Connect WiFi'})

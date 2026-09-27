@@ -114,6 +114,19 @@ class Controller:
         return cid
 
 
+def device_password(length=18):
+    """A password Omada accepts for device accounts: 10-64 characters with upper and lower case,
+    digits and a symbol, and no character twice in a row."""
+    import secrets, string
+    pools = (string.ascii_uppercase, string.ascii_lowercase, string.digits, '#@%&*')
+    while True:
+        chars = [secrets.choice(pool) for pool in pools] + [secrets.choice(''.join(pools)) for _ in range(length - 4)]
+        secrets.SystemRandom().shuffle(chars)
+        pw = ''.join(chars)
+        if not any(pw[i] == pw[i + 1] for i in range(len(pw) - 1)):
+            return pw
+
+
 class OpenApi:
     """Omada Open API (client-credentials app) used to set sites up for tenants:
     create the site, adopt access points, create the guest Wi-Fi and the portal
@@ -183,7 +196,7 @@ class OpenApi:
     # -- sites -----------------------------------------------------------
     def find_site(self, name):
         for s in self._pages('/sites?searchKey=' + urllib.request.quote(name)):
-            if s.get('name') == name:
+            if (s.get('name') or '').strip().lower() == name.strip().lower():
                 return s.get('siteId')
         return None
 
@@ -211,7 +224,7 @@ class OpenApi:
 
     # -- guest Wi-Fi and portal --------------------------------------------
     def ensure_ssid(self, site_id, name):
-        groups = self._call('GET', f'/sites/{site_id}/wireless-network/ssids') or []
+        groups = self._call('GET', f'/sites/{site_id}/wireless-network/ssids?type=1') or []
         for g in groups:
             for s in g.get('ssidList') or []:
                 if s.get('ssidName') == name:
@@ -222,7 +235,7 @@ class OpenApi:
             raise OmadaError('the site has no WLAN group')
         self._call('POST', f'/openapi/v2/{{cid}}/sites/{site_id}/wireless-network/wlans/{wlan["wlanId"]}/ssids',
                    {'name': name[:32], 'deviceType': 1, 'band': 3, 'guestNetEnable': True, 'security': 0, 'broadcast': True})
-        for g in self._call('GET', f'/sites/{site_id}/wireless-network/ssids') or []:
+        for g in self._call('GET', f'/sites/{site_id}/wireless-network/ssids?type=1') or []:
             for s in g.get('ssidList') or []:
                 if s.get('ssidName') == name[:32]:
                     return s.get('ssidId')
@@ -233,7 +246,10 @@ class OpenApi:
         body = {'name': name, 'enable': True, 'ssidList': [ssid_id], 'authType': 4,
                 'authTimeout': {'customTimeout': 1, 'customTimeoutUnit': 3},
                 'httpsRedirectEnable': False, 'landingPage': 1,
-                'externalPortal': {'hostType': 2, 'serverUrlScheme': scheme or 'https', 'serverUrl': rest}}
+                'externalPortal': {'hostType': 2, 'serverUrlScheme': scheme or 'https', 'serverUrl': rest},
+                # required even though guests see SafeNet's page, not Omada's
+                'portalCustomize': {'defaultLanguage': 1, 'logoDisplay': False, 'welcomeEnable': False,
+                                    'termsOfServiceEnable': False, 'copyrightEnable': False}}
         existing = next((p for p in (self._call('GET', f'/sites/{site_id}/portals') or []) if p.get('name') == name), None)
         if existing:
             ssids = sorted(set((existing.get('ssidList') or []) + [ssid_id]))
@@ -253,17 +269,18 @@ class OpenApi:
                     'freeAuthClientPolicies': current.get('freeAuthClientPolicies') or []})
 
     def ensure_operator_site(self, site_id, operator, operator_password, any_site_id):
-        """Give SafeNet's hotspot operator access to a new site."""
+        """Give SafeNet's hotspot operator access to every site, including a new one. (The operator
+        list does not report an operator's current sites, so always send the complete list.)"""
         ops = self._pages(f'/sites/{any_site_id}/hotspot/operators')
         op = next((o for o in ops if o.get('name') == operator), None)
         if op is None:
             return False
-        sites = [s.get('siteId') if isinstance(s, dict) else s for s in (op.get('sites') or op.get('selectedSites') or [])]
-        if site_id in sites:
-            return True
+        sites = [s.get('siteId') for s in self._pages('/sites') if s.get('siteId')]
+        if site_id not in sites:
+            sites.append(site_id)
         self._call('PATCH', f'/sites/{any_site_id}/hotspot/operators/{op["id"]}',
                    {'name': operator, 'password': operator_password, 'operatorRoleType': op.get('operatorRoleType', 0),
-                    'selectedSites': [s for s in sites if s] + [site_id]})
+                    'selectedSites': sites})
         return True
 
     def unauth(self, site_id, client_mac):
