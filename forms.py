@@ -6,6 +6,43 @@ from models import Admin, Plan, RadUser, Nas
 import re
 
 
+_SPEED_RE = re.compile(r'^\s*(\d+(?:[.,]\d+)?)\s*(k|kb|kbit|kbps|kb/s|m|mb|mbit|mbps|mb/s|g|gb|gbit|gbps|gb/s)?\s*$', re.I)
+
+
+def normalize_speed(text):
+    """'5', '5M', '5 Mbps', '5Mb/s', '512k', '1.5 Mbps' -> '5M', '512k', '1500k'. '' -> ''. None if unreadable.
+    One format (bits per second, k/M/G) that the gateway, MikroTik and Omada all understand."""
+    text = (text or '').strip()
+    if not text:
+        return ''
+    m = _SPEED_RE.match(text)
+    if not m:
+        return None
+    value = float(m.group(1).replace(',', '.'))
+    unit = (m.group(2) or 'm')[0].lower()
+    kbps = value * {'k': 1, 'm': 1000, 'g': 1000000}[unit]
+    if kbps < 8:
+        return None
+    if kbps % 1000000 == 0:
+        return f'{int(kbps // 1000000)}G'
+    if kbps % 1000 == 0:
+        return f'{int(kbps // 1000)}M'
+    return f'{int(round(kbps))}k'
+
+
+class SpeedField(StringField):
+    """Speed limit in bits per second, saved as e.g. 5M; empty means no limit."""
+    def process_formdata(self, valuelist):
+        super().process_formdata(valuelist)
+        self.raw_speed = self.data
+        normal = normalize_speed(self.data)
+        self.data = normal if normal is not None else self.data
+
+    def pre_validate(self, form):
+        if normalize_speed(getattr(self, 'raw_speed', self.data)) is None:
+            raise ValidationError('Write the speed like 5M (5 Mb/s), 20M or 512k (512 kb/s).')
+
+
 class LoginForm(FlaskForm):
     """Admin login form"""
     username = StringField('Username', validators=[DataRequired(), Length(min=3, max=64)])
@@ -31,10 +68,10 @@ class PlanForm(FlaskForm):
     vendor = SelectField('Default Vendor', validators=[DataRequired()])
     is_active = BooleanField('Active', default=True)
     # Bandwidth limits
-    upload_speed = StringField('Upload Speed', validators=[Optional()], 
-                               description='e.g., 10M, 100M, 1G (leave empty for unlimited)')
-    download_speed = StringField('Download Speed', validators=[Optional()],
-                                  description='e.g., 10M, 100M, 1G (leave empty for unlimited)')
+    upload_speed = SpeedField('Upload Speed', validators=[Optional()],
+                              description='e.g. 2M, 5M, 512k (Mb/s or kb/s). Leave empty for no limit.')
+    download_speed = SpeedField('Download Speed', validators=[Optional()],
+                                description='e.g. 5M, 20M (Mb/s). Leave empty for no limit.')
     data_cap = IntegerField('Data Cap (GB)', validators=[Optional()],
                            description='Data limit in GB (0 = unlimited)')
     data_cap_period = SelectField('Data Cap Period', choices=[
@@ -76,10 +113,10 @@ class UserForm(FlaskForm):
     expires_at = DateTimeField('Expires At', format='%Y-%m-%d %H:%M:%S', validators=[Optional()])
     notes = TextAreaField('Notes', validators=[Optional()])
     # Bandwidth limits (override plan limits if set)
-    upload_speed = StringField('Upload Speed', validators=[Optional()],
-                               description='Override plan: e.g., 10M, 100M, 1G (leave empty to use plan default)')
-    download_speed = StringField('Download Speed', validators=[Optional()],
-                                  description='Override plan: e.g., 10M, 100M, 1G (leave empty to use plan default)')
+    upload_speed = SpeedField('Upload Speed', validators=[Optional()],
+                              description='Override the plan, e.g. 5M or 512k (leave empty to use the plan)')
+    download_speed = SpeedField('Download Speed', validators=[Optional()],
+                                description='Override the plan, e.g. 20M (leave empty to use the plan)')
     data_cap = IntegerField('Data Cap (GB)', validators=[Optional()],
                            description='Override plan: Data limit in GB (0 = unlimited, leave empty to use plan default)')
     data_cap_period = SelectField('Data Cap Period', choices=[

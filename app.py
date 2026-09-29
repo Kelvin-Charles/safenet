@@ -1651,6 +1651,7 @@ def _omada_let_in(site, tenant, guest, username, password):
                            acctinputoctets=0, acctoutputoctets=0))
     site.omada_checked_at, site.omada_error = now, None
     db.session.commit()
+    _omada_rate_async(site, mac, info.get('upload'), info.get('download'))
     return {'seconds': seconds, 'user': username}, None
 
 
@@ -1801,6 +1802,21 @@ def _omada_provision(site, tenant, wifi_name):
                              others[0] if others else site.omada_site_id)
     site.omada_ssid = wifi_name[:32]
     site.omada_checked_at, site.omada_error = datetime.utcnow(), None
+
+
+def _omada_rate_async(site, mac, upload, download):
+    """Apply the package's speed limit to this guest (SafeNet's controller only)."""
+    if not (site and site.omada_hosted and site.omada_site_id and mac and _omada_openapi_available()):
+        return
+    site_id = site.omada_site_id
+
+    def run():
+        try:
+            _openapi().set_client_rate(site_id, mac, upload, download)
+            log.info('omada speed for %s at %s: up %s down %s', mac, site_id, upload or '-', download or '-')
+        except omada.OmadaError as e:
+            log.warning('omada speed for %s failed: %s', mac, e)
+    threading.Thread(target=run, daemon=True).start()
 
 
 def _omada_unauth_async(site, mac):

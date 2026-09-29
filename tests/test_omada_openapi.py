@@ -36,6 +36,13 @@ class Fake(BaseHTTPRequestHandler):
         u = urlparse(self.path); path, q = u.path, parse_qs(u.query)
         if path == '/api/info':
             return self.out({'omadacId': CID})
+        if path == f'/{CID}/api/v2/hotspot/login':
+            b = self.body(); ok = b == {'name': 'safenet-portal', 'password': 'op-pass'}
+            body = json.dumps({'errorCode': 0 if ok else -1, 'msg': 'x', 'result': {'token': 'HT'} if ok else {}}).encode()
+            self.send_response(200); self.send_header('Content-Type', 'application/json'); self.send_header('Set-Cookie', 'TPOMADA_SESSIONID=H1; Path=/')
+            self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if path == f'/{CID}/api/v2/hotspot/extPortal/auth':
+            st.setdefault('authorized', []).append(self.body()); return self.out({})
         if path == '/openapi/authorize/token':
             b = self.body(); st['tokens'] += 1
             ok = q.get('grant_type') == ['client_credentials'] and b == {'omadacId': CID, 'client_id': 'ci', 'client_secret': 'cs'}
@@ -94,6 +101,8 @@ class Fake(BaseHTTPRequestHandler):
         if rest == '/hotspot/operators/OP1' and method == 'PATCH':
             assert b['password'] == 'op-pass', b
             st['operator']['sites'] = b['selectedSites']; return self.out({})
+        rm = re.match(r'/clients/([^/]+)/ratelimit$', rest)
+        if rm and method == 'PATCH': st.setdefault('rates', []).append((sid, rm.group(1), b)); return self.out(None)
         um = re.match(r'/hotspot/clients/([^/]+)/unauth$', rest)
         if um: st['unauth'].append((sid, um.group(1))); return self.out(None)
         return self.out(None, -1, f'not faked: {method} {p}')
@@ -189,7 +198,45 @@ while not st['unauth'] and _t.monotonic() < deadline:
 assert st['unauth'] == [(OSID, 'AA-BB-CC-00-00-07')], st['unauth']
 with app.app_context(): assert RadAcct.query.filter_by(acctuniqueid='x1').one().acctstoptime is not None
 
+# --- speed limits: plans accept speeds as people write them, and Omada guests get their package's speed
+pf = c.get('/plans/add').text
+r = c.post('/plans/add', data={'csrf_token': tok(pf), 'name': 'Standard', 'vendor': 'standard', 'is_active': 'y',
+                               'upload_speed': '2 Mbps', 'download_speed': '5Mb/s', 'data_cap_period': 'monthly'}, follow_redirects=True)
+r = c.post('/plans/add', data={'csrf_token': tok(pf), 'name': 'Max', 'vendor': 'standard', 'is_active': 'y',
+                               'upload_speed': '5M', 'download_speed': '20 mbps', 'data_cap_period': 'monthly'}, follow_redirects=True)
+bad = c.post('/plans/add', data={'csrf_token': tok(pf), 'name': 'Broken', 'vendor': 'standard', 'is_active': 'y',
+                                 'upload_speed': 'fast', 'download_speed': '5M', 'data_cap_period': 'monthly'}).text
+assert 'Write the speed like 5M' in bad
+from models import Plan, RadGroupReply
+with app.app_context():
+    std = Plan.query.filter_by(tenant_id=TID, name='Standard').one(); mx = Plan.query.filter_by(tenant_id=TID, name='Max').one()
+    assert (std.upload_speed, std.download_speed) == ('2M', '5M') and (mx.upload_speed, mx.download_speed) == ('5M', '20M')
+    assert not Plan.query.filter_by(tenant_id=TID, name='Broken').first()
+    assert RadGroupReply.query.filter_by(groupname=mx.group_name, attribute='Mikrotik-Rate-Limit').one().value == '5M/20M'   # MikroTik
+    db.session.add_all([Voucher(tenant_id=TID, code='55005500', plan_id=mx.id, validity_minutes=60, batch='x', status='unused'),
+                        RadCheck(username='55005500', attribute='Cleartext-Password', op=':=', value='55005500'),
+                        Voucher(tenant_id=TID, code='66006600', validity_minutes=60, batch='x', status='unused'),
+                        RadCheck(username='66006600', attribute='Cleartext-Password', op=':=', value='66006600')])
+    db.session.commit()
+guest = app.test_client()
+guest.get(f'/omada/{TOKEN}?clientMac=AA-BB-CC-00-00-31&apMac=B8-FB-B3-79-C7-E6&ssidName=Zulu&radioId=0&site={OSID}&redirectUrl=http%3A%2F%2Fexample.com%2F')
+assert "You're online" in guest.post(f'/omada/{TOKEN}/login', data={'code': '55005500', 'agree': '1'}).text
+deadline = _t.monotonic() + 5
+while not st.get('rates') and _t.monotonic() < deadline:
+    pass
+assert st['rates'][-1] == (OSID, 'AA-BB-CC-00-00-31', {'enable': True, 'upEnable': True, 'downEnable': True,
+                                                        'upUnit': 2, 'upLimit': 5, 'downUnit': 2, 'downLimit': 20}), st['rates']
+# a package with no speed limit removes any old limit on that phone
+guest2 = app.test_client()
+guest2.get(f'/omada/{TOKEN}?clientMac=AA-BB-CC-00-00-31&apMac=B8-FB-B3-79-C7-E6&ssidName=Zulu&radioId=0&site={OSID}&redirectUrl=http%3A%2F%2Fexample.com%2F')
+n = len(st['rates'])
+guest2.post(f'/omada/{TOKEN}/login', data={'code': '66006600', 'agree': '1'})
+deadline = _t.monotonic() + 5
+while len(st['rates']) == n and _t.monotonic() < deadline:
+    pass
+assert st['rates'][-1][2] == {'enable': False, 'upEnable': False, 'downEnable': False}, st['rates']
+
 # the access token is reused, not fetched for every call
-assert st['tokens'] <= 4, st['tokens']
+assert st['tokens'] <= 5, st['tokens']
 srv.shutdown()
 print('OMADA OPEN API OK')

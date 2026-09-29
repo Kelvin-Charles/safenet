@@ -291,5 +291,28 @@ class OpenApi:
                     'selectedSites': sites})
         return True
 
+    @staticmethod
+    def _rate(speed):
+        """'5M' / '512k' / '1.5M' (bits per second) -> (unit, value) for Omada: unit 1 = Kbps, 2 = Mbps, value 1-1024."""
+        m = re.match(r'^\s*(\d+(?:\.\d+)?)\s*([kKmMgG]?)', str(speed or ''))
+        if not m:
+            return None
+        kbps = float(m.group(1)) * {'': 1000, 'k': 1, 'm': 1000, 'g': 1000000}[m.group(2).lower()]
+        if kbps <= 0:
+            return None
+        if kbps <= 1024 and kbps % 1000:
+            return 1, max(1, int(round(kbps)))
+        return 2, max(1, min(1024, int(round(kbps / 1000))))
+
+    def set_client_rate(self, site_id, client_mac, upload=None, download=None):
+        """Limit one guest's speed (e.g. '5M' down, '2M' up), or remove the limit when both are empty."""
+        up, down = self._rate(upload), self._rate(download)
+        body = {'enable': bool(up or down), 'upEnable': bool(up), 'downEnable': bool(down)}
+        if up:
+            body.update(upUnit=up[0], upLimit=up[1])
+        if down:
+            body.update(downUnit=down[0], downLimit=down[1])
+        self._call('PATCH', f'/sites/{site_id}/clients/{self.mac(client_mac)}/ratelimit', body)
+
     def unauth(self, site_id, client_mac):
         self._call('POST', f'/sites/{site_id}/hotspot/clients/{self.mac(client_mac)}/unauth')
