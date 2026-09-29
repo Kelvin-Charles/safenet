@@ -1305,6 +1305,35 @@ def _mac_key(mac):
     return (mac or '').strip().lower().replace('-', ':')[:17] or None
 
 
+def _returning_code(tid, mac):
+    """The voucher a phone already paid for and can still use (time left, not disabled), so a guest
+    who reconnects is let back in without typing the code again. None if there is none."""
+    raw = re.sub(r'[^0-9A-Fa-f]', '', mac or '').upper()
+    if len(raw) != 12:
+        return None
+    dashed = '-'.join(raw[i:i + 2] for i in range(0, 12, 2))
+    now = datetime.utcnow() + timedelta(seconds=60)
+    candidates = [c for (c,) in db.session.query(Voucher.code).filter(Voucher.tenant_id == tid, Voucher.first_mac == dashed.lower().replace('-', ':'),
+                                                                     Voucher.status == 'active', Voucher.expires_at > now)
+                  .order_by(Voucher.expires_at.desc()).limit(5)]
+    used = db.session.query(RadAcct.username).filter(RadAcct.callingstationid == dashed) \
+        .order_by(RadAcct.acctstarttime.desc()).limit(20).all()
+    names = [u for (u,) in used if u not in candidates]
+    if names:
+        candidates += [c for (c,) in db.session.query(Voucher.code).filter(Voucher.tenant_id == tid, Voucher.code.in_(names),
+                                                                          Voucher.status == 'active', Voucher.expires_at > now)
+                       .order_by(Voucher.expires_at.desc())]
+    for code in candidates:
+        # not if an admin disconnected it after this phone last logged in with it
+        last = db.session.query(func.max(RadAcct.acctstarttime)).filter(RadAcct.username == code,
+                                                                          RadAcct.callingstationid == dashed).scalar()
+        kicked = SessionKick.query.filter(SessionKick.tenant_id == tid, SessionKick.username == code,
+                                          *([SessionKick.created_at >= last] if last else [])).first()
+        if not kicked:
+            return code
+    return None
+
+
 def _free_trial_stats(tid):
     """How many phones used a free trial, and how many of them paid for a package afterwards."""
     tried = dict(db.session.query(Voucher.first_mac, func.min(Voucher.first_used_at))
@@ -1660,6 +1689,14 @@ def omada_portal(token):
     site, tenant = _omada_site(token)
     if request.args.get('clientMac'):
         session['omada'] = {'token': site.portal_token, **{k: request.args.get(k, '')[:500] for k in OMADA_PARAMS}}
+        code = _returning_code(tenant.id, request.args.get('clientMac'))
+        if code:
+            guest = _omada_guest(site.portal_token)
+            info, error = _omada_let_in(site, tenant, guest, code, code)
+            if not error:
+                log.info('omada: %s back online with %s', guest.get('clientMac'), code)
+                return _omada_page(site, tenant, view='status', user=code, remaining=info['seconds'],
+                                   dst=guest.get('redirectUrl', ''))
     return _omada_page(site, tenant)
 
 
@@ -2126,6 +2163,12 @@ def wifidog(token, rest):
         site.wifidog_seen_at = datetime.utcnow()
         site.wifidog_gw_id = (request.args.get('gw_id') or site.wifidog_gw_id or '')[:64] or None
         db.session.commit()
+        code = _returning_code(tenant.id, request.args.get('mac'))
+        if code:
+            back, error = _wifidog_let_in(site, tenant, _wifidog_guest(site.portal_token), code, code)
+            if back:
+                log.info('wifidog: %s back online with %s', request.args.get('mac'), code)
+                return redirect(back)
     return _hotspot_page(site, tenant, base)
 
 
@@ -2871,6 +2914,15 @@ def api_gateway_auth():
     _log_auth(username, ok)
     db.session.commit()
     return jsonify(ok=ok, message=message, **(info or {}))
+
+
+@app.route('/api/gateway/returning', methods=['POST'])
+@portal_api
+def api_gateway_returning():
+    """{"mac"} -> {"code"} of a voucher this phone paid for and can still use, so the gateway can
+    let a returning guest straight back in. {} when there is none."""
+    code = _returning_code(g.api_tenant.id, str((request.get_json(silent=True) or {}).get('mac') or '')[:17])
+    return jsonify(code=code) if code else jsonify({})
 
 
 def _acct_nas_ip():

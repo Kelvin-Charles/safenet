@@ -605,6 +605,23 @@ def follow_device(s):
     log.info('guest %s now reaches us via %s', s['mac'], wire)
 
 
+_not_returning = {}          # mac -> time we last heard it has no paid time left
+
+
+def returning_code(mac):
+    """Voucher this phone already paid for and can still use (SafeNet API mode only)."""
+    if not API_MODE or time.time() - _not_returning.get(mac, 0) < 60:
+        return None
+    try:
+        code = (safenet_api('POST', '/api/gateway/returning', {'mac': mac}, timeout=8) or {}).get('code')
+    except (ApiError, OSError) as e:
+        log.warning('returning check for %s failed: %s', mac, e)
+        return None
+    if not code:
+        _not_returning[mac] = time.time()
+    return code
+
+
 # ---------------------------------------------------------------------------
 # Buying packages (SafeNet API -> ClickPesa USSD push)
 # ---------------------------------------------------------------------------
@@ -789,6 +806,13 @@ class PortalHandler(BaseHTTPRequestHandler):
         dst = query.get('dst', [''])[0][:500]
         ip, mac = self._client()
         session = sessions.get(mac) if mac else None
+        if not (session and session['ip'] == ip and session['expires'] > time.time()) and mac:
+            # A phone that already paid and still has time (e.g. it reconnected and got a new address)
+            code = returning_code(mac)
+            if code:
+                session, _ = login(mac, ip, code, code)
+                if session:
+                    log.info('returning guest %s back online with %s', mac, code)
         if session and session['ip'] == ip and session['expires'] > time.time():
             follow_device(session)
             return self._send(200, status_page(session, dst, lang=lang))

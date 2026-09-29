@@ -163,6 +163,21 @@ for i in range(6):
     f.post(f'/omada/{TOKEN}/login', data={'code': f'1000000{i}', 'agree': '1'})
 assert 'Too many wrong attempts' in f.post(f'/omada/{TOKEN}/login', data={'code': '55554444', 'agree': '1'}).text
 
+# --- returning guest: phone 01 used 77778888 (time left) and reconnects -> straight back online
+n = len(ctl['authorized'])
+back = app.test_client().get(q).text
+assert "You're online" in back and '77778888' in back, back[-1500:]
+assert len(ctl['authorized']) == n + 1 and ctl['authorized'][-1]['clientMac'] == 'AA-BB-CC-00-00-01'
+assert 0 < int(ctl['authorized'][-1]['time']) <= 120 * 60 * 1_000_000          # only the time that's left
+# a phone that never paid still sees the login page
+assert 'action="/omada/' in app.test_client().get(q.replace('00-00-01', '00-00-77')).text
+# after an admin disconnects the code, the phone must log in again
+lv = c.get('/live').text
+c.post('/live/disconnect', data={'csrf_token': tok(lv), 'username': '77778888'})
+n = len(ctl['authorized'])
+page = app.test_client().get(q).text
+assert "You're online" not in page and len(ctl['authorized']) == n
+
 # --- remove Omada: the portal link stops working
 c.post(f'/sites/{SID}/omada', data={'csrf_token': tok(p), 'action': 'remove'})
 assert app.test_client().get(q).status_code == 404

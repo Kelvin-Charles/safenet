@@ -122,6 +122,26 @@ st = b.get(f'/wifidog/{TOKEN}/portal/', base_url='https://radius.example.tz').te
 with app.app_context(): code = Payment.query.filter_by(reference=ref).one().voucher.code
 assert "You're online" in st and code in st and 'Payment received' in st
 
+# returning guest: phone 04 bought a package (time left); reconnecting sends it straight back to the access point
+r = app.test_client().get(f'/wifidog/{TOKEN}/login/?' + urlencode({**LOGIN_Q, 'mac': 'aa:bb:cc:00:00:04'}), base_url='https://radius.example.tz')
+assert r.status_code == 302 and r.headers['Location'].startswith('http://192.168.110.1:2060/wifidog/auth?token='), r.headers.get('Location')
+T5 = parse_qs(urlparse(r.headers['Location']).query)['token'][0]
+assert ap('auth/', stage='login', token=T5, mac='AA:BB:CC:00:00:04') == 'Auth: 1'
+# phone 02 still has time on its voucher, so it is let back in too; once the voucher runs out it gets the login page
+assert app.test_client().get(f'/wifidog/{TOKEN}/login/?' + urlencode({**LOGIN_Q, 'mac': 'aa:bb:cc:00:00:02'}), base_url='https://radius.example.tz').status_code == 302
+with app.app_context():
+    Voucher.query.filter_by(code='22220000').update({'expires_at': datetime.utcnow() - timedelta(minutes=1)}); db.session.commit()
+assert app.test_client().get(f'/wifidog/{TOKEN}/login/?' + urlencode({**LOGIN_Q, 'mac': 'aa:bb:cc:00:00:02'}), base_url='https://radius.example.tz').status_code == 200
+# the gateway API answers the same question
+from app import _hash_key
+from models import Gateway
+with app.app_context():
+    db.session.add(Gateway(tenant_id=TID, name='gw', key_prefix='sgw_z', key_hash=_hash_key('sgw_z'))); db.session.commit()
+api = app.test_client()
+assert api.post('/api/gateway/returning', headers={'X-SafeNet-Key': 'sgw_z'}, json={'mac': 'aa:bb:cc:00:00:04'}).get_json() == {'code': code}
+assert api.post('/api/gateway/returning', headers={'X-SafeNet-Key': 'sgw_z'}, json={'mac': 'aa:bb:cc:00:00:02'}).get_json() == {}
+assert api.post('/api/gateway/returning', json={'mac': 'aa:bb:cc:00:00:04'}).status_code == 401
+
 # safety: a guest can't be sent to an address outside the local network
 e = app.test_client(); e.get(f'/wifidog/{TOKEN}/login/?' + urlencode({**LOGIN_Q, 'gw_address': '203.0.113.9', 'mac': 'aa:bb:cc:00:00:05'}), base_url='https://radius.example.tz')
 with app.app_context():
