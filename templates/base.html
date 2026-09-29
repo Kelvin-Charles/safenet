@@ -211,9 +211,19 @@
         }
     </style>
     
+    {% if current_user.is_authenticated and current_user.is_viewer %}
+    <style>
+        /* Partners can look but not change: hide forms that change things and links to edit pages */
+        body.view-only form[method="POST"]:not(.keep), body.view-only form[method="post"]:not(.keep),
+        body.view-only a[href*="/add"], body.view-only a[href*="/edit"], body.view-only a[href*="/generate"],
+        body.view-only a[href*="/delete"], body.view-only a[href*="/print"], body.view-only [data-kick],
+        body.view-only a[href$="/billing"], body.view-only a[href$="/gateways"], body.view-only a[href*="/wifi"],
+        body.view-only a[href$="/settings/payments"] { display: none !important; }
+    </style>
+    {% endif %}
     {% block extra_css %}{% endblock %}
 </head>
-<body>
+<body class="{{ 'view-only' if current_user.is_authenticated and current_user.is_viewer }}">
     {% if current_user.is_authenticated %}
     <!-- Sidebar -->
     <div class="sidebar">
@@ -225,13 +235,16 @@
             <a class="nav-link {% if request.endpoint in endpoints %}active{% endif %}" href="{{ url }}"><i class="bi {{ icon }}"></i> {{ label }}</a>
         {% endmacro %}
         {% set is_admin = current_user.has_role('admin') %}
+        {% set partner = current_user.is_viewer %}
+        {% set site_partner = partner and current_user.site_id %}
         <nav class="nav flex-column mt-3">
             {{ link(['dashboard'], url_for('dashboard'), 'bi-speedometer2', 'Dashboard') }}
-            {{ link(['sites_page'], url_for('sites_page'), 'bi-geo-alt', 'Sites') }}
+            {% if not site_partner %}{{ link(['sites_page'], url_for('sites_page'), 'bi-geo-alt', 'Sites') }}{% endif %}
             {{ link(['live'], url_for('live'), 'bi-broadcast', 'Live') }}
-            {{ link(['users', 'add_user', 'edit_user'], url_for('users'), 'bi-people', 'Users') }}
+            {% if not site_partner %}{{ link(['users', 'add_user', 'edit_user'], url_for('users'), 'bi-people', 'Users') }}{% endif %}
             {{ link(['vouchers', 'generate_vouchers'], url_for('vouchers'), 'bi-ticket-perforated', 'Vouchers') }}
             {{ link(['payments'], url_for('payments'), 'bi-phone', 'Payments') }}
+            {% if partner and not site_partner %}{{ link(['earnings'], url_for('earnings'), 'bi-wallet2', 'Earnings') }}{% endif %}
             {% if is_admin %}
             {{ link(['earnings'], url_for('earnings'), 'bi-wallet2', 'Earnings') }}
             {{ link(['packages', 'add_package', 'edit_package'], url_for('packages'), 'bi-bag', 'Packages') }}
@@ -241,7 +254,7 @@
             {{ link(['nas_list', 'add_nas', 'edit_nas'], url_for('nas_list'), 'bi-router', 'RADIUS clients (NAS)') }}
             {% endif %}
             {{ link(['accounting', 'accounting_detail'], url_for('accounting'), 'bi-graph-up', 'Accounting') }}
-            {{ link(['auth_logs'], url_for('auth_logs'), 'bi-shield-check', 'Auth Logs') }}
+            {% if not site_partner %}{{ link(['auth_logs'], url_for('auth_logs'), 'bi-shield-check', 'Auth Logs') }}{% endif %}
             {% if is_admin %}
             <hr style="border-color: #2E3B76; opacity: 1; margin: 1rem 0;">
             {{ link(['billing', 'billing_payment'], url_for('billing'), 'bi-receipt', 'Billing') }}
@@ -275,7 +288,10 @@
                 <h4 class="mb-0">{% block page_title %}Dashboard{% endblock %}</h4>
             </div>
             <div class="d-flex align-items-center gap-2">
-                {% if tenant and sites %}
+                {% if current_user.is_viewer %}<span class="badge bg-info text-dark"><i class="bi bi-eye"></i> View only</span>{% endif %}
+                {% if current_user.is_viewer and current_user.site_id %}
+                <span class="site-btn"><span class="site-badge">{{ (site.name if site else '?')[:1]|upper }}</span>{{ site.name if site else '' }}</span>
+                {% elif tenant and sites %}
                 <div class="dropdown">
                     <button class="site-btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-label="Choose site">
                         <span class="site-badge">{{ (site.name if site else 'All')[:1]|upper }}</span>{{ site.name if site else ('All sites' if sites|length > 1 else sites[0].name) }}
@@ -283,7 +299,7 @@
                     <ul class="dropdown-menu dropdown-menu-end">
                         <li><h6 class="dropdown-header">Show</h6></li>
                         {% for choice in [none] + sites %}
-                        <li><form method="POST" action="{{ url_for('switch_site') }}" class="m-0">
+                        <li><form method="POST" action="{{ url_for('switch_site') }}" class="m-0 keep">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="site_id" value="{{ choice.id if choice else '' }}">
                             <button class="dropdown-item {{ 'active' if (choice and site and choice.id == site.id) or (not choice and not site) }}" type="submit">{{ choice.name if choice else 'All sites' }}</button>
@@ -302,7 +318,7 @@
         {% if impersonating %}
         <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
             <span><i class="bi bi-person-badge"></i> You are logged in as <strong>{{ current_user.username }}</strong> ({{ tenant.name if tenant else '' }} owner). Everything you do here is done as them.</span>
-            <form method="POST" action="{{ url_for('stop_impersonating') }}" class="m-0">
+            <form method="POST" action="{{ url_for('stop_impersonating') }}" class="m-0 keep">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="btn btn-sm btn-dark" type="submit"><i class="bi bi-box-arrow-left"></i> Back to platform</button>
             </form>

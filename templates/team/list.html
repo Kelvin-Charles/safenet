@@ -17,7 +17,9 @@
                     {% for m in members %}
                     <tr>
                         <td><strong>{{ m.username }}</strong>{% if m.id == current_user.id %} <span class="text-muted">(you)</span>{% endif %}<small class="text-muted d-block">{{ m.email }}</small></td>
-                        <td><span class="badge bg-{{ 'dark' if m.role == 'owner' else 'primary' if m.role == 'admin' else 'secondary' }}">{{ m.role|capitalize }}</span></td>
+                        <td>{% if m.role == 'viewer' %}<span class="badge bg-info text-dark">Partner · view only</span>
+                            <small class="d-block text-muted">{% if m.site_id %}{% for x in sites if x.id == m.site_id %}Only {{ x.name }}{% endfor %}{% else %}Whole business{% endif %}</small>
+                            {% else %}<span class="badge bg-{{ 'dark' if m.role == 'owner' else 'primary' if m.role == 'admin' else 'secondary' }}">{{ m.role|capitalize }}</span>{% endif %}</td>
                         <td>{% if m.is_active %}<span class="badge bg-success">Active</span>{% else %}<span class="badge bg-danger">Disabled</span>{% endif %}</td>
                         <td><small>{{ m.last_login.strftime('%Y-%m-%d %H:%M') if m.last_login else 'Never' }}</small></td>
                         <td class="text-nowrap">

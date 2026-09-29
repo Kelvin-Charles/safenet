@@ -2,6 +2,16 @@
 {% from "auth/_field.html" import field %}
 
 {% block title %}Add team member - {{ app_name }}{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const role = document.getElementById('role'), box = document.getElementById('scope-box');
+    const show = () => box.style.display = role.value === 'viewer' ? '' : 'none';
+    role.addEventListener('change', show); show();
+})();
+</script>
+{% endblock %}
 {% block page_title %}Add Team Member{% endblock %}
 
 {% block content %}
@@ -14,6 +24,8 @@
                 {{ field(form.username) }}
                 {{ field(form.email) }}
                 {{ field(form.role, "form-select") }}
+                <div id="scope-box">{{ field(form.site_id, "form-select") }}
+                    <p class="small text-muted mt-n2">Partners see earnings, payments, vouchers and usage for what you choose here, and can't change anything.</p></div>
                 {{ field(form.password, help="Share it with them privately. They can change it with \"Forgot password\".") }}
                 <div class="d-flex justify-content-between">
                     <a href="{{ url_for('team') }}" class="btn btn-outline-secondary">Cancel</a>

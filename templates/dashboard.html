@@ -137,7 +137,7 @@
         <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Data moved today</div><div class="v">{{ (down_today + up_today)|filesizeformat }}</div><div class="d">{{ down_today|filesizeformat }} down · {{ up_today|filesizeformat }} up</div></div></div>
         <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Average traffic</div><div class="v">{{ (avg_rate|int)|filesizeformat }}/s</div><div class="d">Average since midnight</div></div></div>
         <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Collections today</div><div class="v">{{ money(today.total) }}</div><div class="d">{{ money(week_total) }} in the last 7 days</div></div></div>
-        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Available balance</div><div class="v">{{ money(balance) if platform_mode else '—' }}</div><div class="d">{{ 'Ready to withdraw' if platform_mode else 'Paid straight to your ClickPesa' }}</div></div></div>
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Available balance</div><div class="v">{{ money(balance) if platform_mode and not site else '—' }}</div><div class="d">{{ ('Business-wide: see all sites' if site else 'Ready to withdraw') if platform_mode else 'Paid straight to your own account' }}</div></div></div>
     </div>
 
     <!-- Earnings -->
@@ -150,7 +150,7 @@
                 <div class="sub mb-3">All time{{ ', ' ~ site.name if site }}, collected from your customers.</div>
                 <div class="kv"><span>Online payments</span><strong>{{ money(all_time.online) }}</strong></div>
                 <div class="kv"><span>Voucher sales (cash)</span><strong>{{ money(all_time.vouchers) }}</strong></div>
-                {% if platform_mode %}
+                {% if platform_mode and not site %}
                 <div class="kv"><span>Withdrawn to you</span><strong>{{ money(withdrawn) }}</strong></div>
                 <div class="kv"><span>Available balance</span><strong class="text-success">{{ money(balance) }}</strong></div>
                 {% endif %}

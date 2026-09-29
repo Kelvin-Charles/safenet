@@ -12,13 +12,15 @@ tok = lambda h: re.search(r'name="csrf_token"[^>]*value="([^"]+)"', h).group(1)
 now = datetime.utcnow()
 with app.app_context():
     db.create_all(); __import__('migrations').run()
+    from app import _local_midnight_utc
+    ago = lambda **kw: max(now - timedelta(**kw), _local_midnight_utc() + timedelta(seconds=1))   # 'today' even just after midnight
     a = Admin(username='admin', email='a@b.c', role='owner', tenant_id=__import__('migrations').default_tenant().id,
               email_verified_at=__import__('datetime').datetime.utcnow()); a.set_password('pw'); db.session.add(a)
     plan = Plan(name='Fast10M'); db.session.add(plan); db.session.flush()
-    v1 = Voucher(code='11112222', plan_id=plan.id, batch='online-payments', validity_minutes=1440, price=Decimal(1000), status='active', first_used_at=now - timedelta(minutes=30), expires_at=now + timedelta(hours=23, minutes=30))
-    v2 = Voucher(code='33334444', batch='cafe', validity_minutes=60, price=Decimal(500), status='active', first_used_at=now - timedelta(minutes=5), expires_at=now + timedelta(minutes=55))
+    v1 = Voucher(code='11112222', plan_id=plan.id, batch='online-payments', validity_minutes=1440, price=Decimal(1000), status='active', first_used_at=ago(minutes=30), expires_at=now + timedelta(hours=23, minutes=30))
+    v2 = Voucher(code='33334444', batch='cafe', validity_minutes=60, price=Decimal(500), status='active', first_used_at=ago(minutes=5), expires_at=now + timedelta(minutes=55))
     db.session.add_all([v1, v2]); db.session.flush()
-    db.session.add(Payment(reference='SNAAA', package_name='1 Day', phone='255712345678', amount=Decimal(1000), validity_minutes=1440, status='paid', voucher_id=v1.id, paid_at=now - timedelta(minutes=31), created_at=now - timedelta(minutes=32)))
+    db.session.add(Payment(reference='SNAAA', package_name='1 Day', phone='255712345678', amount=Decimal(1000), validity_minutes=1440, status='paid', voucher_id=v1.id, paid_at=ago(minutes=31), created_at=now - timedelta(minutes=32)))
     db.session.add(Payment(reference='SNBBB', package_name='1 Hour', phone='255654000111', amount=Decimal(500), validity_minutes=60, status='failed', message='Insufficient balance', created_at=now - timedelta(minutes=10), updated_at=now - timedelta(minutes=9)))
     def acct(uid, user, start, upd, stop=None, down=0, up=0):
         return RadAcct(radacctid=int(uid[1:]), acctsessionid=uid, acctuniqueid=uid, username=user, nasipaddress='10.10.0.1', calledstationid='devserver-gw',
@@ -30,8 +32,8 @@ with app.app_context():
         acct('s3', 'olduser', now - timedelta(hours=2), now - timedelta(hours=1), stop=now - timedelta(hours=1), down=5_000_000, up=1_000_000),
         acct('s4', 'ghost', now - timedelta(days=2), now - timedelta(days=1)),   # open but stale: not online
     ])
-    db.session.add_all([RadPostAuth(username='11112222', pass_field='x', reply='Access-Accept', authdate=now - timedelta(minutes=30)),
-                        RadPostAuth(username='00000000', pass_field='x', reply='Access-Reject', authdate=now - timedelta(minutes=20))])
+    db.session.add_all([RadPostAuth(username='11112222', pass_field='x', reply='Access-Accept', authdate=ago(minutes=30)),
+                        RadPostAuth(username='00000000', pass_field='x', reply='Access-Reject', authdate=ago(minutes=20))])
     db.session.commit()
     db.session.add(__import__('models').RadUser(username='olduser')); db.session.commit()
     __import__('migrations').run()          # rows made without a tenant belong to the main one

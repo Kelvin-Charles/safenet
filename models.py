@@ -125,7 +125,7 @@ class Gateway(db.Model):
         return f'<Gateway {self.name}>'
 
 
-ROLES = ('staff', 'admin', 'owner')   # increasing permissions
+ROLES = ('viewer', 'staff', 'admin', 'owner')   # increasing permissions; viewer = partner/shareholder, read only
 
 
 class Admin(UserMixin, db.Model):
@@ -140,6 +140,7 @@ class Admin(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime)
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'))   # viewer limited to one site
     role = db.Column(db.String(16), nullable=False, default='owner')
     is_superadmin = db.Column(db.Boolean, nullable=False, default=False)  # platform operator
     email_verified_at = db.Column(db.DateTime)
@@ -148,6 +149,11 @@ class Admin(UserMixin, db.Model):
 
     def has_role(self, role):
         return self.is_superadmin or ROLES.index(self.role or 'staff') >= ROLES.index(role)
+
+    @property
+    def is_viewer(self):
+        """Partner / shareholder: may look at everything in their scope, change nothing."""
+        return not self.is_superadmin and self.role == 'viewer'
     
     def set_password(self, password):
         """Hash and set password"""

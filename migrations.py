@@ -97,6 +97,7 @@ def run():
     _add_column('tenants', 'clickpesa_checksum_key_enc', 'TEXT NULL')
     _add_column('tenants', 'fee_percent', 'NUMERIC(5, 2) NULL')
     _add_column('tenants', 'own_provider', "VARCHAR(16) NOT NULL DEFAULT 'clickpesa'")
+    _add_column('admins', 'site_id', 'INTEGER NULL')
     _add_column('tenants', 'snippe_api_key_enc', 'TEXT NULL')
     _add_column('tenants', 'snippe_webhook_key_enc', 'TEXT NULL')
     _add_column('tenants', 'billing_plan_id', 'INTEGER NULL')

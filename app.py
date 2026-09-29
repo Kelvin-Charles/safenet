@@ -101,6 +101,27 @@ def block_suspended_tenants():
             return redirect(url_for('billing'))
 
 
+# Partners / shareholders (role "viewer"): read-only pages only; a partner limited to one
+# site also doesn't see the business-wide pages (earnings balance, all sites, customer accounts).
+VIEWER_PAGES = {'dashboard', 'live', 'api_live', 'payments', 'accounting', 'accounting_detail', 'vouchers',
+                'docs', 'logout', 'static', 'landing', 'stop_impersonating', 'portal', 'portal_logo'}
+VIEWER_BUSINESS_PAGES = VIEWER_PAGES | {'earnings', 'sites_page', 'users', 'auth_logs', 'switch_site'}
+VIEWER_CHANGES = {'switch_site', 'stop_impersonating'}      # the only POSTs a partner may make
+
+
+@app.before_request
+def partners_are_read_only():
+    if not (current_user.is_authenticated and getattr(current_user, 'is_viewer', False)):
+        return None
+    allowed = VIEWER_PAGES if current_user.site_id else VIEWER_BUSINESS_PAGES
+    if request.endpoint in allowed and (request.method in ('GET', 'HEAD') or request.endpoint in VIEWER_CHANGES):
+        return None
+    if request.path.startswith('/api/'):
+        return jsonify(error='Your account can view only.'), 403
+    flash('Your account can view but not change anything.', 'info')
+    return redirect(url_for('dashboard'))
+
+
 # Error handlers
 @app.errorhandler(404)
 def not_found_error(error):
@@ -208,6 +229,17 @@ def _collected(tid, site, since, until=None):
     vouchers = Decimal(str(cash.with_entities(func.coalesce(func.sum(Voucher.price), 0)).scalar()))
     return {'online': online, 'vouchers': vouchers, 'total': online + vouchers,
             'online_count': pay.count(), 'voucher_count': cash.count()}
+
+
+def _session_where(row, tid):
+    """Readable place of a session: 'Omada · Mwenge', 'Ruijie · Mwenge', a gateway name or router IP."""
+    where = row.calledstationid or row.nasipaddress or ''
+    kind, _, sid = where.partition('-')
+    if kind in ('omada', 'wifidog') and sid.isdigit():
+        site = db.session.get(Site, int(sid))
+        if site is not None and site.tenant_id == tid:
+            return f"{'Omada' if kind == 'omada' else 'Ruijie'} · {site.name}"
+    return where
 
 
 def _device_state(last_seen, now):
@@ -355,7 +387,7 @@ def dashboard():
     cutoff = now - timedelta(minutes=LIVE_STALE_MINUTES)
     recent_rows = [{'user': r.username, 'mac': r.callingstationid, 'ip': r.framedipaddress,
                     'access': ('Voucher' if r.username in codes else 'Account') + (f' · {r.groupname}' if r.groupname else ''),
-                    'router': r.calledstationid or r.nasipaddress, 'last': r.acctupdatetime or r.acctstarttime,
+                    'router': _session_where(r, tid), 'last': r.acctupdatetime or r.acctstarttime,
                     'online': r.acctstoptime is None and (r.acctupdatetime or r.acctstarttime) >= cutoff} for r in recent]
 
     # Alerts
@@ -997,7 +1029,7 @@ def accounting():
     search = request.args.get('search', '', type=str)
     status = request.args.get('status', 'all', type=str)
     
-    query = RadAcct.query.filter(RadAcct.username.in_(tenant_usernames()))
+    query = _site_filters(tenant_id(), current_site())['sessions'](RadAcct.query)
     
     if search:
         query = query.filter(or_(
@@ -1021,8 +1053,8 @@ def accounting():
 @app.route('/accounting/<int:session_id>')
 @login_required
 def accounting_detail(session_id):
-    session = RadAcct.query.filter(RadAcct.radacctid == session_id,
-                                   RadAcct.username.in_(tenant_usernames())).first_or_404()
+    session = _site_filters(tenant_id(), current_site())['sessions'](RadAcct.query) \
+        .filter(RadAcct.radacctid == session_id).first_or_404()
     
     # Calculate bandwidth usage
     total_bytes = (session.acctinputoctets or 0) + (session.acctoutputoctets or 0)
@@ -1270,7 +1302,7 @@ def vouchers():
     search = request.args.get('search', '', type=str).strip()
 
     now = datetime.utcnow()
-    query = scoped(Voucher)
+    query = _site_filters(tenant_id(), current_site())['vouchers'](scoped(Voucher))
     if batch:
         query = query.filter(Voucher.batch == batch)
     if search:
@@ -2630,7 +2662,7 @@ def payments():
     page = request.args.get('page', 1, type=int)
     status = request.args.get('status', '', type=str)
     search = request.args.get('search', '', type=str).strip()
-    query = scoped(Payment)
+    query = _site_filters(tenant_id(), current_site())['payments'](scoped(Payment))
     if status:
         query = query.filter(Payment.status == status)
     if search:
@@ -2642,14 +2674,15 @@ def payments():
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month = today.replace(day=1)
     tid = tenant_id()
-    paid_total = lambda since=None: db.session.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
-        Payment.tenant_id == tid, Payment.status == 'paid', *( [Payment.paid_at >= since] if since else [])).scalar()
+    in_site = _site_filters(tid, current_site())['payments']
+    paid_total = lambda since=None: in_site(db.session.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
+        Payment.tenant_id == tid, Payment.status == 'paid', *( [Payment.paid_at >= since] if since else []))).scalar()
     stats = {
         'today': paid_total(today),
         'month': paid_total(month),
         'all_time': paid_total(),
-        'paid_count': scoped(Payment).filter_by(status='paid').count(),
-        'pending': scoped(Payment).filter_by(status='pending').count(),
+        'paid_count': in_site(scoped(Payment).filter_by(status='paid')).count(),
+        'pending': in_site(scoped(Payment).filter_by(status='pending')).count(),
     }
     return render_template('payments/list.html', pagination=pagination, stats=stats, status=status,
                            search=search, currency=current_tenant().currency,
@@ -3078,8 +3111,9 @@ def api_live():
 
     tid = tenant_id()
     names = tenant_usernames(tid)
-    open_sessions = (RadAcct.query
-                     .filter(RadAcct.username.in_(names), RadAcct.acctstoptime.is_(None), last_seen >= cutoff)
+    view = _site_filters(tid, current_site())
+    open_sessions = (view['sessions'](RadAcct.query)
+                     .filter(RadAcct.acctstoptime.is_(None), last_seen >= cutoff)
                      .order_by(RadAcct.acctstarttime.desc()).limit(200).all())
     usernames = {s.username for s in open_sessions}
     vouchers = {v.code: v for v in scoped(Voucher).filter(Voucher.code.in_(usernames))} if usernames else {}
@@ -3110,40 +3144,41 @@ def api_live():
             'up': up,
         })
 
-    day_sessions = RadAcct.query.filter(RadAcct.username.in_(names),
-                                        or_(RadAcct.acctstoptime.is_(None), RadAcct.acctstoptime >= midnight))
+    day_sessions = view['sessions'](RadAcct.query).filter(or_(RadAcct.acctstoptime.is_(None), RadAcct.acctstoptime >= midnight))
     usage = day_sessions.with_entities(
         func.coalesce(func.sum(RadAcct.acctoutputoctets), 0),
         func.coalesce(func.sum(RadAcct.acctinputoctets), 0)).one()
-    paid_today = scoped(Payment).filter(Payment.status == 'paid', Payment.paid_at >= midnight)
-    cash_today = scoped(Voucher).filter(Voucher.first_used_at >= midnight, Voucher.batch != 'online-payments')
+    paid_today = view['payments'](scoped(Payment)).filter(Payment.status == 'paid', Payment.paid_at >= midnight)
+    cash_today = view['vouchers'](scoped(Voucher)).filter(Voucher.first_used_at >= midnight, Voucher.batch != 'online-payments')
     stats = {
         'online': len(online),
         'down_today': int(usage[0]),
         'up_today': int(usage[1]),
-        'logins_today': RadPostAuth.query.filter(RadPostAuth.username.in_(names), RadPostAuth.authdate >= midnight,
-                                                 RadPostAuth.reply == 'Access-Accept').count(),
-        'rejects_today': RadPostAuth.query.filter(RadPostAuth.username.in_(names), RadPostAuth.authdate >= midnight,
-                                                  RadPostAuth.reply != 'Access-Accept').count(),
+        # login attempts aren't tied to a site: for one site, count its sessions started today
+        'logins_today': (view['sessions'](RadAcct.query).filter(RadAcct.acctstarttime >= midnight).count() if current_site() else
+                         RadPostAuth.query.filter(RadPostAuth.username.in_(names), RadPostAuth.authdate >= midnight,
+                                                  RadPostAuth.reply == 'Access-Accept').count()),
+        'rejects_today': 0 if current_site() else RadPostAuth.query.filter(RadPostAuth.username.in_(names), RadPostAuth.authdate >= midnight,
+                                                                           RadPostAuth.reply != 'Access-Accept').count(),
         'online_revenue_today': float(paid_today.with_entities(func.coalesce(func.sum(Payment.amount), 0)).scalar()),
         'online_sales_today': paid_today.count(),
         'cash_revenue_today': float(cash_today.with_entities(func.coalesce(func.sum(Voucher.price), 0)).scalar()),
-        'vouchers_activated_today': scoped(Voucher).filter(Voucher.first_used_at >= midnight).count(),
-        'pending_payments': scoped(Payment).filter_by(status='pending').count(),
+        'vouchers_activated_today': view['vouchers'](scoped(Voucher)).filter(Voucher.first_used_at >= midnight).count(),
+        'pending_payments': view['payments'](scoped(Payment)).filter_by(status='pending').count(),
     }
 
     events = []
-    for a in RadPostAuth.query.filter(RadPostAuth.username.in_(names)).order_by(RadPostAuth.id.desc()).limit(30):
+    for a in ([] if current_site() else RadPostAuth.query.filter(RadPostAuth.username.in_(names)).order_by(RadPostAuth.id.desc()).limit(30)):
         ok = a.reply == 'Access-Accept'
         events.append({'at': _iso(a.authdate), 'type': 'login' if ok else 'reject',
                        'text': f'{a.username} {"logged in" if ok else "was rejected"}'})
-    for s in RadAcct.query.filter(RadAcct.username.in_(names)).order_by(RadAcct.radacctid.desc()).limit(30):
+    for s in view['sessions'](RadAcct.query).order_by(RadAcct.radacctid.desc()).limit(30):
         events.append({'at': _iso(s.acctstarttime), 'type': 'start',
                        'text': f'{s.username} started a session on {s.calledstationid or s.nasipaddress}'})
         if s.acctstoptime:
             events.append({'at': _iso(s.acctstoptime), 'type': 'stop',
                            'text': f'{s.username} disconnected ({s.acctterminatecause or "stop"})'})
-    for p in scoped(Payment).order_by(Payment.id.desc()).limit(20):
+    for p in view['payments'](scoped(Payment)).order_by(Payment.id.desc()).limit(20):
         amount = f'{p.currency} {p.amount:,.0f}'
         events.append({'at': _iso(p.created_at), 'type': 'payment',
                        'text': f'{p.phone} requested {p.package_name} ({amount})'})
@@ -3333,9 +3368,10 @@ def team():
 def add_team_member():
     form = TeamMemberForm()
     if not (current_user.is_superadmin or current_user.role == 'owner'):
-        form.role.choices = [c for c in form.role.choices if c[0] == 'staff']
+        form.role.choices = [c for c in form.role.choices if c[0] == 'staff']   # partners see the finances: owners only
+    form.site_id.choices = [(0, 'The whole business (all sites)')] + [(x.id, f'Only {x.name}') for x in tenant_sites()]
     if form.validate_on_submit():
-        if _plan_limit_reached(current_tenant(), 'staff'):
+        if form.role.data != 'viewer' and _plan_limit_reached(current_tenant(), 'staff'):
             flash('Your plan does not allow more staff accounts. Upgrade on the Billing page.', 'warning')
             return redirect(url_for('team'))
         email = form.email.data.strip().lower()
@@ -3345,7 +3381,8 @@ def add_team_member():
             form.email.errors.append('That email already has an account.')
         else:
             member = Admin(username=form.username.data, email=email, tenant_id=tenant_id(),
-                           role=form.role.data, email_verified_at=datetime.utcnow())
+                           role=form.role.data, email_verified_at=datetime.utcnow(),
+                           site_id=(form.site_id.data or None) if form.role.data == 'viewer' else None)
             member.set_password(form.password.data)
             db.session.add(member)
             db.session.commit()
@@ -3353,7 +3390,7 @@ def add_team_member():
                       f'Hi {member.username},\n\n{current_user.username} added you to {current_tenant().name}.\n'
                       f'Log in at {_link("login")} with username "{member.username}" and the temporary '
                       f'password they gave you, then change it with "Forgot password".\n')
-            flash(f'{member.username} added as {member.role}.', 'success')
+            flash(f'{member.username} added as {"a partner (view only)" if member.role == "viewer" else member.role}.', 'success')
             return redirect(url_for('team'))
     return render_template('team/form.html', form=form)
 
@@ -3710,8 +3747,10 @@ def platform_switch_back():
 # ---------------------------------------------------------------------------
 @app.route('/earnings')
 @login_required
-@role_required('admin')
 def earnings():
+    if not (current_user.has_role('admin') or (current_user.is_viewer and not current_user.site_id)):
+        flash("You don't have permission to open that page.", 'warning')
+        return redirect(url_for('dashboard'))
     tenant = current_tenant()
     tid = tenant.id
     paid = scoped(Payment).filter(Payment.status == 'paid')
@@ -4062,7 +4101,10 @@ def _plan_limit_reached(tenant, kind):
     if limit is None:
         return False
     model = {'routers': Router, 'gateways': Gateway, 'customers': RadUser, 'staff': Admin, 'sites': Site}[kind]
-    return model.query.filter_by(tenant_id=tenant.id).count() >= limit
+    query = model.query.filter_by(tenant_id=tenant.id)
+    if kind == 'staff':
+        query = query.filter(Admin.role != 'viewer')      # partners only look
+    return query.count() >= limit
 
 
 def _fulfil_subscription(sp):

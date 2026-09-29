@@ -45,8 +45,14 @@ def tenant_sites(tid=None):
 
 def current_site():
     """The site picked in the top bar, or None for all sites."""
+    if not current_user.is_authenticated:
+        return None
+    fixed = getattr(current_user, 'site_id', None)
+    if fixed and not current_user.is_superadmin:             # a partner limited to one site
+        site = db.session.get(Site, fixed)
+        return site if site and site.tenant_id == tenant_id() else None
     sid = session.get('site_id')
-    if not sid or not current_user.is_authenticated:
+    if not sid:
         return None
     site = db.session.get(Site, sid)
     return site if site and site.tenant_id == tenant_id() else None

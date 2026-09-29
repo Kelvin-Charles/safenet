@@ -288,8 +288,11 @@ class TenantSettingsForm(FlaskForm):
 class TeamMemberForm(FlaskForm):
     username = StringField('Username', validators=[DataRequired(), Length(min=3, max=64)])
     email = StringField('Email', validators=[DataRequired(), Email(), Length(max=120)])
-    role = SelectField('Role', choices=[('staff', 'Staff: users, vouchers, live'),
-                                        ('admin', 'Admin: everything except team owners')])
+    role = SelectField('Role', choices=[('viewer', 'Partner / shareholder: view only (finance and usage)'),
+                                        ('staff', 'Staff: users, vouchers, live'),
+                                        ('admin', 'Admin: everything except team owners')], default='staff')
+    site_id = SelectField('Can see', coerce=int, default=0,
+                          description='For partners: the whole business, or only one site.')
     password = PasswordField('Temporary password', validators=[DataRequired(), Length(min=8, max=128)])
 
     def validate_username(self, field):
