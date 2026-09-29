@@ -58,7 +58,9 @@ class Fake(BaseHTTPRequestHandler):
             assert not re.search(r'(.)\1', pw), pw
             return self.out({})
         sid, rest = m.group(1), (m.group(2) or '')
-        if rest == '/devices': return self.out({'data': [d for d in st['devices'].values() if d['site'] == sid]})
+        if rest == '/devices':   # like the real controller: every site's list also shows devices waiting to be adopted
+            waiting = [{**d, 'status': 2, 'detailStatus': 20, 'site': sid} for d in st['pending'].values()]
+            return self.out({'data': [d for d in st['devices'].values() if d['site'] == sid] + waiting})
         if rest == '/grid/devices/pending': return self.out({'data': list(st['pending'].values())})
         am = re.match(r'/devices/([^/]+)/(start-adopt|adopt-result)$', rest)
         if am:

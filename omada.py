@@ -209,8 +209,13 @@ class OpenApi:
         return result.get('siteId') or self.find_site(name[:64])
 
     # -- devices ---------------------------------------------------------
+    # detailStatus 20-27: pending, adopting or adopt-failed (the device list includes them, for every site)
+    NOT_YET_ADOPTED = {20, 21, 22, 23, 24, 25, 26, 27}
+
     def devices(self, site_id):
-        return self._pages(f'/sites/{site_id}/devices')
+        """Access points adopted into this site (the controller also lists devices waiting to be adopted)."""
+        return [d for d in self._pages(f'/sites/{site_id}/devices')
+                if d.get('status') != 2 and d.get('detailStatus') not in self.NOT_YET_ADOPTED]
 
     def pending(self, site_id):
         return self._pages(f'/sites/{site_id}/grid/devices/pending')
