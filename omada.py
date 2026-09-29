@@ -307,12 +307,10 @@ class OpenApi:
     def set_client_rate(self, site_id, client_mac, upload=None, download=None):
         """Limit one guest's speed (e.g. '5M' down, '2M' up), or remove the limit when both are empty."""
         up, down = self._rate(upload), self._rate(download)
-        body = {'enable': bool(up or down), 'upEnable': bool(up), 'downEnable': bool(down)}
-        if up:
-            body.update(upUnit=up[0], upLimit=up[1])
-        if down:
-            body.update(downUnit=down[0], downLimit=down[1])
-        self._call('PATCH', f'/sites/{site_id}/clients/{self.mac(client_mac)}/ratelimit', body)
+        # mode 0 = custom speeds (1 = a saved profile); the controller wants units and limits even when off
+        custom = {'enable': bool(up or down), 'upEnable': bool(up), 'upUnit': (up or (2, 1024))[0], 'upLimit': (up or (2, 1024))[1],
+                  'downEnable': bool(down), 'downUnit': (down or (2, 1024))[0], 'downLimit': (down or (2, 1024))[1]}
+        self._call('PATCH', f'/sites/{site_id}/clients/{self.mac(client_mac)}/ratelimit', {'mode': 0, 'customRateLimit': custom})
 
     def unauth(self, site_id, client_mac):
         self._call('POST', f'/sites/{site_id}/hotspot/clients/{self.mac(client_mac)}/unauth')

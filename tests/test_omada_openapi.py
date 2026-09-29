@@ -102,7 +102,11 @@ class Fake(BaseHTTPRequestHandler):
             assert b['password'] == 'op-pass', b
             st['operator']['sites'] = b['selectedSites']; return self.out({})
         rm = re.match(r'/clients/([^/]+)/ratelimit$', rest)
-        if rm and method == 'PATCH': st.setdefault('rates', []).append((sid, rm.group(1), b)); return self.out(None)
+        if rm and method == 'PATCH':   # like the real controller: mode 0/1, custom speeds nested and range-checked
+            cr = b.get('customRateLimit') or {}
+            assert b.get('mode') in (0, 1) and all(cr.get(k) in (1, 2) for k in ('upUnit', 'downUnit')) \
+                and all(1 <= cr.get(k, 0) <= 1024 for k in ('upLimit', 'downLimit')), b
+            st.setdefault('rates', []).append((sid, rm.group(1), b)); return self.out(None)
         um = re.match(r'/hotspot/clients/([^/]+)/unauth$', rest)
         if um: st['unauth'].append((sid, um.group(1))); return self.out(None)
         return self.out(None, -1, f'not faked: {method} {p}')
@@ -224,8 +228,8 @@ assert "You're online" in guest.post(f'/omada/{TOKEN}/login', data={'code': '550
 deadline = _t.monotonic() + 5
 while not st.get('rates') and _t.monotonic() < deadline:
     pass
-assert st['rates'][-1] == (OSID, 'AA-BB-CC-00-00-31', {'enable': True, 'upEnable': True, 'downEnable': True,
-                                                        'upUnit': 2, 'upLimit': 5, 'downUnit': 2, 'downLimit': 20}), st['rates']
+assert st['rates'][-1] == (OSID, 'AA-BB-CC-00-00-31', {'mode': 0, 'customRateLimit': {'enable': True, 'upEnable': True, 'upUnit': 2, 'upLimit': 5,
+                                                        'downEnable': True, 'downUnit': 2, 'downLimit': 20}}), st['rates']
 # a package with no speed limit removes any old limit on that phone
 guest2 = app.test_client()
 guest2.get(f'/omada/{TOKEN}?clientMac=AA-BB-CC-00-00-31&apMac=B8-FB-B3-79-C7-E6&ssidName=Zulu&radioId=0&site={OSID}&redirectUrl=http%3A%2F%2Fexample.com%2F')
@@ -234,7 +238,7 @@ guest2.post(f'/omada/{TOKEN}/login', data={'code': '66006600', 'agree': '1'})
 deadline = _t.monotonic() + 5
 while len(st['rates']) == n and _t.monotonic() < deadline:
     pass
-assert st['rates'][-1][2] == {'enable': False, 'upEnable': False, 'downEnable': False}, st['rates']
+assert st['rates'][-1][2]['mode'] == 0 and st['rates'][-1][2]['customRateLimit']['enable'] is False, st['rates']
 
 # the access token is reused, not fetched for every call
 assert st['tokens'] <= 5, st['tokens']
