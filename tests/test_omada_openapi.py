@@ -232,7 +232,7 @@ assert st['rates'][-1] == (OSID, 'AA-BB-CC-00-00-31', {'mode': 0, 'customRateLim
                                                         'downEnable': True, 'downUnit': 2, 'downLimit': 20}}), st['rates']
 # a package with no speed limit removes any old limit on that phone
 guest2 = app.test_client()
-guest2.get(f'/omada/{TOKEN}?clientMac=AA-BB-CC-00-00-31&apMac=B8-FB-B3-79-C7-E6&ssidName=Zulu&radioId=0&site={OSID}&redirectUrl=http%3A%2F%2Fexample.com%2F')
+guest2.get(f'/omada/{TOKEN}?clientMac=AA-BB-CC-00-00-32&apMac=B8-FB-B3-79-C7-E6&ssidName=Zulu&radioId=0&site={OSID}&redirectUrl=http%3A%2F%2Fexample.com%2F')
 n = len(st['rates'])
 guest2.post(f'/omada/{TOKEN}/login', data={'code': '66006600', 'agree': '1'})
 deadline = _t.monotonic() + 5
