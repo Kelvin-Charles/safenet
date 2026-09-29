@@ -104,6 +104,10 @@ services:
       CLICKPESA_CHECKSUM_KEY: ${CLICKPESA_CHECKSUM_KEY:-}
       PORTAL_API_KEY: ${PORTAL_API_KEY:-}
       PAYMENT_NETWORKS: ${PAYMENT_NETWORKS:-mixx:1000,airtel,halopesa}
+      SNIPPE_API_KEY: ${SNIPPE_API_KEY:-}
+      SNIPPE_WEBHOOK_KEY: ${SNIPPE_WEBHOOK_KEY:-}
+      SNIPPE_NETWORKS: ${SNIPPE_NETWORKS:-mpesa,mixx,airtel,halopesa}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-clickpesa}
       # Omada Controller hosted by SafeNet (hotspot operator it logs in as)
       OMADA_HOSTED_URL: ${OMADA_HOSTED_URL:-}
       OMADA_HOSTED_USER: ${OMADA_HOSTED_USER:-}
@@ -114,7 +118,7 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:-https://radius.safezonetz.com}
       SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}
       TRIAL_DAYS: ${TRIAL_DAYS:-14}
-      PLATFORM_FEE_PERCENT: ${PLATFORM_FEE_PERCENT:-0}
+      PLATFORM_FEE_PERCENT: ${PLATFORM_FEE_PERCENT:-3}
       MIN_WITHDRAWAL: ${MIN_WITHDRAWAL:-5000}
     depends_on:
       db:

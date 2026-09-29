@@ -11,6 +11,26 @@
 </div>
 
 <div class="card">
+    <div class="card-header"><i class="bi bi-phone"></i> SafeNet Pay: mobile-money provider</div>
+    <div class="card-body">
+        <p class="small text-muted">Used for guests' package payments of tenants on SafeNet Pay ({{ fee_percent|round(2) }}% fee) and for tenants' subscriptions. Tenants with their own ClickPesa or Snippe account are not affected. Payments already started finish with the provider they began with.</p>
+        <form method="POST" action="{{ url_for('platform_payment_provider') }}" class="d-flex flex-wrap gap-2 align-items-center">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% for key, label in providers.items() %}
+            <label class="border rounded px-3 py-2 d-flex align-items-center gap-2 {{ 'border-primary' if key == provider }}" style="cursor:pointer">
+                <input type="radio" name="provider" value="{{ key }}" class="form-check-input mt-0" {{ 'checked' if key == provider }} {{ 'disabled' if not provider_ready[key] }}>
+                <strong>{{ label }}</strong>
+                {% if key == provider %}<span class="badge bg-success">In use</span>{% endif %}
+                {% if not provider_ready[key] %}<span class="badge bg-light text-dark border">Keys not set on the server</span>{% endif %}
+                {% if key == 'snippe' and provider_ready[key] and not snippe_webhook_ready %}<span class="badge bg-warning text-dark" title="Set SNIPPE_WEBHOOK_KEY so payments confirm instantly">No webhook key</span>{% endif %}
+            </label>
+            {% endfor %}
+            <button type="submit" class="btn btn-primary">Save</button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
     <div class="card-header"><i class="bi bi-tags"></i> Plans tenants can buy (price per 30 days)</div>
     <div class="card-body">
         <div class="table-responsive">

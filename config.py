@@ -59,7 +59,7 @@ class Config:
     CLICKPESA_BASE_URL = os.getenv('CLICKPESA_BASE_URL', 'https://api.clickpesa.com')
 
     # Platform-collected payments: default fee kept by the platform, minimum payout
-    PLATFORM_FEE_PERCENT = float(os.getenv('PLATFORM_FEE_PERCENT', '0'))
+    PLATFORM_FEE_PERCENT = float(os.getenv('PLATFORM_FEE_PERCENT', '3'))   # SafeNet Pay fee on tenants' sales
     # Tenant subscriptions: days of service after a trial/paid period ends
     BILLING_GRACE_DAYS = int(os.getenv('BILLING_GRACE_DAYS', '3'))
     BILLING_REMINDERS = os.getenv('BILLING_REMINDERS', 'true').lower() == 'true'
@@ -86,7 +86,15 @@ class Config:
 
     # Mobile-money networks the platform ClickPesa account accepts, in display
     # order, with an optional minimum amount: e.g. "mpesa,mixx:1000,airtel,halopesa"
-    PAYMENT_NETWORKS = os.getenv('PAYMENT_NETWORKS', 'mixx:1000,airtel,halopesa')
+    PAYMENT_NETWORKS = os.getenv('PAYMENT_NETWORKS', 'mixx:1000,airtel,halopesa')   # ClickPesa
+    # Snippe (second mobile-money provider; supports Vodacom M-Pesa). Keys from the Snippe dashboard.
+    SNIPPE_API_KEY = os.getenv('SNIPPE_API_KEY', '')
+    SNIPPE_WEBHOOK_KEY = os.getenv('SNIPPE_WEBHOOK_KEY', '')          # Settings -> Webhook Secret
+    SNIPPE_BASE_URL = os.getenv('SNIPPE_BASE_URL', 'https://api.snippe.sh')
+    SNIPPE_NETWORKS = os.getenv('SNIPPE_NETWORKS', 'mpesa,mixx,airtel,halopesa')
+    SNIPPE_CUSTOMER_EMAIL = os.getenv('SNIPPE_CUSTOMER_EMAIL', 'wifi@safezonetz.com')   # Snippe requires one
+    # Which provider SafeNet Pay uses until the platform admin picks one in Platform: Billing
+    PAYMENT_PROVIDER = os.getenv('PAYMENT_PROVIDER', 'clickpesa')
 
     # Shared key captive-portal gateways send in X-SafeNet-Key (empty = API disabled)
     PORTAL_API_KEY = os.getenv('PORTAL_API_KEY', '')

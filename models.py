@@ -28,6 +28,9 @@ class Tenant(db.Model):
     clickpesa_client_id = db.Column(db.String(64))
     clickpesa_api_key_enc = db.Column(db.Text)        # secretbox-encrypted
     clickpesa_checksum_key_enc = db.Column(db.Text)   # secretbox-encrypted
+    own_provider = db.Column(db.String(16), nullable=False, default='clickpesa', server_default='clickpesa')  # with payment_mode 'own'
+    snippe_api_key_enc = db.Column(db.Text)           # secretbox-encrypted
+    snippe_webhook_key_enc = db.Column(db.Text)       # secretbox-encrypted
     fee_percent = db.Column(db.Numeric(5, 2))         # platform fee; NULL = PLATFORM_FEE_PERCENT
     # Subscription: paid_until = end of the paid period; service_until = when its
     # guests lose service (end of trial or paid period + grace). NULL = no limit.
@@ -614,6 +617,15 @@ class WifidogSession(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_seen_at = db.Column(db.DateTime)
     ended_at = db.Column(db.DateTime)
+
+
+class PlatformSetting(db.Model):
+    """Platform-wide settings the platform admin changes in the UI (e.g. the SafeNet Pay provider)."""
+    __tablename__ = 'platform_settings'
+
+    key = db.Column(db.String(64), primary_key=True)
+    value = db.Column(db.String(255))
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class SessionKick(db.Model):

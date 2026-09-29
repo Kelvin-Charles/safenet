@@ -2,12 +2,14 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession
+from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
 from sqlalchemy import func, or_, and_, not_, desc, text
 import clickpesa
+import payments as paylib   # (app has a route called payments)
+import snippe
 from gateway import portal_ui
 from sms import send_sms_async
 from models import format_minutes
@@ -1547,7 +1549,7 @@ def portal():
             html_out = html_out.replace('<meta http-equiv="refresh"', '<meta name="no-refresh"')
         else:
             html_out = portal_ui.login_page(th, lang, packages=packages, tab='voucher' if view == 'voucher' else 'buy',
-                                            preview=True, lang_url=lang_url, networks=payment_networks(),
+                                            preview=True, lang_url=lang_url, networks=payment_networks(tenant) if tenant else payment_networks(),
                                             logo_base=url_for('static', filename='img/'))
     else:
         if gateway:
@@ -1640,8 +1642,8 @@ def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, **ext
                                             site.id).order_by(Package.sort_order, Package.price)]
         html_out = portal_ui.login_page(th, lang, packages=packages, error=error, tab=tab,
                                         action=base + '/login', buy_action=base + '/buy',
-                                        buy_enabled=clickpesa.is_configured(_tenant_credentials(tenant)),
-                                        lang_url=base, networks=payment_networks(),
+                                        buy_enabled=paylib.is_ready(_tenant_account(tenant)),
+                                        lang_url=base, networks=payment_networks(tenant),
                                         logo_base=url_for('static', filename='img/'))
     resp = make_response(html_out)
     resp.headers['Cache-Control'] = 'no-store'
@@ -1745,7 +1747,7 @@ def omada_buy(token):
     if len(phone) == 9:                      # typed after the +255 prefix
         phone = '255' + phone
     network = (request.form.get('network') or '')[:16] or None
-    if payment_networks() and not network:
+    if payment_networks(tenant) and not network:
         return err('Choose your mobile-money network.')
     payment, error, _ = _start_purchase(tenant, site.id, package, phone, network, guest.get('clientMac'),
                                         guest.get('clientIp'), f'omada-{site.id}')
@@ -2229,7 +2231,7 @@ def wifidog_buy(token):
     if len(phone) == 9:
         phone = '255' + phone
     network = (request.form.get('network') or '')[:16] or None
-    if payment_networks() and not network:
+    if payment_networks(tenant) and not network:
         return err('Choose your mobile-money network.')
     payment, error, _ = _start_purchase(tenant, site.id, package, phone, network, _wifidog_mac(guest.get('mac')),
                                         guest.get('ip'), f'wifidog-{site.id}')
@@ -2410,7 +2412,7 @@ def _split_minutes(minutes):
 def packages():
     items = scoped(Package).order_by(Package.sort_order, Package.price).all()
     return render_template('packages/list.html', packages=items,
-                           clickpesa_ready=clickpesa.is_configured(_tenant_credentials(current_tenant())),
+                           clickpesa_ready=paylib.is_ready(_tenant_account(current_tenant())),
                            portal_api_ready=bool(scoped(Gateway).filter_by(is_active=True).count() or Config.PORTAL_API_KEY))
 
 
@@ -2483,13 +2485,45 @@ def delete_package(package_id):
 log = logging.getLogger('safenet')
 
 
-def payment_networks():
-    return portal_ui.parse_networks(Config.PAYMENT_NETWORKS)
+def platform_provider():
+    """Provider SafeNet Pay uses now (the platform admin switches it in Platform: Billing)."""
+    row = db.session.get(PlatformSetting, 'payment_provider')
+    value = row.value if row and row.value else Config.PAYMENT_PROVIDER
+    return value if value in paylib.PROVIDERS else 'clickpesa'
 
 
-def check_network(phone, network_id, amount, currency='TZS'):
+def _platform_account(provider=None):
+    return paylib.platform_account(provider or platform_provider())
+
+
+def _own_account(tenant):
+    if tenant.own_provider == 'snippe':
+        return paylib.Account('snippe', snippe.Credentials(secretbox.decrypt(tenant.snippe_api_key_enc),
+                                                             secretbox.decrypt(tenant.snippe_webhook_key_enc)), 'own')
+    return paylib.Account('clickpesa', clickpesa.Credentials(tenant.clickpesa_client_id or '',
+                                                               secretbox.decrypt(tenant.clickpesa_api_key_enc),
+                                                               secretbox.decrypt(tenant.clickpesa_checksum_key_enc)), 'own')
+
+
+def _tenant_account(tenant):
+    """Account that receives this tenant's package sales: their own, or SafeNet Pay."""
+    return _own_account(tenant) if tenant.payment_mode == 'own' else _platform_account()
+
+
+def _payment_account(payment):
+    """The account a payment was made with (not today's setting: the admin may have switched since)."""
+    if payment.provider_account == 'own':
+        return _own_account(payment.tenant)
+    return _platform_account(payment.provider or 'clickpesa')
+
+
+def payment_networks(tenant=None):
+    return paylib.networks(_tenant_account(tenant) if tenant is not None else _platform_account())
+
+
+def check_network(phone, network_id, amount, currency='TZS', networks=None):
     """Error message if this number/network/amount can't be paid, else None."""
-    networks = payment_networks()
+    networks = payment_networks() if networks is None else networks
     if not networks:
         return None
     by_id = {n['id']: n for n in networks}
@@ -2525,20 +2559,6 @@ def _normalize_tz_phone(raw):
     return digits if re.fullmatch(r'255[67]\d{8}', digits) else None
 
 
-def _own_credentials(tenant):
-    return clickpesa.Credentials(tenant.clickpesa_client_id or '', secretbox.decrypt(tenant.clickpesa_api_key_enc),
-                                 secretbox.decrypt(tenant.clickpesa_checksum_key_enc))
-
-
-def _tenant_credentials(tenant):
-    """ClickPesa account that receives this tenant's package sales."""
-    return _own_credentials(tenant) if tenant.payment_mode == 'own' else clickpesa.platform_credentials()
-
-
-def _payment_credentials(payment):
-    return _own_credentials(payment.tenant) if payment.provider_account == 'own' else clickpesa.platform_credentials()
-
-
 def _fee_percent(tenant):
     return Decimal(str(tenant.fee_percent if tenant.fee_percent is not None else Config.PLATFORM_FEE_PERCENT))
 
@@ -2572,7 +2592,7 @@ def _fulfil_payment(payment):
 
 
 def _refresh_payment(reference, force=False):
-    """Checks a pending payment with ClickPesa. Locks the row so a payment is
+    """Checks a pending payment with its provider. Locks the row so a payment is
     fulfilled exactly once even if the webhook and the portal poll race."""
     payment = Payment.query.filter_by(reference=reference).with_for_update().first()
     if not payment:
@@ -2583,23 +2603,22 @@ def _refresh_payment(reference, force=False):
     if payment.status == 'pending' and due:
         payment.checked_at = now
         try:
-            record = clickpesa.query_payment(reference, _payment_credentials(payment))
-        except clickpesa.ClickPesaError as e:
-            log.warning('ClickPesa query %s failed: %s', reference, e)
-            record = None
-        if record:
-            status = (record.get('status') or '').upper()
-            payment.provider_status = status
-            payment.channel = record.get('channel') or payment.channel
-            payment.message = (record.get('message') or payment.message or '')[:255] or None
-            if status in ('SUCCESS', 'SETTLED'):
-                collected = record.get('collectedAmount')
-                if collected is not None and Decimal(str(collected)) < payment.amount:
+            result = paylib.check(_payment_account(payment), reference, payment.provider_id)
+        except paylib.PaymentError as e:
+            log.warning('%s query %s failed: %s', payment.provider, reference, e)
+            result = {'state': None}
+        if result['state']:
+            payment.provider_status = result.get('provider_status') or payment.provider_status
+            payment.channel = result.get('channel') or payment.channel
+            payment.message = (result.get('message') or payment.message or '')[:255] or None
+            if result['state'] == 'paid':
+                collected = result.get('amount')
+                if collected is not None and collected < payment.amount:
                     payment.status = 'review'
                     payment.message = f'Collected {collected}, expected {payment.amount}'
                 else:
                     _fulfil_payment(payment)
-            elif status == 'FAILED':
+            elif result['state'] == 'failed':
                 payment.status = 'failed'
     db.session.commit()
     return payment
@@ -2634,7 +2653,7 @@ def payments():
     }
     return render_template('payments/list.html', pagination=pagination, stats=stats, status=status,
                            search=search, currency=current_tenant().currency,
-                           clickpesa_ready=clickpesa.is_configured(_tenant_credentials(current_tenant())))
+                           clickpesa_ready=paylib.is_ready(_tenant_account(current_tenant())))
 
 
 @app.route('/payments/<int:payment_id>/refresh', methods=['POST'])
@@ -2725,20 +2744,20 @@ def api_portal_packages():
         'id': p.id, 'name': p.name, 'description': p.description or '',
         'price': f'{p.price:.0f}', 'currency': p.currency,
         'validity_minutes': p.validity_minutes, 'validity': p.validity_label,
-    } for p in items], payments_enabled=clickpesa.is_configured(_tenant_credentials(g.api_tenant)),
-                   networks=payment_networks())
+    } for p in items], payments_enabled=paylib.is_ready(_tenant_account(g.api_tenant)),
+                   networks=payment_networks(g.api_tenant))
 
 
 def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=None, nas=None):
-    """Create a payment and send the USSD push. Returns (payment or None, error, HTTP status)."""
+    """Create a payment and send the PIN prompt. Returns (payment or None, error, HTTP status)."""
     phone = _normalize_tz_phone(str(phone or ''))
     if not phone:
         return None, 'Enter a valid mobile number, e.g. 0712 345 678.', 400
-    creds = _tenant_credentials(tenant)
-    if not clickpesa.is_configured(creds):
+    account = _tenant_account(tenant)
+    if not paylib.is_ready(account):
         return None, 'Mobile payments are not available right now.', 503
     # Gateways send the network the guest picked; older ones don't, then the number decides
-    problem = check_network(phone, network or None, package.price, package.currency)
+    problem = check_network(phone, network or None, package.price, package.currency, networks=paylib.networks(account))
     if problem:
         return None, problem, 400
     recent = Payment.query.filter(Payment.phone == phone, Payment.status == 'pending',
@@ -2752,8 +2771,8 @@ def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=
         package_id=package.id, package_name=package.name, plan_id=package.plan_id,
         validity_minutes=package.validity_minutes, max_devices=package.max_devices or 1, phone=phone,
         amount=package.price, currency=package.currency,
-        provider_account=tenant.payment_mode,
-        fee_amount=(package.price * _fee_percent(tenant) / 100).quantize(Decimal('0.01')) if tenant.payment_mode == 'platform' else Decimal(0),
+        provider=account.provider, provider_account=account.owner,
+        fee_amount=(package.price * _fee_percent(tenant) / 100).quantize(Decimal('0.01')) if account.owner == 'platform' else Decimal(0),
         nas_identifier=(nas or '')[:64] or None,
         site_id=site_id,
         client_mac=(mac or '')[:17] or None,
@@ -2763,33 +2782,16 @@ def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=
     db.session.add(payment)
     db.session.commit()
     try:
-        available = clickpesa.preview_ussd_push(payment.amount, phone, payment.reference, creds)
-        chosen = network or ''
-        offered = {portal_ui.network_for_method(m) for m in available}
-        if available and chosen and chosen not in offered:
-            payment.status = 'failed'
-            payment.message = f'{chosen} not offered by ClickPesa for this number ({", ".join(available)})'
-            db.session.commit()
-            name = portal_ui.NETWORKS.get(chosen, {}).get('name', 'That network')
-            return payment, f"{name} isn't available for this number right now. Try another network.", 502
-        if not available:
-            payment.status = 'failed'
-            payment.message = 'No mobile-money method available for this number'
-            db.session.commit()
-            return payment, "Mobile money for this number isn't available right now. Try another number or a voucher.", 502
-        tx = clickpesa.initiate_ussd_push(payment.amount, phone, payment.reference, creds) or {}
-        payment.provider_id = tx.get('id')
-        payment.provider_status = (tx.get('status') or '').upper() or None
-        payment.channel = tx.get('channel')
-        if payment.provider_status == 'FAILED':
-            payment.status = 'failed'
-    except clickpesa.ClickPesaError as e:
-        log.warning('ClickPesa USSD push %s failed: %s', payment.reference, e)
-        payment.status = 'failed'
-        payment.message = str(e)[:255]
+        tx = paylib.start(account, payment.amount, phone, payment.reference, network or None,
+                            webhook_url=_link('snippe_webhook') if account.provider == 'snippe' else None)
+        payment.provider_id, payment.channel = tx['provider_id'], tx['channel']
+        payment.provider_status = tx['provider_status']
+    except paylib.PaymentError as e:
+        log.warning('%s payment %s failed: %s', paylib.name(account), payment.reference, e.detail)
+        payment.status, payment.message = 'failed', e.detail
+        db.session.commit()
+        return payment, str(e), 502
     db.session.commit()
-    if payment.status == 'failed':
-        return payment, "We couldn't send the payment request. Check the number and try again.", 502
     return payment, None, 200
 
 
@@ -3772,9 +3774,11 @@ def request_withdrawal():
 @role_required('owner')
 def payment_settings():
     tenant = current_tenant()
-    form = PaymentSettingsForm(payment_mode=tenant.payment_mode, client_id=tenant.clickpesa_client_id)
+    form = PaymentSettingsForm(payment_mode=tenant.payment_mode, client_id=tenant.clickpesa_client_id,
+                               own_provider=tenant.own_provider or 'clickpesa')
     if form.validate_on_submit():
         mode = form.payment_mode.data
+        tenant.own_provider = form.own_provider.data if form.own_provider.data in paylib.PROVIDERS else 'clickpesa'
         if form.client_id.data is not None:
             tenant.clickpesa_client_id = form.client_id.data.strip() or None
         if form.api_key.data:
@@ -3783,17 +3787,28 @@ def payment_settings():
             tenant.clickpesa_checksum_key_enc = secretbox.encrypt(form.checksum_key.data.strip())
         if form.clear_checksum.data:
             tenant.clickpesa_checksum_key_enc = None
-        if mode == 'own' and not clickpesa.is_configured(_own_credentials(tenant)):
+        if form.snippe_api_key.data:
+            tenant.snippe_api_key_enc = secretbox.encrypt(form.snippe_api_key.data.strip())
+        if form.snippe_webhook_key.data:
+            tenant.snippe_webhook_key_enc = secretbox.encrypt(form.snippe_webhook_key.data.strip())
+        own = _own_account(tenant)
+        if mode == 'own' and not paylib.is_ready(own):
             db.session.rollback()
-            flash('Enter your ClickPesa Client ID and API key to receive payments directly.', 'danger')
+            need = 'your Snippe API key' if own.provider == 'snippe' else 'your ClickPesa Client ID and API key'
+            flash(f'Enter {need} to receive payments directly.', 'danger')
             return redirect(url_for('payment_settings'))
+        if mode == 'own' and own.provider == 'snippe' and not own.creds.webhook_key:
+            flash('Saved. Add your Snippe webhook signing key too, so payments are confirmed the moment they arrive.', 'warning')
         tenant.payment_mode = mode
         db.session.commit()
         flash('Payment settings saved.', 'success')
         return redirect(url_for('payment_settings'))
+    platform = _platform_account()
     return render_template('payment_settings.html', form=form, has_api_key=bool(tenant.clickpesa_api_key_enc),
                            has_checksum=bool(tenant.clickpesa_checksum_key_enc), fee_percent=_fee_percent(tenant),
-                           webhook_url=_link('clickpesa_webhook'), platform_ready=clickpesa.is_configured())
+                           has_snippe_key=bool(tenant.snippe_api_key_enc), has_snippe_webhook=bool(tenant.snippe_webhook_key_enc),
+                           webhook_url=_link('clickpesa_webhook'), snippe_webhook_url=_link('snippe_webhook'),
+                           platform_ready=paylib.is_ready(platform), platform_name=paylib.name(platform))
 
 
 @app.route('/settings/payments/test', methods=['POST'])
@@ -3801,16 +3816,16 @@ def payment_settings():
 @role_required('owner')
 def test_payment_settings():
     _check_csrf()
-    tenant = current_tenant()
-    creds = _own_credentials(tenant)
-    if not clickpesa.is_configured(creds):
-        flash('Save your ClickPesa Client ID and API key first.', 'warning')
+    account = _own_account(current_tenant())
+    label = paylib.name(account)
+    if not paylib.is_ready(account):
+        flash(f'Save your {label} keys first.', 'warning')
     else:
         try:
-            clickpesa.test_credentials(creds)
-            flash('ClickPesa accepted your keys.', 'success')
-        except clickpesa.ClickPesaError as e:
-            flash(f'ClickPesa rejected the keys: {e}', 'danger')
+            paylib.test(account)
+            flash(f'{label} accepted your keys.', 'success')
+        except paylib.PaymentError as e:
+            flash(f'{label} rejected the keys: {e}', 'danger')
     return redirect(url_for('payment_settings'))
 
 
@@ -4070,25 +4085,25 @@ def _refresh_subscription(reference, force=False):
         db.session.rollback()
         return None
     now = datetime.utcnow()
-    if sp.status == 'pending' and sp.method == 'clickpesa' and (
+    if sp.status == 'pending' and sp.method in paylib.PROVIDERS and (
             force or not sp.checked_at or (now - sp.checked_at).total_seconds() >= 3):
         sp.checked_at = now
         try:
-            record = clickpesa.query_payment(reference, clickpesa.platform_credentials())
-        except clickpesa.ClickPesaError as e:
-            log.warning('ClickPesa query %s failed: %s', reference, e)
-            record = None
-        if record:
-            status = (record.get('status') or '').upper()
-            sp.provider_status, sp.channel = status, record.get('channel') or sp.channel
-            sp.message = (record.get('message') or sp.message or '')[:255] or None
-            if status in ('SUCCESS', 'SETTLED'):
-                collected = record.get('collectedAmount')
-                if collected is not None and Decimal(str(collected)) < sp.amount:
+            result = paylib.check(_platform_account(sp.method), reference, sp.provider_id)
+        except paylib.PaymentError as e:
+            log.warning('%s query %s failed: %s', sp.method, reference, e)
+            result = {'state': None}
+        if result['state']:
+            sp.provider_status = result.get('provider_status') or sp.provider_status
+            sp.channel = result.get('channel') or sp.channel
+            sp.message = (result.get('message') or sp.message or '')[:255] or None
+            if result['state'] == 'paid':
+                collected = result.get('amount')
+                if collected is not None and collected < sp.amount:
                     sp.status, sp.message = 'review', f'Collected {collected}, expected {sp.amount}'
                 else:
                     _fulfil_subscription(sp)
-            elif status == 'FAILED':
+            elif result['state'] == 'failed':
                 sp.status = 'failed'
     db.session.commit()
     return sp
@@ -4102,7 +4117,7 @@ def billing():
     history = SubscriptionPayment.query.filter_by(tenant_id=tenant.id).order_by(SubscriptionPayment.id.desc()).limit(24).all()
     return render_template('billing.html', plans=plans, history=history, months=BILLING_MONTHS,
                            can_pay=current_user.has_role('owner'), grace=Config.BILLING_GRACE_DAYS,
-                           payments_ready=clickpesa.is_configured(), state=billing_state(tenant),
+                           payments_ready=paylib.is_ready(_platform_account()), state=billing_state(tenant),
                            default_phone=tenant.phone or '')
 
 
@@ -4121,29 +4136,25 @@ def billing_pay():
     if not phone:
         flash('Enter a valid mobile money number, e.g. 0712 345 678.', 'danger')
         return redirect(url_for('billing'))
-    problem = check_network(phone, None, plan.amount_for(months))
+    account = _platform_account()
+    problem = check_network(phone, None, plan.amount_for(months), networks=paylib.networks(account))
     if problem:
         flash(problem, 'danger')
         return redirect(url_for('billing'))
-    if not clickpesa.is_configured():
+    if not paylib.is_ready(account):
         flash('Online payment is not available right now. Please contact SafeNet.', 'danger')
         return redirect(url_for('billing'))
     sp = SubscriptionPayment(tenant_id=tenant.id, billing_plan_id=plan.id, plan_name=plan.name, months=months,
-                             amount=plan.amount_for(months), currency=plan.currency, phone=phone,
+                             amount=plan.amount_for(months), currency=plan.currency, phone=phone, method=account.provider,
                              reference='SB' + secrets.token_hex(6).upper(), created_by_id=current_user.id)
     db.session.add(sp)
     db.session.commit()
-    creds = clickpesa.platform_credentials()
     try:
-        if not clickpesa.preview_ussd_push(sp.amount, phone, sp.reference, creds):
-            raise clickpesa.ClickPesaError('No mobile-money method available for this number')
-        tx = clickpesa.initiate_ussd_push(sp.amount, phone, sp.reference, creds) or {}
-        sp.provider_id, sp.channel = tx.get('id'), tx.get('channel')
-        sp.provider_status = (tx.get('status') or '').upper() or None
-        if sp.provider_status == 'FAILED':
-            sp.status = 'failed'
-    except clickpesa.ClickPesaError as e:
-        sp.status, sp.message = 'failed', str(e)[:255]
+        tx = paylib.start(account, sp.amount, phone, sp.reference,
+                            webhook_url=_link('snippe_webhook') if account.provider == 'snippe' else None)
+        sp.provider_id, sp.channel, sp.provider_status = tx['provider_id'], tx['channel'], tx['provider_status']
+    except paylib.PaymentError as e:
+        sp.status, sp.message = 'failed', e.detail
     db.session.commit()
     if sp.status == 'failed':
         flash(f"We couldn't send the payment request: {sp.message or 'try again'}.", 'danger')
@@ -4257,7 +4268,63 @@ def platform_billing():
     total = lambda q: Decimal(str(q.with_entities(func.coalesce(func.sum(SubscriptionPayment.amount), 0)).scalar()))
     return render_template('platform/billing.html', plans=plans, payments=payments,
                            revenue_month=total(paid.filter(SubscriptionPayment.paid_at >= month_start)),
-                           revenue_all=total(paid), payments_ready=clickpesa.is_configured())
+                           revenue_all=total(paid), payments_ready=paylib.is_ready(_platform_account()),
+                           provider=platform_provider(), providers=paylib.PROVIDERS,
+                           provider_ready={p: paylib.is_ready(_platform_account(p)) for p in paylib.PROVIDERS},
+                           snippe_webhook_ready=bool(Config.SNIPPE_WEBHOOK_KEY), fee_percent=Config.PLATFORM_FEE_PERCENT)
+
+
+@app.route('/platform/payment-provider', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_payment_provider():
+    """Switch the provider SafeNet Pay uses for new payments (payments already started keep theirs)."""
+    _check_csrf()
+    provider = request.form.get('provider')
+    if provider not in paylib.PROVIDERS:
+        abort(400)
+    if not paylib.is_ready(_platform_account(provider)):
+        flash(f'Add the {paylib.PROVIDERS[provider]} keys to the server first.', 'danger')
+        return redirect(url_for('platform_billing'))
+    row = db.session.get(PlatformSetting, 'payment_provider') or PlatformSetting(key='payment_provider')
+    row.value = provider
+    db.session.add(row)
+    db.session.commit()
+    log.info('SafeNet Pay provider switched to %s by %s', provider, current_user.username)
+    flash(f'SafeNet Pay now uses {paylib.PROVIDERS[provider]} for new payments.', 'success')
+    return redirect(url_for('platform_billing'))
+
+
+@app.route('/webhooks/snippe', methods=['POST'])
+def snippe_webhook():
+    """Snippe payment.completed / payment.failed / ... The signature is checked with the key of the
+    account the payment was made with, and the payment is re-checked with Snippe before anything is granted."""
+    raw = request.get_data(cache=False)
+    try:
+        event = json.loads(raw or b'{}')
+    except ValueError:
+        return jsonify(error='bad json'), 400
+    ref = str(((event.get('data') or {}).get('reference')) or '')[:64]
+    if not ref:
+        return jsonify(received=True)
+    payment = Payment.query.filter_by(provider='snippe', provider_id=ref).first()
+    sub = None if payment else SubscriptionPayment.query.filter_by(method='snippe', provider_id=ref).first()
+    if payment is None and sub is None:
+        return jsonify(received=True)
+    account = _payment_account(payment) if payment else _platform_account('snippe')
+    if not snippe.verify_webhook(raw, request.headers.get('X-Webhook-Timestamp'), request.headers.get('X-Webhook-Signature'),
+                                 account.creds.webhook_key):
+        log.warning('snippe webhook for %s: bad or missing signature', ref)
+        return jsonify(error='invalid signature'), 401
+    try:
+        if payment:
+            _refresh_payment(payment.reference, force=True)
+        else:
+            _refresh_subscription(sub.reference, force=True)
+    except Exception:
+        db.session.rollback()
+        log.exception('snippe webhook refresh %s failed', ref)
+    return jsonify(received=True)
 
 
 # Initialize database

@@ -8,23 +8,32 @@
 <div class="row">
     <div class="col-lg-7">
         <div class="card">
-            <div class="card-header"><i class="bi bi-phone"></i> Mobile money (ClickPesa)</div>
+            <div class="card-header"><i class="bi bi-phone"></i> Mobile-money payments</div>
             <div class="card-body">
                 <form method="POST" novalidate>
                     {{ form.hidden_tag() }}
                     {{ field(form.payment_mode, "form-select") }}
-                    <div class="border rounded p-3 mb-3">
-                        <p class="small text-muted">Only needed for "my own ClickPesa account". Find the keys in ClickPesa under Settings → Developers.</p>
-                        {{ field(form.client_id) }}
-                        {{ field(form.api_key, placeholder=("•••••••• saved" if has_api_key else "")) }}
-                        {{ field(form.checksum_key, placeholder=("•••••••• saved" if has_checksum else "")) }}
-                        {% if has_checksum %}<div class="form-check mb-2">{{ form.clear_checksum(class="form-check-input") }} {{ form.clear_checksum.label(class="form-check-label") }}</div>{% endif %}
+                    <div class="border rounded p-3 mb-3" id="own-box">
+                        <p class="small text-muted mb-2">Only needed for "my own ClickPesa or Snippe account".</p>
+                        {{ field(form.own_provider, "form-select") }}
+                        <div data-provider="clickpesa">
+                            <p class="small text-muted">Find the keys in ClickPesa under Settings → Developers.</p>
+                            {{ field(form.client_id) }}
+                            {{ field(form.api_key, placeholder=("•••••••• saved" if has_api_key else "")) }}
+                            {{ field(form.checksum_key, placeholder=("•••••••• saved" if has_checksum else "")) }}
+                            {% if has_checksum %}<div class="form-check mb-2">{{ form.clear_checksum(class="form-check-input") }} {{ form.clear_checksum.label(class="form-check-label") }}</div>{% endif %}
+                        </div>
+                        <div data-provider="snippe">
+                            <p class="small text-muted">Create an API key in the Snippe dashboard with the <code>collection:create</code> and <code>collection:read</code> scopes.</p>
+                            {{ field(form.snippe_api_key, placeholder=("•••••••• saved" if has_snippe_key else "snp_…")) }}
+                            {{ field(form.snippe_webhook_key, placeholder=("•••••••• saved" if has_snippe_webhook else "")) }}
+                        </div>
                     </div>
                     <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> Save</button>
                 </form>
                 <form method="POST" action="{{ url_for('test_payment_settings') }}" class="mt-2">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-plug"></i> Test my ClickPesa keys</button>
+                    <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-plug"></i> Test my keys</button>
                 </form>
             </div>
         </div>
@@ -33,14 +42,29 @@
         <div class="card">
             <div class="card-header"><i class="bi bi-info-circle"></i> How it works</div>
             <div class="card-body small">
-                <p><strong>SafeNet collects:</strong> guests pay into SafeNet's ClickPesa account. SafeNet keeps {{ fee_percent }} % and you withdraw the rest from Earnings to your mobile money.
+                <p><strong>SafeNet Pay:</strong> guests pay into SafeNet's account{% if platform_name %} (through {{ platform_name }}){% endif %}. SafeNet keeps {{ fee_percent }} % and you withdraw the rest from Earnings to your mobile money.
                     {% if not platform_ready %}<span class="text-danger">(Not available right now.)</span>{% endif %}</p>
-                <p><strong>Your own ClickPesa:</strong> guests pay you directly; SafeNet keeps no fee. In ClickPesa, set the webhook for
-                    "PAYMENT RECEIVED" and "PAYMENT FAILED" to:</p>
-                <code class="d-block text-break">{{ webhook_url }}</code>
+                <p><strong>Your own ClickPesa or Snippe:</strong> guests pay you directly and SafeNet keeps no fee.</p>
+                <p class="mb-1">ClickPesa: set the webhook for "PAYMENT RECEIVED" and "PAYMENT FAILED" to:</p>
+                <code class="d-block text-break mb-2">{{ webhook_url }}</code>
+                <p class="mb-1">Snippe: nothing to set up. SafeNet asks Snippe to report each payment to:</p>
+                <code class="d-block text-break">{{ snippe_webhook_url }}</code>
                 <p class="mt-2 mb-0">Your keys are stored encrypted and only used to request and check your guests' payments.</p>
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const mode = document.getElementById('payment_mode'), provider = document.getElementById('own_provider');
+    function show() {
+        document.getElementById('own-box').style.display = mode.value === 'own' ? '' : 'none';
+        document.querySelectorAll('[data-provider]').forEach(el => el.style.display = el.dataset.provider === provider.value ? '' : 'none');
+    }
+    mode.addEventListener('change', show); provider.addEventListener('change', show); show();
+})();
+</script>
 {% endblock %}

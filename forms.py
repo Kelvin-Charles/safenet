@@ -304,9 +304,14 @@ class GatewayForm(FlaskForm):
 
 class PaymentSettingsForm(FlaskForm):
     payment_mode = SelectField('Who receives package payments?', choices=[
-        ('platform', 'SafeNet collects for me, I withdraw my balance'),
-        ('own', 'Straight into my own ClickPesa account'),
+        ('platform', 'SafeNet Pay collects for me, I withdraw my balance'),
+        ('own', 'Straight into my own ClickPesa or Snippe account'),
     ])
+    own_provider = SelectField('My payment account', choices=[('clickpesa', 'ClickPesa'), ('snippe', 'Snippe')])
+    snippe_api_key = PasswordField('Snippe API key', validators=[Optional(), Length(max=200)],
+                                   description='Starts with snp_. Leave empty to keep the saved key.')
+    snippe_webhook_key = PasswordField('Snippe webhook signing key', validators=[Optional(), Length(max=200)],
+                                       description='Snippe dashboard: Settings -> Webhook Secret. Leave empty to keep the saved key.')
     client_id = StringField('ClickPesa Client ID', validators=[Optional(), Length(max=64)])
     api_key = PasswordField('ClickPesa API key', validators=[Optional(), Length(max=200)],
                             description='Leave empty to keep the saved key.')
