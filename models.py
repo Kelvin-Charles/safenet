@@ -545,9 +545,20 @@ class Withdrawal(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
     amount = db.Column(db.Numeric(10, 2), nullable=False)
-    phone = db.Column(db.String(16), nullable=False)          # mobile money number to pay
+    method = db.Column(db.String(8), nullable=False, default='mobile', server_default='mobile')   # mobile, lipa, bank
+    phone = db.Column(db.String(16), nullable=False)          # mobile money number to pay (lipa/bank: for the SMS)
     account_name = db.Column(db.String(100))
-    status = db.Column(db.String(16), nullable=False, default='requested', index=True)  # requested, paid, rejected
+    lipa_namba = db.Column(db.String(20))
+    lipa_network = db.Column(db.String(40))                   # e.g. Vodacom M-Pesa, as the tenant chose it
+    bank_name = db.Column(db.String(80))
+    bank_account = db.Column(db.String(40))
+    status = db.Column(db.String(16), nullable=False, default='requested', index=True)  # requested, sending, paid, rejected
+    # Sent through ClickPesa's payout API (status 'sending' until ClickPesa settles it)
+    payout_ref = db.Column(db.String(20))
+    payout_status = db.Column(db.String(16))
+    payout_fee = db.Column(db.Numeric(10, 2))
+    payout_receiver = db.Column(db.String(100))               # name ClickPesa found for the number
+    payout_error = db.Column(db.String(255))                  # why the last automatic payout failed
     reference = db.Column(db.String(64))                      # payout transaction id
     note = db.Column(db.String(255))
     requested_by_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='SET NULL'))
@@ -558,6 +569,15 @@ class Withdrawal(db.Model):
     tenant = db.relationship('Tenant')
     requested_by = db.relationship('Admin', foreign_keys=[requested_by_id])
     processed_by = db.relationship('Admin', foreign_keys=[processed_by_id])
+
+    @property
+    def destination(self):
+        """Where the money goes, in words."""
+        if self.method == 'lipa':
+            return f'Lipa Namba {self.lipa_namba} ({self.lipa_network})'
+        if self.method == 'bank':
+            return f'{self.bank_name} account {self.bank_account}'
+        return f'mobile money {self.phone}'
 
     def __repr__(self):
         return f'<Withdrawal {self.id} {self.status}>'

@@ -2610,7 +2610,7 @@ def tenant_balance(tid):
     earned = db.session.query(func.coalesce(func.sum(Payment.net_amount), 0)).filter(
         Payment.tenant_id == tid, Payment.status == 'paid', Payment.provider_account == 'platform').scalar()
     withdrawn = db.session.query(func.coalesce(func.sum(Withdrawal.amount), 0)).filter(
-        Withdrawal.tenant_id == tid, Withdrawal.status.in_(('requested', 'paid'))).scalar()
+        Withdrawal.tenant_id == tid, Withdrawal.status.in_(('requested', 'sending', 'paid'))).scalar()
     earned, withdrawn = Decimal(str(earned)), Decimal(str(withdrawn))
     return earned - withdrawn, earned, withdrawn
 
@@ -3094,6 +3094,11 @@ def clickpesa_webhook():
         try:
             if reference.startswith('SB'):
                 _refresh_subscription(reference, force=True)
+            elif reference.startswith('WD'):
+                w = Withdrawal.query.filter_by(payout_ref=reference).with_for_update().first()
+                if w:
+                    _refresh_withdrawal(w)
+                    db.session.commit()
             else:
                 _refresh_payment(reference, force=True)
         except Exception:
@@ -3818,7 +3823,21 @@ def request_withdrawal():
         return redirect(url_for('earnings'))
     phone = _normalize_tz_phone(form.phone.data)
     if not phone:
-        flash('Enter a valid mobile money number, e.g. 0712 345 678.', 'danger')
+        flash('Enter a valid mobile number, e.g. 0712 345 678.', 'danger')
+        return redirect(url_for('earnings'))
+    method = form.method.data if form.method.data in ('mobile', 'lipa', 'bank') else 'mobile'
+    account_name = (form.account_name.data or '').strip() or None
+    lipa_namba = re.sub(r'\D', '', form.lipa_namba.data or '')
+    bank_name, bank_account = (form.bank_name.data or '').strip(), (form.bank_account.data or '').strip()
+    problem = None
+    if method == 'lipa' and not re.fullmatch(r'\d{5,12}', lipa_namba):
+        problem = 'Enter the Lipa Namba (the merchant till number, digits only).'
+    elif method == 'lipa' and not form.lipa_network.data:
+        problem = 'Choose the network or bank of the Lipa Namba.'
+    elif method == 'bank' and not (bank_name and bank_account and account_name):
+        problem = 'Enter the bank, the account number and the name on the account.'
+    if problem:
+        flash(problem, 'danger')
         return redirect(url_for('earnings'))
     tenant = Tenant.query.filter_by(id=tenant_id()).with_for_update().one()   # one request at a time
     amount = Decimal(str(form.amount.data))
@@ -3831,13 +3850,17 @@ def request_withdrawal():
         db.session.rollback()
         flash(f'You can withdraw up to {tenant.currency} {balance:,.0f}.', 'danger')
         return redirect(url_for('earnings'))
-    w = Withdrawal(tenant_id=tenant.id, amount=amount, phone=phone, account_name=(form.account_name.data or '').strip() or None,
+    w = Withdrawal(tenant_id=tenant.id, amount=amount, phone=phone, account_name=account_name, method=method,
                    requested_by_id=current_user.id)
+    if method == 'lipa':
+        w.lipa_namba, w.lipa_network = lipa_namba, form.lipa_network.data
+    elif method == 'bank':
+        w.bank_name, w.bank_account = bank_name[:80], bank_account[:40]
     db.session.add(w)
     db.session.commit()
     for admin in Admin.query.filter_by(is_superadmin=True, is_active=True):
         send_mail(admin.email, f'Withdrawal request: {tenant.name} {tenant.currency} {amount:,.0f}',
-                  f'{tenant.name} asked to withdraw {tenant.currency} {amount:,.0f} to {phone}'
+                  f'{tenant.name} asked to withdraw {tenant.currency} {amount:,.0f} to {w.destination}'
                   f'{" (" + w.account_name + ")" if w.account_name else ""}.\n\nProcess it at {_link("platform_payouts")}\n')
     flash(f'Withdrawal of {tenant.currency} {amount:,.0f} requested. You will get an email when it is paid.', 'success')
     return redirect(url_for('earnings'))
@@ -3903,20 +3926,164 @@ def test_payment_settings():
     return redirect(url_for('payment_settings'))
 
 
+def _payouts_ready():
+    return clickpesa.is_configured(clickpesa.platform_credentials())
+
+
+def _finish_withdrawal(w, status, reference=None, note=None):
+    """Mark a withdrawal paid or rejected and tell the tenant (email + SMS). Caller commits."""
+    w.status = status
+    if reference:
+        w.reference = reference
+    w.note = note or None
+    w.processed_at = datetime.utcnow()
+    if current_user and getattr(current_user, 'is_authenticated', False):
+        w.processed_by_id = current_user.id
+    owner = Admin.query.filter_by(tenant_id=w.tenant_id, role='owner').first()
+    amount = f'{w.tenant.currency} {w.amount:,.0f}'
+    if owner:
+        body = (f'Your withdrawal of {amount} to {w.destination} was sent. Reference: {w.reference}.\n'
+                if status == 'paid' else
+                f'Your withdrawal of {amount} was not approved{": " + note if note else ""}. '
+                f'The amount is back in your balance.\n')
+        send_mail(owner.email, f'Withdrawal {status}', body)
+    if status == 'paid':
+        send_sms_async(w.phone, f'SafeNet: {amount} has been sent to {"this number" if w.method == "mobile" else w.destination}. '
+                                f'Ref {w.reference}.')
+    else:
+        send_sms_async(_normalize_tz_phone(w.tenant.phone or '') or w.phone, f'SafeNet: your withdrawal of {amount} '
+                       f'was not approved{": " + note if note else ""}. It is back in your balance.')
+
+
+def _refresh_withdrawal(w):
+    """Ask ClickPesa how a payout that is being sent is doing. Caller commits."""
+    if w.status != 'sending' or not w.payout_ref:
+        return
+    try:
+        data = clickpesa.query_payout(w.payout_ref)
+    except clickpesa.ClickPesaError as e:
+        log.warning('payout %s check failed: %s', w.payout_ref, e)
+        return
+    if data is None:
+        return
+    w.payout_status = str(data.get('status') or '')[:16]
+    if w.payout_status in clickpesa.PAYOUT_DONE:
+        _finish_withdrawal(w, 'paid', reference=str(data.get('id') or w.payout_ref)[:64], note=w.note)
+        log.info('payout %s settled', w.payout_ref)
+    elif w.payout_status in clickpesa.PAYOUT_FAILED:
+        # back in the queue: the platform admin can retry or pay by hand
+        log.warning('payout %s %s', w.payout_ref, w.payout_status)
+        w.status, w.payout_error = 'requested', f'ClickPesa: payout {w.payout_status.lower()}'
+        w.payout_ref = None
+
+
+def _lipa_provider_code(providers, network, chosen=None):
+    """The ClickPesa providerCode for a Lipa Namba: the admin's pick, else the one matching the tenant's network."""
+    codes = {code for _, code in providers}
+    if chosen in codes:
+        return chosen
+    want = re.sub(r'[^a-z]', '', (network or '').lower().replace('vodacom', '').replace('mixxbyyas', 'yas'))
+    for name, code in providers:
+        have = re.sub(r'[^a-z]', '', name.lower())
+        if want and (want in have or have in want):
+            return code
+    return None
+
+
 @app.route('/platform/payouts')
 @login_required
 @superadmin_required
 def platform_payouts():
     status = request.args.get('status', 'requested')
+    for w in Withdrawal.query.filter_by(status='sending').limit(20):     # settle payouts in flight
+        _refresh_withdrawal(w)
+    db.session.commit()
     query = Withdrawal.query
-    if status:
+    if status == 'requested':
+        query = query.filter(Withdrawal.status.in_(('requested', 'sending')))
+    elif status:
         query = query.filter_by(status=status)
     items = query.order_by(Withdrawal.created_at.desc()).limit(200).all()
     fees = db.session.query(func.coalesce(func.sum(Payment.fee_amount), 0)).filter(
         Payment.status == 'paid', Payment.provider_account == 'platform').scalar()
     owed = {t.id: tenant_balance(t.id)[0] for t in Tenant.query.all()}
     return render_template('platform/payouts.html', withdrawals=items, status=status, fees=fees,
-                           owed=owed, tenants=Tenant.query.all())
+                           owed=owed, tenants=Tenant.query.all(), payouts_ready=_payouts_ready())
+
+
+@app.route('/platform/payouts/<int:wid>/send', methods=['GET', 'POST'])
+@login_required
+@superadmin_required
+def send_payout(wid):
+    """Pay a withdrawal through SafeNet's ClickPesa account: preview (receiver name, fee, balance), then send."""
+    w = Withdrawal.query.filter_by(id=wid).with_for_update().first_or_404()
+    back = redirect(url_for('platform_payouts'))
+    if w.status != 'requested':
+        db.session.rollback()
+        flash('This withdrawal was already processed.', 'warning')
+        return back
+    if w.method == 'bank':
+        db.session.rollback()
+        flash('Bank payouts are paid by hand: send it, then mark it paid with the reference.', 'warning')
+        return back
+    if not _payouts_ready():
+        db.session.rollback()
+        flash('Add SafeNet\'s ClickPesa keys (CLICKPESA_CLIENT_ID / CLICKPESA_API_KEY) to send payouts automatically.', 'danger')
+        return back
+    providers, provider_code = [], None
+    try:
+        if w.method == 'lipa':
+            providers = clickpesa.lipa_namba_providers()
+            provider_code = _lipa_provider_code(providers, w.lipa_network, request.values.get('provider'))
+        if not w.payout_ref:
+            w.payout_ref = f'WD{w.id}X{secrets.token_hex(3).upper()}'
+        target = dict(phone=w.phone) if w.method == 'mobile' else dict(lipa_namba=w.lipa_namba, provider_code=provider_code)
+        if request.method == 'GET':
+            db.session.commit()
+            preview = clickpesa.preview_payout(w.amount, w.payout_ref, **target) if (w.method == 'mobile' or provider_code) else None
+            return render_template('platform/payout_send.html', w=w, preview=preview, providers=providers,
+                                   provider_code=provider_code)
+        _check_csrf()
+        if w.method == 'lipa' and not provider_code:
+            db.session.rollback()
+            flash('Choose the Lipa Namba provider.', 'danger')
+            return redirect(url_for('send_payout', wid=w.id))
+        tx = clickpesa.create_payout(w.amount, w.payout_ref, **target)
+    except clickpesa.ClickPesaError as e:
+        db.session.rollback()
+        msg = str(e)
+        log.warning('payout for withdrawal %s: %s', wid, msg)
+        if 'already used' in msg:                 # a fresh reference next time
+            Withdrawal.query.filter_by(id=wid).update({'payout_ref': None})
+        Withdrawal.query.filter_by(id=wid).update({'payout_error': f'ClickPesa: {msg}'[:255]})
+        db.session.commit()
+        flash(f'ClickPesa: {msg}', 'danger')
+        return back
+    w.status, w.payout_error = 'sending', None
+    w.payout_status = str(tx.get('status') or 'AUTHORIZED')[:16]
+    w.payout_fee = Decimal(str(tx.get('fee') or 0))
+    w.payout_receiver = str((tx.get('beneficiary') or {}).get('accountName') or '')[:100] or None
+    w.processed_by_id = current_user.id
+    if w.payout_status in clickpesa.PAYOUT_DONE:
+        _finish_withdrawal(w, 'paid', reference=str(tx.get('id') or w.payout_ref)[:64])
+    db.session.commit()
+    flash(f'{w.tenant.currency} {w.amount:,.0f} sent to {w.destination}.' if w.status == 'paid' else
+          f'Payout to {w.destination} accepted by ClickPesa. It shows as paid once ClickPesa confirms it.', 'success')
+    return back
+
+
+@app.route('/platform/payouts/<int:wid>/check', methods=['POST'])
+@login_required
+@superadmin_required
+def check_payout(wid):
+    _check_csrf()
+    w = Withdrawal.query.filter_by(id=wid).with_for_update().first_or_404()
+    _refresh_withdrawal(w)
+    db.session.commit()
+    flash({'paid': 'The payout went through.', 'requested': f'The payout did not go through ({w.payout_error}).'}
+          .get(w.status, f'Still being sent (ClickPesa: {w.payout_status or "pending"}).'),
+          'success' if w.status == 'paid' else 'warning')
+    return redirect(url_for('platform_payouts'))
 
 
 @app.route('/platform/payouts/<int:wid>', methods=['POST'])
@@ -3936,26 +4103,12 @@ def process_payout(wid):
             db.session.rollback()
             flash('Enter the payout transaction reference.', 'danger')
             return redirect(url_for('platform_payouts'))
-        w.status, w.reference = 'paid', reference
+        _finish_withdrawal(w, 'paid', reference=reference, note=note)
     elif action == 'reject':
-        w.status = 'rejected'
+        _finish_withdrawal(w, 'rejected', note=note)
     else:
         abort(400)
-    w.note = note or None
-    w.processed_by_id, w.processed_at = current_user.id, datetime.utcnow()
     db.session.commit()
-    owner = Admin.query.filter_by(tenant_id=w.tenant_id, role='owner').first()
-    if owner:
-        body = (f'Your withdrawal of {w.tenant.currency} {w.amount:,.0f} to {w.phone} was sent. Reference: {reference}.\n'
-                if w.status == 'paid' else
-                f'Your withdrawal of {w.tenant.currency} {w.amount:,.0f} was not approved{": " + note if note else ""}. '
-                f'The amount is back in your balance.\n')
-        send_mail(owner.email, f'Withdrawal {w.status}', body)
-    if w.status == 'paid':
-        send_sms_async(w.phone, f'SafeNet: {w.tenant.currency} {w.amount:,.0f} has been sent to this number. Ref {reference}.')
-    else:
-        send_sms_async(_normalize_tz_phone(w.tenant.phone or ''), f'SafeNet: your withdrawal of {w.tenant.currency} '
-                       f'{w.amount:,.0f} was not approved{": " + note if note else ""}. It is back in your balance.')
     flash(f'Withdrawal marked {w.status}.', 'success')
     return redirect(url_for('platform_payouts'))
 

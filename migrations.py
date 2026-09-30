@@ -127,6 +127,12 @@ def run():
     _add_column('payments', 'fee_amount', 'NUMERIC(10, 2) NULL DEFAULT 0')
     _add_column('payments', 'net_amount', 'NUMERIC(10, 2) NULL')
     _add_column('payments', 'gift_phone', 'VARCHAR(16)')
+    # Withdrawals to a Lipa Namba or bank, and payouts sent through ClickPesa
+    _add_column('withdrawals', 'method', "VARCHAR(8) NOT NULL DEFAULT 'mobile'")
+    for col, kind in (('lipa_namba', 'VARCHAR(20)'), ('lipa_network', 'VARCHAR(40)'), ('bank_name', 'VARCHAR(80)'),
+                      ('bank_account', 'VARCHAR(40)'), ('payout_ref', 'VARCHAR(20)'), ('payout_status', 'VARCHAR(16)'),
+                      ('payout_fee', 'NUMERIC(10, 2) NULL'), ('payout_receiver', 'VARCHAR(100)'), ('payout_error', 'VARCHAR(255)')):
+        _add_column('withdrawals', col, kind)
 
     tid = _default_tenant_id()
 

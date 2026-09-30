@@ -323,11 +323,21 @@ class PaymentSettingsForm(FlaskForm):
     clear_checksum = BooleanField('Remove the saved checksum key')
 
 
+LIPA_NETWORKS = ('Vodacom M-Pesa', 'Mixx by Yas', 'Airtel Money', 'HaloPesa', 'CRDB Bank', 'NMB Bank', 'Other')
+
+
 class WithdrawalForm(FlaskForm):
     amount = IntegerField('Amount', validators=[DataRequired()])
-    phone = StringField('Mobile money number', validators=[DataRequired(), Length(max=20)])
+    method = SelectField('Send it to', choices=[('mobile', 'Mobile money number'), ('lipa', 'Lipa Namba (merchant till)'),
+                                                ('bank', 'Bank account')], default='mobile')
+    phone = StringField('Mobile number', validators=[DataRequired(), Length(max=20)],
+                        description='Mobile money is sent here. For Lipa Namba or bank, we SMS this number when it is paid.')
+    lipa_namba = StringField('Lipa Namba', validators=[Optional(), Length(max=20)])
+    lipa_network = SelectField('Lipa Namba network', choices=[('', 'Choose…')] + [(n, n) for n in LIPA_NETWORKS], default='')
+    bank_name = StringField('Bank', validators=[Optional(), Length(max=80)])
+    bank_account = StringField('Account number', validators=[Optional(), Length(max=40)])
     account_name = StringField('Account name', validators=[Optional(), Length(max=100)],
-                               description='Name registered on the mobile money number')
+                               description='Name registered on the number, till or bank account')
 
 
 

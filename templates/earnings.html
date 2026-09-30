@@ -38,6 +38,15 @@
                 <form method="POST" action="{{ url_for('request_withdrawal') }}" novalidate>
                     {{ form.hidden_tag() }}
                     {{ field(form.amount, help="Minimum " ~ cur ~ " " ~ '{:,}'.format(min_withdrawal) ~ ", up to " ~ '{:,.0f}'.format(stats.balance)) }}
+                    {{ field(form.method, "form-select") }}
+                    <div data-method="lipa">
+                        {{ field(form.lipa_namba, inputmode="numeric", placeholder="e.g. 48001268") }}
+                        {{ field(form.lipa_network, "form-select") }}
+                    </div>
+                    <div data-method="bank">
+                        {{ field(form.bank_name, placeholder="e.g. CRDB") }}
+                        {{ field(form.bank_account) }}
+                    </div>
                     {{ field(form.phone) }}
                     {{ field(form.account_name) }}
                     <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> Request withdrawal</button>
@@ -62,10 +71,11 @@
                             <tr>
                                 <td><small>{{ w.created_at.strftime('%Y-%m-%d %H:%M') }}</small></td>
                                 <td>{{ cur }} {{ '{:,.0f}'.format(w.amount) }}</td>
-                                <td><small>{{ w.phone }}{% if w.account_name %}<span class="d-block text-muted">{{ w.account_name }}</span>{% endif %}</small></td>
+                                <td><small>{{ w.destination }}{% if w.account_name %}<span class="d-block text-muted">{{ w.account_name }}</span>{% endif %}</small></td>
                                 <td>
                                     {% if w.status == 'paid' %}<span class="badge bg-success">Paid</span><small class="d-block text-muted">Ref {{ w.reference }}</small>
                                     {% elif w.status == 'requested' %}<span class="badge bg-warning text-dark">Pending</span>
+                                    {% elif w.status == 'sending' %}<span class="badge bg-info text-dark">Being sent</span>
                                     {% else %}<span class="badge bg-danger">Rejected</span>{% if w.note %}<small class="d-block text-muted">{{ w.note }}</small>{% endif %}{% endif %}
                                 </td>
                             </tr>
@@ -80,4 +90,15 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const method = document.getElementById('method');
+    if (!method) return;
+    function show() { document.querySelectorAll('[data-method]').forEach(el => el.style.display = el.dataset.method === method.value ? '' : 'none'); }
+    method.addEventListener('change', show); show();
+})();
+</script>
 {% endblock %}

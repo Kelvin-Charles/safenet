@@ -139,3 +139,62 @@ def query_payment(reference, creds=None):
         paid = [r for r in data if r.get('status') in ('SUCCESS', 'SETTLED')]
         return paid[0] if paid else max(data, key=lambda r: r.get('updatedAt') or '')
     return data
+
+
+# Payouts (disbursements) from the account's balance: to a mobile-money wallet or a Lipa Namba.
+# ClickPesa allows one create request per merchant every 60 seconds.
+PAYOUT_DONE = ('SUCCESS',)
+PAYOUT_FAILED = ('FAILED', 'REFUNDED', 'REVERSED')
+
+
+def _payout_payload(amount, reference, creds, phone=None, lipa_namba=None, provider_code=None):
+    payload = {'amount': int(amount) if float(amount).is_integer() else float(amount),
+               'currency': 'TZS', 'orderReference': reference}
+    if lipa_namba:
+        payload.update(lipaNamba=lipa_namba, providerCode=provider_code)
+    else:
+        payload['phoneNumber'] = phone
+    if creds.checksum_key:
+        payload['checksum'] = checksum(payload, creds.checksum_key)
+    return payload
+
+
+def _payout_path(action, lipa_namba):
+    return f'/third-parties/payouts/{action}-' + ('lipa-namba-payout' if lipa_namba else 'mobile-money-payout')
+
+
+def preview_payout(amount, reference, phone=None, lipa_namba=None, provider_code=None, creds=None):
+    """Checks a payout without sending it: receiver name, fee and the account balance."""
+    creds = creds or platform_credentials()
+    return _request('POST', _payout_path('preview', lipa_namba),
+                    _payout_payload(amount, reference, creds, phone, lipa_namba, provider_code),
+                    headers={'Authorization': _auth_header(creds)}) or {}
+
+
+def create_payout(amount, reference, phone=None, lipa_namba=None, provider_code=None, creds=None):
+    """Sends the money. AUTHORIZED means accepted, not settled: poll query_payout."""
+    creds = creds or platform_credentials()
+    return _request('POST', _payout_path('create', lipa_namba),
+                    _payout_payload(amount, reference, creds, phone, lipa_namba, provider_code),
+                    headers={'Authorization': _auth_header(creds)}, timeout=40) or {}
+
+
+def query_payout(reference, creds=None):
+    """Latest record for a payout's order reference, or None if ClickPesa doesn't know it."""
+    creds = creds or platform_credentials()
+    try:
+        data = _request('GET', f'/third-parties/payouts/{reference}', headers={'Authorization': _auth_header(creds)})
+    except ClickPesaError as e:
+        if str(e).startswith('404'):
+            return None
+        raise
+    if isinstance(data, list):
+        return max(data, key=lambda r: r.get('updatedAt') or '') if data else None
+    return data
+
+
+def lipa_namba_providers(creds=None):
+    """[(name, providerCode)] that Lipa Namba payouts can go to."""
+    creds = creds or platform_credentials()
+    data = _request('GET', '/third-parties/payouts/lipa-namba-providers', headers={'Authorization': _auth_header(creds)}) or []
+    return [(p.get('name', ''), str(p.get('providerCode', ''))) for p in data if p.get('providerCode')]
