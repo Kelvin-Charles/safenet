@@ -1553,7 +1553,7 @@ def _site_equipment(site, main_site_id=None):
     return kinds
 
 
-@app.route('/portal')
+@app.route('/portal', methods=['GET', 'POST'])
 def portal():
     """Guest splash page with the tenant's branding (same design as the gateway).
 
@@ -1568,6 +1568,8 @@ def portal():
     tenant = Tenant.query.filter_by(slug=slug).first()
     cfg = portal_config(tenant)
     preview = request.args.get('preview') == '1'
+    if request.method == 'POST' and not preview:          # only the preview's simulated forms post here
+        abort(405)
     if preview:
         for key in PREVIEW_FIELDS:
             if key in request.args:
@@ -1593,7 +1595,7 @@ def portal():
     lang_url = url_for('portal', t=slug, **{k: request.args[k] for k in passthrough if k in request.args})
 
     if preview:
-        html_out = _portal_preview(tenant, th, lang, lang_url)
+        html_out = _portal_preview(tenant, th, lang, _preview_url(slug)) + PREVIEW_LOGO_JS
     else:
         if gateway:
             html_out = portal_ui.login_page(th, lang, external=gateway, buy_enabled=False, tab='voucher',
@@ -1607,8 +1609,33 @@ def portal():
     return resp
 
 
-def _portal_preview(tenant, th, lang, lang_url):
-    """A screen exactly as a guest at one site, on one kind of equipment, would see it (settings page preview)."""
+def _preview_url(slug, **over):
+    """This preview screen's URL (settings kept), for the simulated forms and links."""
+    args = {k: v for k, v in request.args.items() if k not in ('view', 'pkg', 'gift', 'lang', 't', 'preview')}
+    args.update({k: v for k, v in over.items() if v not in (None, '')})
+    return url_for('portal', t=slug, preview=1, **args)
+
+
+def _preview_voucher(tenant, code):
+    """(error, seconds left) for a code typed in the preview. Real codes are checked (but not used) only for the
+    tenant's own staff; anything else is accepted as a 1-hour example."""
+    if current_user.is_authenticated and tenant is not None and current_user.tenant_id == tenant.id:
+        v = Voucher.query.filter_by(tenant_id=tenant.id, code=code).first()
+        if v is None:
+            return "That code isn't valid. Check it and try again.", 0
+        if v.status == 'disabled' or (v.expires_at and v.expires_at <= datetime.utcnow()):
+            return 'Voucher expired or disabled', 0
+        left = (v.expires_at - datetime.utcnow()).total_seconds() if v.expires_at else v.validity_minutes * 60
+        return None, int(left)
+    return None, 3600
+
+
+def _portal_preview(tenant, th, lang, here):
+    """A guest's screens exactly as they would see them at one site, on one kind of equipment (settings page preview).
+    The forms work: choosing a package, paying, a voucher code or buying for a friend walk through the same checks and
+    screens as the real thing, but nothing is charged and nobody is let online."""
+    slug = tenant.slug if tenant is not None else migrations.DEFAULT_TENANT_SLUG
+    url = lambda **over: _preview_url(slug, **over)
     view = request.args.get('view', 'buy')
     equip = request.args.get('equip') if request.args.get('equip') in EQUIPMENT else 'gateway'
     site = None
@@ -1622,33 +1649,92 @@ def _portal_preview(tenant, th, lang, lang_url):
                     for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True),
                                             site.id).order_by(Package.sort_order, Package.price)]
         buy_enabled = paylib.is_ready(_tenant_account(tenant))
-    sample = packages[0] if packages else {'name': '1 Day', 'price': '1000', 'currency': 'TZS', 'validity_minutes': 1440}
+    sample = packages[0] if packages else {'id': 0, 'name': '1 Day', 'price': '1000', 'currency': 'TZS', 'validity_minutes': 1440}
     networks = payment_networks(tenant) if tenant else payment_networks()
+    gateway = equip == 'gateway'
+    mikrotik = equip == 'mikrotik'
     code = '48291175'
-    if equip == 'mikrotik':
-        if view == 'online':
+    form = request.form if request.method == 'POST' else {}
+
+    def login(error='', tab=None):
+        if mikrotik:     # the router posts the code itself: vouchers only, no buying on this page
+            return portal_ui.login_page(th, lang, external={'action': url(view='sim-login'), 'next_field': 'dst', 'next_value': ''},
+                                        buy_enabled=False, tab='voucher', error=error, preview=True, simulate=True, lang_url=here)
+        return portal_ui.login_page(th, lang, packages=packages, tab=tab, error=error, preview=True, simulate=True,
+                                    buy_enabled=buy_enabled, lang_url=here, networks=networks,
+                                    action=url(view='sim-login'), buy_action=url(view='sim-buy'),
+                                    logo_base=url_for('static', filename='img/'))
+
+    def online(user, seconds, new_code=None):
+        if mikrotik:
             body = (f'<div class="center"><div class="state-ic ok">{portal_ui.icon("check", 36, 2.6)}</div>'
                     f'<h2>{portal_ui.t(lang, "online")}</h2><p class="lead">After logging in, guests see the MikroTik '
-                    f'router\'s own status page (from its hotspot files), not a SafeNet page.</p></div>')
-            return portal_ui.page(th, lang, body, hero_extra=False, preview=True, lang_url=lang_url) + PREVIEW_LOGO_JS
-        # the router posts the code itself: vouchers only, no buying on this page
-        return portal_ui.login_page(th, lang, external={'action': '#', 'next_field': 'dst', 'next_value': ''}, buy_enabled=False,
-                                    tab='voucher', preview=True, lang_url=lang_url) + PREVIEW_LOGO_JS
+                    f'router\'s own status page (from its hotspot files), not a SafeNet page.</p>'
+                    f'<a class="btn ghost" href="{portal_ui.e(url(view="voucher"))}">Start again</a></div>')
+            return portal_ui.page(th, lang, body, hero_extra=False, preview=True, lang_url=here)
+        return portal_ui.status_page(th, lang, user=user, remaining=seconds, total=seconds if gateway else None,
+                                     new_code=new_code, preview=True, logout=gateway, lang_url=here)
+
+    def by_id(pid):
+        return next((p for p in packages if str(p['id']) == str(pid)), None)
+
+    if view == 'sim-login':
+        if not form.get('agree'):
+            return login('Please accept the terms of use to continue.', 'voucher')
+        typed = re.sub(r'\s+', '', form.get('code') or '')[:32] or (form.get('username') or '').strip()[:64]
+        if not typed:
+            return login('Enter your voucher code.', 'voucher')
+        error, seconds = _preview_voucher(tenant, typed)
+        return login(error, 'voucher') if error else online(typed, seconds)
+
+    if view == 'sim-buy' and not mikrotik:
+        package = by_id(form.get('package_id'))
+        if not (buy_enabled and packages) or package is None:
+            return login('Choose a package.', 'buy')
+        if not form.get('agree'):
+            return login('Please accept the terms of use to continue.', 'buy')
+        network = (form.get('network') or '')[:16] or None
+        if networks and not network:
+            return login('Choose your mobile-money network.', 'buy')
+        phone = _normalize_tz_phone(form.get('phone', ''))
+        if not phone:
+            return login('Enter a valid mobile number, e.g. 0712 345 678.', 'buy')
+        problem = check_network(phone, network, Decimal(package['price']), package['currency'], networks=networks)
+        if problem:
+            return login(problem, 'buy')
+        friend = ''
+        if form.get('gift'):
+            friend = _normalize_tz_phone(form.get('gift_phone', '')) or ''
+            if not friend:
+                return login("Enter your friend's mobile number, e.g. 0712 345 678.", 'buy')
+            friend = '' if friend == phone else friend
+        return portal_ui.waiting_page(th, lang, ref='PREVIEW', lang_url=here, preview=True,
+                                      next_url=url(view='sim-paid', pkg=package['id'], gift=friend),
+                                      info={'amount': package['price'], 'currency': package['currency'], 'phone': phone,
+                                            'package': package['name'], 'gift_phone': friend})
+
+    if view == 'sim-paid':
+        package = by_id(request.args.get('pkg')) or sample
+        friend = _normalize_tz_phone(request.args.get('gift', '')) or ''
+        if friend:
+            return portal_ui.gift_page(th, lang, code=code, friend=friend, package=package['name'], preview=True,
+                                       base=url(view='buy'), lang_url=here)
+        return online(code, package['validity_minutes'] * 60, new_code=code)
+
+    # Screens picked from the tabs
     if view == 'online':
-        gateway = equip == 'gateway'
-        html_out = portal_ui.status_page(th, lang, user=code, remaining=5 * 3600 + 1200, total=86400 if gateway else None,
-                                         new_code=code, preview=True, logout=gateway)
-    elif view == 'wait':
-        html_out = portal_ui.waiting_page(th, lang, ref='PREVIEW', info={
-            'amount': sample['price'], 'currency': sample['currency'], 'phone': '255712345678', 'package': sample['name']})
-        html_out = html_out.replace('<meta http-equiv="refresh"', '<meta name="no-refresh"')
-    elif view == 'gift':
-        html_out = portal_ui.gift_page(th, lang, code=code, friend='255712345678', package=sample['name'], preview=True)
-    else:
-        html_out = portal_ui.login_page(th, lang, packages=packages, tab='voucher' if view == 'voucher' else 'buy', preview=True,
-                                        buy_enabled=buy_enabled, lang_url=lang_url, networks=networks,
-                                        logo_base=url_for('static', filename='img/'))
-    return html_out + PREVIEW_LOGO_JS
+        return online(code, 5 * 3600 + 1200, new_code=None if mikrotik else code)
+    if mikrotik:
+        return login(tab='voucher')
+    if view == 'wait':
+        return portal_ui.waiting_page(th, lang, ref='PREVIEW', lang_url=here, preview=True,
+                                      next_url=url(view='sim-paid', pkg=sample['id']),
+                                      info={'amount': sample['price'], 'currency': sample['currency'], 'phone': '255712345678',
+                                            'package': sample['name']})
+    if view == 'gift':
+        return portal_ui.gift_page(th, lang, code=code, friend='255712345678', package=sample['name'], preview=True,
+                                   base=url(view='buy'), lang_url=here)
+    return login(tab='voucher' if view == 'voucher' else 'buy')
 
 
 def _logo_response(tenant):
@@ -2621,6 +2707,11 @@ def payment_networks(tenant=None):
     return paylib.networks(_tenant_account(tenant) if tenant is not None else _platform_account())
 
 
+def _a(name):
+    """'an Airtel Money', 'a M-Pesa' (as it is read: 'em-pesa' still takes 'a' in everyday use)."""
+    return f"{'an' if name[:1].upper() in 'AEIOU' else 'a'} {name}"
+
+
 def check_network(phone, network_id, amount, currency='TZS', networks=None):
     """Error message if this number/network/amount can't be paid, else None."""
     networks = payment_networks() if networks is None else networks
@@ -2641,8 +2732,8 @@ def check_network(phone, network_id, amount, currency='TZS', networks=None):
     if known and known != network_id:
         other = portal_ui.NETWORKS[known]['name']
         if known in by_id:
-            return f"That looks like a {other} number. Choose {other}, or enter your {net['name']} number."
-        return f"That is a {other} number, and {other} isn't available yet. Use a {net['name']} number."
+            return f"That looks like {_a(other)} number. Choose {other}, or enter your {net['name']} number."
+        return f"That is {_a(other)} number, and {other} isn't available yet. Use {_a(net['name'])} number."
     if net['min_amount'] and amount < net['min_amount']:
         return (f"{net['name']} payments start from {currency} {net['min_amount']:,}. "
                 f"Choose a bigger package or another network.")

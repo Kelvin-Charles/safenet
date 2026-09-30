@@ -416,7 +416,7 @@ def _terms_check(th, lang, field_id):
 # Pages
 # ---------------------------------------------------------------------------
 def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/login', buy_action='/buy',
-               external=None, buy_enabled=True, preview=False, lang_url='/', networks=(), logo_base='/img/'):
+               external=None, buy_enabled=True, preview=False, lang_url='/', networks=(), logo_base='/img/', simulate=False):
     """Voucher and/or buy-package tabs.
 
     external: {'action': url, 'next_field': name, 'next_value': value} to post the
@@ -430,7 +430,7 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
         tab = 'buy'
     elif not show_buy:
         tab = 'voucher'
-    submit_type = 'button' if preview else 'submit'
+    submit_type = 'button' if preview and not simulate else 'submit'   # simulate: the preview's forms work (nothing charged)
 
     # Voucher panel
     if external:
@@ -600,7 +600,7 @@ def gift_page(th, lang, *, code, friend, package='', base='', lang_url='/', prev
     return page(th, lang, body, hero_extra=False, preview=preview, lang_url=lang_url)
 
 
-def waiting_page(th, lang, *, ref, info, timed_out=False, base='', lang_url='/'):
+def waiting_page(th, lang, *, ref, info, timed_out=False, base='', lang_url='/', next_url=None, preview=False):
     amount = money(info.get('currency', 'TZS'), info.get('amount'))
     phone = info.get('phone', '')
     if timed_out:
@@ -625,8 +625,8 @@ def waiting_page(th, lang, *, ref, info, timed_out=False, base='', lang_url='/')
         <li><b>3</b><span>{e(t(lang, 'wait_step3_gift', phone=local_phone(info['gift_phone']))) if info.get('gift_phone') else t(lang, 'wait_step3')}</span></li>
       </ol>
       <p class="hint">{e(t(lang, 'sent_to', phone=phone))} · {t(lang, 'auto_update')}</p>"""
-    return page(th, lang, body, hero_extra=False, lang_url=lang_url,
-                head=f'<meta http-equiv="refresh" content="3;url={e(_qs(base + "/buy/wait", ref=ref))}">')
+    return page(th, lang, body, hero_extra=False, lang_url=lang_url, preview=preview,
+                head=f'<meta http-equiv="refresh" content="3;url={e(next_url or _qs(base + "/buy/wait", ref=ref))}">')
 
 
 def instructions_page(th, lang, *, preview=False, lang_url='/'):

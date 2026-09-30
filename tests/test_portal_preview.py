@@ -75,3 +75,51 @@ from gateway import portal_ui
 for key, info in portal_ui.NETWORKS.items():
     assert os.path.isfile(os.path.join('static', 'img', info['logo'])), (key, info['logo'])
 print('PORTAL PREVIEW OK')
+
+# --- click through like a guest (payments ready again): nothing is charged
+with app.app_context():
+    t = db.session.get(Tenant, TID); t.payment_mode = 'platform'; db.session.commit()
+    from models import Payment, Voucher
+    db.session.add(Voucher(tenant_id=TID, code='11112222', validity_minutes=120, batch='x', status='unused')); db.session.commit()
+    WEEK = Package.query.filter_by(name='Mwenge Week').one().id
+base = f'/portal?t=zulu&preview=1&site={MW}&equip=omada&color=%23B91C1C'
+b = html.unescape(c.get(base + '&view=buy').text)
+assert 'type="submit" id="paybtn"' in b and f'action="/portal?t=zulu&preview=1&site={MW}&equip=omada&color=%23B91C1C&view=sim-buy"' in b, b[b.find('<form'):b.find('<form') + 400]
+post = lambda view, **d: html.unescape(c.post(base + f'&view={view}', data=d).text)
+# same checks as the real page
+assert 'accept the terms' in post('sim-buy', package_id=WEEK, network='airtel', phone='684000111')
+assert 'Choose your mobile-money network' in post('sim-buy', package_id=WEEK, phone='684000111', agree='1')
+assert 'valid mobile number' in post('sim-buy', package_id=WEEK, network='airtel', phone='12', agree='1')
+assert "That is a M-Pesa number, and M-Pesa isn't available yet. Use an Airtel Money number." in post('sim-buy', package_id=WEEK, network='airtel', phone='0754000111', agree='1')
+assert "friend's mobile number" in post('sim-buy', package_id=WEEK, network='airtel', phone='684000111', agree='1', gift='1', gift_phone='1')
+# pay -> "check your phone" -> (auto refresh) connected with the package's time
+w = post('sim-buy', package_id=WEEK, network='airtel', phone='684000111', agree='1')
+assert 'Check your phone' in w and 'TZS 5,000' in w and '--brand:#B91C1C' in w
+nxt = re.search(r'http-equiv="refresh" content="3;url=([^"]+)"', w).group(1)
+assert 'view=sim-paid' in nxt and f'pkg={WEEK}' in nxt
+done = html.unescape(c.get(nxt).text)
+assert "You're online" in done and 'Payment received' in done and ('7d' in done or '7 days' in done), done[-1500:]
+assert 'Disconnect' not in done                                            # Omada: no disconnect button
+# buying for a friend ends on the friend screen
+w = post('sim-buy', package_id=WEEK, network='airtel', phone='684000111', agree='1', gift='1', gift_phone='0712345678')
+nxt = re.search(r'http-equiv="refresh" content="3;url=([^"]+)"', w).group(1)
+assert 'send the code to 0712 345 678' in w and 'The code is on its way' in html.unescape(c.get(nxt).text)
+# voucher: real codes are checked for the owner, but not used up
+assert 'Enter your voucher code' in post('sim-login', agree='1')
+assert "isn't valid" in post('sim-login', code='99998888', agree='1')
+v = post('sim-login', code='1111 2222', agree='1')
+assert "You're online" in v and '11112222' in v and ('2 hours' in v or '2h' in v)
+# MikroTik: the router's login form also works in the preview
+m = html.unescape(c.get(f'/portal?t=zulu&preview=1&site={RJ}&equip=mikrotik&view=voucher').text)
+assert 'view=sim-login' in m
+assert "router's own status page" in html.unescape(c.post(f'/portal?t=zulu&preview=1&site={RJ}&equip=mikrotik&view=sim-login',
+                                                          data={'username': '11112222', 'password': '11112222', 'agree': '1'}).text)
+with app.app_context():
+    assert Payment.query.count() == 0 and Voucher.query.filter_by(code='11112222').one().status == 'unused'
+# the language switch stays in the preview
+assert f'site={MW}' in re.search(r'class="lang" href="([^"]+)"', b).group(1)
+# anyone else only gets the example, never a real code's details; and real (non-preview) posts are refused
+anon = app.test_client()
+assert "You're online" in html.unescape(anon.post(base + '&view=sim-login', data={'code': '99998888', 'agree': '1'}).text)
+assert anon.post('/portal?t=zulu', data={'code': '1'}).status_code == 405
+print('PORTAL SIMULATION OK')
