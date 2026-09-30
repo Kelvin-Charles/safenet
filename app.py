@@ -1526,6 +1526,31 @@ def _portal_packages(tenant):
 
 
 PREVIEW_FIELDS = ('color', 'style', 'title', 'message', 'show_voucher', 'show_packages')
+# What a guest's equipment shows: Omada and Ruijie use SafeNet's pages, the SafeNet gateway its own copy of them,
+# MikroTik (and other RADIUS routers) SafeNet's page for the code only, then the router's own status page.
+EQUIPMENT = {'omada': 'TP-Link Omada', 'ruijie': 'Ruijie', 'gateway': 'SafeNet gateway', 'mikrotik': 'MikroTik / other router'}
+
+# In the settings preview: show a logo picked but not saved yet (sent by the settings page)
+PREVIEW_LOGO_JS = """<script>window.addEventListener('message',function(ev){
+if(ev.origin!==location.origin||!ev.data||typeof ev.data.logo!=='string'||ev.data.logo.indexOf('data:image/')!==0)return;
+var box=document.querySelector('.logo');if(!box)return;var i=document.createElement('img');i.src=ev.data.logo;i.alt='';
+box.textContent='';box.appendChild(i);});</script>"""
+
+
+def _site_equipment(site, main_site_id=None):
+    """Kinds of guest equipment set up at a site (see EQUIPMENT), most specific first."""
+    own = or_(Gateway.site_id == site.id, *([Gateway.site_id.is_(None)] if site.id == main_site_id else []))
+    kinds = []
+    if site.omada_ready:
+        kinds.append('omada')
+    if site.wifidog_enabled:
+        kinds.append('ruijie')
+    if Gateway.query.filter(Gateway.tenant_id == site.tenant_id, Gateway.is_active.is_(True), own).count():
+        kinds.append('gateway')
+    if Nas.query.filter(Nas.tenant_id == site.tenant_id,
+                        or_(Nas.site_id == site.id, *([Nas.site_id.is_(None)] if site.id == main_site_id else []))).count():
+        kinds.append('mikrotik')
+    return kinds
 
 
 @app.route('/portal')
@@ -1548,7 +1573,7 @@ def portal():
             if key in request.args:
                 value = request.args[key][:300]
                 cfg[key] = value == '1' if key.startswith('show_') else value
-    if cfg.get('logo_version') and tenant is not None:
+    if cfg.get('logo_version') and tenant is not None and not (preview and request.args.get('nologo') == '1'):
         cfg['logo_url'] = url_for('portal_logo', slug=tenant.slug, v=cfg['logo_version'])
     th = portal_ui.theme(cfg)
     wanted = request.args.get('lang')
@@ -1568,22 +1593,7 @@ def portal():
     lang_url = url_for('portal', t=slug, **{k: request.args[k] for k in passthrough if k in request.args})
 
     if preview:
-        view = request.args.get('view', 'buy')
-        packages = _portal_packages(tenant) or [
-            {'id': 1, 'name': '1 Hour', 'price': '500', 'currency': 'TZS', 'validity_minutes': 60},
-            {'id': 2, 'name': '1 Day', 'price': '1000', 'currency': 'TZS', 'validity_minutes': 1440},
-            {'id': 3, 'name': '1 Week', 'price': '5000', 'currency': 'TZS', 'validity_minutes': 10080}]
-        if view == 'online':
-            html_out = portal_ui.status_page(th, lang, user='48291175', remaining=5 * 3600 + 1200, total=86400,
-                                             new_code='48291175', preview=True)
-        elif view == 'wait':
-            html_out = portal_ui.waiting_page(th, lang, ref='PREVIEW', info={'amount': packages[0]['price'], 'currency': 'TZS',
-                                                                             'phone': '255712345678', 'package': packages[0]['name']})
-            html_out = html_out.replace('<meta http-equiv="refresh"', '<meta name="no-refresh"')
-        else:
-            html_out = portal_ui.login_page(th, lang, packages=packages, tab='voucher' if view == 'voucher' else 'buy',
-                                            preview=True, lang_url=lang_url, networks=payment_networks(tenant) if tenant else payment_networks(),
-                                            logo_base=url_for('static', filename='img/'))
+        html_out = _portal_preview(tenant, th, lang, lang_url)
     else:
         if gateway:
             html_out = portal_ui.login_page(th, lang, external=gateway, buy_enabled=False, tab='voucher',
@@ -1595,6 +1605,50 @@ def portal():
     if wanted in portal_ui.LANGS:
         resp.set_cookie('sn_lang', wanted, max_age=31536000, samesite='Lax')
     return resp
+
+
+def _portal_preview(tenant, th, lang, lang_url):
+    """A screen exactly as a guest at one site, on one kind of equipment, would see it (settings page preview)."""
+    view = request.args.get('view', 'buy')
+    equip = request.args.get('equip') if request.args.get('equip') in EQUIPMENT else 'gateway'
+    site = None
+    if tenant is not None:
+        site = Site.query.filter_by(id=request.args.get('site', type=int), tenant_id=tenant.id).first() or tenant_sites(tenant.id)[0]
+    if tenant is None:
+        packages, buy_enabled = [{'id': 1, 'name': '1 Day', 'price': '1000', 'currency': 'TZS', 'validity_minutes': 1440}], True
+    else:
+        packages = [{'id': p.id, 'name': p.name, 'description': p.description or '', 'price': f'{p.price:.0f}',
+                     'currency': p.currency, 'validity_minutes': p.validity_minutes}
+                    for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True),
+                                            site.id).order_by(Package.sort_order, Package.price)]
+        buy_enabled = paylib.is_ready(_tenant_account(tenant))
+    sample = packages[0] if packages else {'name': '1 Day', 'price': '1000', 'currency': 'TZS', 'validity_minutes': 1440}
+    networks = payment_networks(tenant) if tenant else payment_networks()
+    code = '48291175'
+    if equip == 'mikrotik':
+        if view == 'online':
+            body = (f'<div class="center"><div class="state-ic ok">{portal_ui.icon("check", 36, 2.6)}</div>'
+                    f'<h2>{portal_ui.t(lang, "online")}</h2><p class="lead">After logging in, guests see the MikroTik '
+                    f'router\'s own status page (from its hotspot files), not a SafeNet page.</p></div>')
+            return portal_ui.page(th, lang, body, hero_extra=False, preview=True, lang_url=lang_url) + PREVIEW_LOGO_JS
+        # the router posts the code itself: vouchers only, no buying on this page
+        return portal_ui.login_page(th, lang, external={'action': '#', 'next_field': 'dst', 'next_value': ''}, buy_enabled=False,
+                                    tab='voucher', preview=True, lang_url=lang_url) + PREVIEW_LOGO_JS
+    if view == 'online':
+        gateway = equip == 'gateway'
+        html_out = portal_ui.status_page(th, lang, user=code, remaining=5 * 3600 + 1200, total=86400 if gateway else None,
+                                         new_code=code, preview=True, logout=gateway)
+    elif view == 'wait':
+        html_out = portal_ui.waiting_page(th, lang, ref='PREVIEW', info={
+            'amount': sample['price'], 'currency': sample['currency'], 'phone': '255712345678', 'package': sample['name']})
+        html_out = html_out.replace('<meta http-equiv="refresh"', '<meta name="no-refresh"')
+    elif view == 'gift':
+        html_out = portal_ui.gift_page(th, lang, code=code, friend='255712345678', package=sample['name'], preview=True)
+    else:
+        html_out = portal_ui.login_page(th, lang, packages=packages, tab='voucher' if view == 'voucher' else 'buy', preview=True,
+                                        buy_enabled=buy_enabled, lang_url=lang_url, networks=networks,
+                                        logo_base=url_for('static', filename='img/'))
+    return html_out + PREVIEW_LOGO_JS
 
 
 def _logo_response(tenant):
@@ -2434,6 +2488,9 @@ def portal_settings():
                            logo_url=url_for('portal_logo', slug=tenant.slug, v=int(tenant.portal_logo_at.timestamp()))
                            if tenant.portal_logo_at else None,
                            preview_base=url_for('portal', t=tenant.slug, preview=1),
+                           preview_sites=[(site, _site_equipment(site, main.id)) for main in [tenant_sites(tenant.id)[0]]
+                                          for site in tenant_sites(tenant.id)],
+                           equipment=EQUIPMENT, payments_ready=paylib.is_ready(_tenant_account(tenant)), current_site=current_site(),
                            package_count=scoped(Package).filter_by(is_active=True, show_on_portal=True).count(),
                            hotspot_name=_hotspot_settings(tenant)['name'])
 

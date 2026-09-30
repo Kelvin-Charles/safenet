@@ -69,15 +69,33 @@
         <div class="sticky-preview">
             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                 <strong><i class="bi bi-phone"></i> Live preview</strong>
-                <div class="btn-group preview-tabs" role="group" aria-label="Preview screen">
+                <div class="btn-group preview-tabs flex-wrap" role="group" aria-label="Preview screen">
                     <button type="button" class="btn btn-outline-primary active" data-view="buy">Buy</button>
                     <button type="button" class="btn btn-outline-primary" data-view="voucher">Voucher</button>
                     <button type="button" class="btn btn-outline-primary" data-view="wait">Paying</button>
                     <button type="button" class="btn btn-outline-primary" data-view="online">Connected</button>
+                    <button type="button" class="btn btn-outline-primary" data-view="gift">For a friend</button>
                 </div>
             </div>
+            <div class="d-flex gap-2 mb-2 flex-wrap align-items-center small">
+                <span class="text-muted">Preview as a guest at</span>
+                <select id="pv-site" class="form-select form-select-sm w-auto{{ ' d-none' if preview_sites|length < 2 }}" aria-label="Site">
+                    {% for site, kinds in preview_sites %}
+                    <option value="{{ site.id }}" data-equip="{{ kinds[0] if kinds else 'gateway' }}"{{ ' selected' if current_site and current_site.id == site.id }}>{{ site.name }}</option>
+                    {% endfor %}
+                </select>
+                {% if preview_sites|length < 2 %}<strong>{{ preview_sites[0][0].name }}</strong>{% endif %}
+                <span class="text-muted">using</span>
+                <select id="pv-equip" class="form-select form-select-sm w-auto" aria-label="Equipment">
+                    {% for key, label in equipment.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+                </select>
+            </div>
+            {% if not payments_ready %}
+            <div class="alert alert-warning small py-2 mb-2"><i class="bi bi-exclamation-triangle"></i> Mobile payments aren't set up, so guests don't see the Buy tab right now, and neither does this preview. <a href="{{ url_for('payment_settings') }}">Set up payments</a>.</div>
+            {% endif %}
+            <p class="small text-muted mb-2" id="pv-note"></p>
             <div class="phone-frame"><iframe id="preview" title="Captive portal preview" src="{{ preview_base }}"></iframe></div>
-            <p class="small text-muted text-center mt-2 mb-0">Changes show here right away; guests see them after you save.</p>
+            <p class="small text-muted text-center mt-2 mb-0">This is what your guests see, with your real packages for that site. Changes show here right away; guests see them after you save.</p>
         </div>
     </div>
 </div>
@@ -88,14 +106,46 @@
 (function () {
     const f = document.getElementById('portal-form'), frame = document.getElementById('preview');
     const colorText = document.getElementById('color'), colorPick = document.getElementById('color-pick');
-    let view = 'buy', timer = null;
+    const siteSel = document.getElementById('pv-site'), equipSel = document.getElementById('pv-equip'), note = document.getElementById('pv-note');
+    const logoInput = f.logo, removeLogo = f.remove_logo;
+    const NOTES = {
+        omada: 'Omada guests are sent to this page by the access point. After paying they are let online by the controller.',
+        ruijie: 'Ruijie guests are sent to this page by the access point, which checks back with SafeNet about once a minute.',
+        gateway: 'The SafeNet gateway box shows its own copy of this page. It picks up changes within 5 minutes of saving.',
+        mikrotik: 'MikroTik guests only enter a code here: they cannot buy on this page, and after login they see the router\'s own status page.'
+    };
+    let view = 'buy', timer = null, logoData = null;
     function url() {
         const p = new URLSearchParams({ view: view, color: colorText.value, style: f.style.value, title: f.title.value,
-            message: f.message.value, lang: f.language.value,
+            message: f.message.value, lang: f.language.value, site: siteSel.value, equip: equipSel.value,
             show_voucher: f.show_voucher.checked ? '1' : '0', show_packages: f.show_packages.checked ? '1' : '0' });
-        return '{{ preview_base }}&' + p.toString();
+        if (removeLogo && removeLogo.checked && !logoData) p.set('nologo', '1');
+        return {{ preview_base|tojson }} + '&' + p.toString();
     }
-    function refresh() { clearTimeout(timer); timer = setTimeout(() => frame.src = url(), 250); }
+    function tabs() {
+        // MikroTik: no buying on the page, so no Buy / Paying / For a friend screens
+        const mikrotik = equipSel.value === 'mikrotik';
+        document.querySelectorAll('.preview-tabs button').forEach(b => {
+            b.classList.toggle('d-none', mikrotik && ['buy', 'wait', 'gift'].includes(b.dataset.view)); });
+        if (mikrotik && ['buy', 'wait', 'gift'].includes(view)) {
+            view = 'voucher';
+            document.querySelectorAll('.preview-tabs button').forEach(x => x.classList.toggle('active', x.dataset.view === view));
+        }
+        note.textContent = NOTES[equipSel.value] || '';
+    }
+    function refresh() { clearTimeout(timer); tabs(); timer = setTimeout(() => frame.src = url(), 250); }
+    frame.addEventListener('load', () => { if (logoData) frame.contentWindow.postMessage({ logo: logoData }, location.origin); });
+    siteSel.addEventListener('change', () => { equipSel.value = siteSel.selectedOptions[0].dataset.equip; refresh(); });
+    equipSel.addEventListener('change', refresh);
+    if (logoInput) logoInput.addEventListener('change', () => {
+        const file = logoInput.files[0];
+        if (!file || !/^image\/(png|jpeg|webp)$/.test(file.type)) { logoData = null; refresh(); return; }
+        const reader = new FileReader();
+        reader.onload = () => { logoData = reader.result; refresh(); };
+        reader.readAsDataURL(file);
+    });
+    if (removeLogo) removeLogo.addEventListener('change', refresh);
+    equipSel.value = siteSel.selectedOptions[0] ? siteSel.selectedOptions[0].dataset.equip : 'gateway';
     colorPick.addEventListener('input', () => { colorText.value = colorPick.value.toUpperCase(); refresh(); });
     colorText.addEventListener('input', () => { if (/^#[0-9a-fA-F]{6}$/.test(colorText.value)) { colorPick.value = colorText.value; refresh(); } });
     document.querySelectorAll('.swatches button').forEach(b => b.addEventListener('click', () => {
