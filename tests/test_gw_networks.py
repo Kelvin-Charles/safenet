@@ -22,7 +22,7 @@ def req(path, data=None):
         r = op.open('http://127.0.0.1:18083' + path, urllib.parse.urlencode(data).encode() if data else None); return r.status, r.read(), r.headers
     except urllib.error.HTTPError as e: return e.code, e.read(), e.headers
 s, body, _ = req('/'); body = body.decode()
-assert 'name="network" value="mixx"' in body and 'src="/img/airtel.png"' in body and 'M-Pesa' not in body
+assert 'name="network" value="mixx"' in body and 'src="/img/airtel.png?v=2"' in body and 'M-Pesa' not in body
 s, body, _ = req('/buy', {'package_id': '1', 'phone': '684123456', 'agree': '1'}); assert 'Choose your mobile-money network' in body.decode() and not sent
 s, body, h = req('/buy', {'package_id': '1', 'phone': '684123456', 'agree': '1', 'network': 'airtel'})
 assert s == 302 and sent[-1]['network'] == 'airtel' and sent[-1]['phone'] == '255684123456'

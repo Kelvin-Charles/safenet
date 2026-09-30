@@ -44,6 +44,9 @@ def parse_networks(spec):
     return out
 
 
+LOGOS_VERSION = 2   # bump when a logo file changes (proxies may keep an old copy or a 404)
+
+
 def network_for_phone(phone):
     """Network id for a 255XXXXXXXXX / 0XXXXXXXXX number, or None if the prefix is unknown."""
     digits = re.sub(r'\D', '', phone or '')
@@ -494,7 +497,7 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
                 tiles.append(
                     f'<label class="net" data-min="{minimum}" data-prefixes="{" ".join(info["prefixes"])}">'
                     f'<input type="radio" name="network" value="{e(n["id"])}" required>'
-                    f'<img src="{e(logo_base + info["logo"])}" alt="{e(info["name"])}" loading="lazy">'
+                    f'<img src="{e(logo_base + info["logo"])}?v={LOGOS_VERSION}" alt="{e(info["name"])}" loading="lazy">'
                     f'<span>{e(info["name"])}</span>{note}<span class="tick">{icon("check", 13, 3)}</span></label>')
             net_tiles = (f'<div class="field"><label>{t(lang, "network")}</label>'
                          f'<div class="nets" style="--n:{min(len(tiles), 4)}">{"".join(tiles)}</div></div>')
