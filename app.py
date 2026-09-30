@@ -188,7 +188,8 @@ def landing():
                            networks=[n['name'] for n in payment_networks()],
                            support_phone=(home.support_phone if home else None) or Config.HOTSPOT_SUPPORT,
                            contact_email=Config.MAIL_USERNAME or Config.ADMIN_EMAIL,
-                           signup_enabled=Config.SIGNUP_ENABLED, year=datetime.utcnow().year)
+                           signup_enabled=Config.SIGNUP_ENABLED, year=datetime.utcnow().year,
+                           fee_percent='{:g}'.format(float(Config.PLATFORM_FEE_PERCENT)))
 
 
 def _site_filters(tid, site):

@@ -179,7 +179,7 @@
     <section class="wrap hero">
         <div>
             <h1>The Smart Way to Sell Wi-Fi to Your Customers</h1>
-            <p>SafeNet gives cafés, hostels, shops and internet providers a branded login page, vouchers and mobile-money packages, and a live view of every guest, on the router you already have.</p>
+            <p>SafeNet gives cafés, hostels, shops and internet providers a branded login page, vouchers and mobile-money packages, and a live view of every guest. It works with MikroTik routers and TP-Link Omada or Ruijie access points.</p>
             <div class="cta">
                 {% if signup_enabled %}<a href="{{ url_for('signup') }}" class="btn btn-dark">Get started</a>{% endif %}
                 <a href="#pricing" class="btn btn-light">See pricing</a>
@@ -230,7 +230,8 @@
     <div class="wrap works-with" aria-label="Works with">
         {% for n in networks %}<span><i class="bi bi-phone"></i>{{ n }}</span>{% endfor %}
         <span><i class="bi bi-router"></i>MikroTik</span>
-        <span><i class="bi bi-wifi"></i>TP-Link</span>
+        <span><i class="bi bi-wifi"></i>TP-Link Omada</span>
+        <span><i class="bi bi-broadcast-pin"></i>Ruijie</span>
     </div>
 
     <section class="features" id="features">
@@ -239,12 +240,15 @@
             <h2>Everything a Wi-Fi Business Needs</h2>
             <p class="lead">Stop writing passwords on paper. SafeNet sells your internet, collects the money and shows you who is online, while your guests just connect and pay.</p>
             <div class="grid">
-                <div class="card"><i class="bi bi-ticket-perforated"></i><h3>Vouchers</h3><p>Print codes for 1 hour, 1 day or a month. Time starts at first login, so unsold codes never expire.</p></div>
-                <div class="card"><i class="bi bi-phone"></i><h3>Mobile-money packages</h3><p>Guests pick a package, get a PIN prompt on their phone and are online in seconds, with the code sent by SMS.</p></div>
-                <div class="card"><i class="bi bi-window"></i><h3>Your own login page</h3><p>Your name, your support number and your terms on the page every guest sees when they connect.</p></div>
-                <div class="card"><i class="bi bi-broadcast"></i><h3>Live dashboard</h3><p>See who is online, how much data they use, today's sales and every login, updating every few seconds.</p></div>
-                <div class="card"><i class="bi bi-x-circle"></i><h3>Instant control</h3><p>Disable a code or press Disconnect and the guest is cut off right away. Speed limits follow each plan.</p></div>
-                <div class="card"><i class="bi bi-shield-lock"></i><h3>Routers anywhere</h3><p>Connect MikroTik routers over a private VPN, or use the SafeNet gateway with the access point you have.</p></div>
+                <div class="card"><i class="bi bi-ticket-perforated"></i><h3>Vouchers</h3><p>Print codes for 1 hour, 1 day or a month. Time starts at first login, so unsold codes don't run out. Make free trial codes for marketing too, one per phone.</p></div>
+                <div class="card"><i class="bi bi-phone"></i><h3>Mobile-money packages</h3><p>Guests pick a package, approve a PIN prompt on their phone and are online in seconds, with the code sent by SMS. They can also buy for a friend.</p></div>
+                <div class="card"><i class="bi bi-window"></i><h3>Your own login page</h3><p>Your logo, colours, welcome message, support number and terms on the page every guest sees, in English and Kiswahili.</p></div>
+                <div class="card"><i class="bi bi-broadcast"></i><h3>Live dashboard</h3><p>See who is online, how much data they use, today's sales and every login, updated every few seconds.</p></div>
+                <div class="card"><i class="bi bi-speedometer2"></i><h3>Control and speed limits</h3><p>Disable a code or press Disconnect and the guest is cut off. Give each package its own speed, like 5 Mb/s or 20 Mb/s.</p></div>
+                <div class="card"><i class="bi bi-arrow-repeat"></i><h3>Automatic reconnect</h3><p>A phone with paid time left gets back online without typing the code again. Each code works on one phone at a time unless you allow more, so codes can't be passed around.</p></div>
+                <div class="card"><i class="bi bi-geo-alt"></i><h3>Several locations</h3><p>Run many sites from one account, each with its own access points and sales, or see the whole business together.</p></div>
+                <div class="card"><i class="bi bi-hdd-network"></i><h3>Your equipment</h3><p>MikroTik over a private VPN. TP-Link Omada and Ruijie access points connect straight to SafeNet, no extra box. Anything else works through the SafeNet gateway.</p></div>
+                <div class="card"><i class="bi bi-people"></i><h3>Team and partners</h3><p>Add staff and admins, and view-only accounts so partners or shareholders can follow sales and usage for the whole business or one site.</p></div>
             </div>
         </div>
     </section>
@@ -281,8 +285,8 @@
             <h2 style="margin-top: 12px">Up and Running in an Afternoon</h2>
             <ol class="steps">
                 <li><strong>Create your account</strong><span>{{ trial_days }} days free. Add your business name, support number and prices.</span></li>
-                <li><strong>Connect your router</strong><span>Paste one script into a MikroTik, or place the SafeNet gateway in front of your TP-Link or any access point.</span></li>
-                <li><strong>Start selling</strong><span>Print vouchers for the counter and let guests buy packages with mobile money. Money goes to your own ClickPesa account or we collect it for you.</span></li>
+                <li><strong>Connect your equipment</strong><span>Paste one script into a MikroTik, or add your TP-Link Omada or Ruijie access points in SafeNet. Other access points go behind the SafeNet gateway. Our step-by-step guides show how.</span></li>
+                <li><strong>Start selling</strong><span>Print vouchers for the counter and let guests buy packages with mobile money. Money goes to your own ClickPesa or Snippe account, or SafeNet collects it for you.</span></li>
             </ol>
             <div class="cta" style="display:flex; gap:22px; flex-wrap:wrap">
                 {% if signup_enabled %}<a href="{{ url_for('signup') }}" class="btn btn-dark btn-sm">Join now</a>{% endif %}
@@ -362,7 +366,7 @@
         <div id="faq-list">
             <details open>
                 <summary>What equipment do I need?</summary>
-                <p>A MikroTik router (RouterOS 7) works on its own: paste the setup script we give you. With a TP-Link or any other access point, add a small Linux computer as the SafeNet gateway between it and your internet line.</p>
+                <p>Any one of these: a <strong>MikroTik</strong> router (RouterOS 7), set up by pasting the script we give you. <strong>TP-Link Omada</strong> access points such as the EAP225, added in SafeNet by their MAC address; they use SafeNet's hosted controller, so you don't need your own. <strong>Ruijie</strong> access points with web authentication, pointed to SafeNet. For any other access point or router, a small Linux computer runs the SafeNet gateway between it and your internet line.</p>
             </details>
             <details>
                 <summary>How do my customers pay?</summary>
@@ -370,7 +374,7 @@
             </details>
             <details>
                 <summary>When do I receive the money?</summary>
-                <p>Choose in Settings: payments go straight into your own ClickPesa account, or SafeNet collects them and you withdraw your balance to your mobile money number whenever you like.</p>
+                <p>You choose in Settings. With your own ClickPesa or Snippe account, guests pay you directly and SafeNet takes no fee. With SafeNet Pay, we collect the money, keep {{ fee_percent }}%, and you withdraw the rest whenever you like to a mobile-money number, a Lipa Namba or a bank account.</p>
             </details>
             <details>
                 <summary>What happens after the free trial?</summary>
@@ -378,11 +382,19 @@
             </details>
             <details>
                 <summary>Can I stop someone's internet?</summary>
-                <p>Yes. Disable their voucher or press Disconnect on the Live page and they are cut off within seconds. You can also set speed limits for each plan.</p>
+                <p>Yes. Disable their voucher or press Disconnect on the Live page. They are cut off within seconds, or within about a minute on some access points. You can also give each package its own speed limit.</p>
             </details>
             <details>
                 <summary>Can my staff use it too?</summary>
-                <p>Add team members as staff (users, vouchers and live view) or admins (also packages, routers and settings). Only the owner can withdraw money or pay the subscription.</p>
+                <p>Add team members as staff (users, vouchers and live view) or admins (also packages, routers and settings). Partners or shareholders can get a view-only account that shows sales and usage for the whole business or just one site. Only the owner can withdraw money or pay the subscription.</p>
+            </details>
+            <details>
+                <summary>Do guests type the code every time?</summary>
+                <p>No. Once a phone has paid, it reconnects by itself while it still has time left. The code is only needed on a new phone.</p>
+            </details>
+            <details>
+                <summary>Can a guest pay for someone else?</summary>
+                <p>Yes. On the login page they tick "Buy for a friend" and enter the friend's number. They pay with their own phone, and the code is sent to the friend by SMS.</p>
             </details>
             <p id="faq-none" style="display:none; color: var(--muted)">No matching question. Try another word.</p>
         </div>

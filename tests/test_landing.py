@@ -15,6 +15,10 @@ c = app.test_client()
 r = c.get('/'); assert r.status_code == 200 and 'The Smart Way to Sell Wi-Fi' in r.text
 assert 'Start with a free trial' in r.text and 'Popular' not in r.text          # no plans yet
 assert 'href="/signup"' in r.text and 'href="/login"' in r.text
+# says what the system really supports
+for claim in ('TP-Link Omada', 'Ruijie', 'Snippe', 'Lipa Namba', 'Buy for a friend', 'view-only', 'keep 3%'):
+    assert claim in r.text, claim
+assert 'in front of your TP-Link or any access point' not in r.text
 with app.app_context():
     db.session.add_all([BillingPlan(name='Starter', price=Decimal(15000), max_routers=1, sort_order=1),
                         BillingPlan(name='Business', price=Decimal(35000), max_routers=3, sort_order=2),
