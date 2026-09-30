@@ -145,6 +145,19 @@ assert ctl['authorized'][-1]['clientMac'] == 'AA-BB-CC-00-00-03' and ctl['author
 with app.app_context():
     code = Payment.query.filter_by(reference=ref).one().voucher.code
 assert code in w
+# --- buying for a friend: paid, but this phone is not let in; the page shows the code sent to the friend
+bf = app.test_client(); bf.get(q.replace('00-00-01', '00-00-05'))
+pay_state['status'] = 'PROCESSING'
+r = bf.post(f'/omada/{TOKEN}/buy', data={'package_id': pkg, 'phone': '684000222', 'network': 'airtel', 'agree': '1',
+                                           'gift': '1', 'gift_phone': '0712345678'})
+gwait = r.headers['Location']; gref = gwait.split('ref=')[1]
+assert '0712 345 678' in html.unescape(bf.get(gwait).text)
+pay_state['status'] = 'SUCCESS'
+with app.app_context(): Payment.query.filter_by(reference=gref).update({'checked_at': None}); db.session.commit()
+n = len(ctl['authorized'])
+w = html.unescape(bf.get(gwait).text)
+with app.app_context(): gcode = Payment.query.filter_by(reference=gref).one().voucher.code
+assert 'The code is on its way' in w and gcode in w and "You're online" not in w and len(ctl['authorized']) == n, w[-1500:]
 
 # --- controller trouble: code is fine but the login fails clearly; error shown on the Sites page
 ctl['up'] = False

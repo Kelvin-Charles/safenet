@@ -1667,6 +1667,8 @@ def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, **ext
         html_out = portal_ui.status_page(th, lang, base=base, logout=False, lang_url=base, **extra)
     elif view == 'wait':
         html_out = portal_ui.waiting_page(th, lang, base=base, lang_url=base, **extra)
+    elif view == 'gift':
+        html_out = portal_ui.gift_page(th, lang, base=base, lang_url=base, **extra)
     else:
         packages = [{'id': p.id, 'name': p.name, 'description': p.description or '', 'price': f'{p.price:.0f}',
                      'currency': p.currency, 'validity_minutes': p.validity_minutes}
@@ -1782,7 +1784,7 @@ def omada_buy(token):
     if payment_networks(tenant) and not network:
         return err('Choose your mobile-money network.')
     payment, error, _ = _start_purchase(tenant, site.id, package, phone, network, guest.get('clientMac'),
-                                        guest.get('clientIp'), f'omada-{site.id}')
+                                        guest.get('clientIp'), f'omada-{site.id}', gift_phone=_gift_phone_field())
     if error:
         return err(error)
     session['omada_ref'] = payment.reference
@@ -1799,6 +1801,10 @@ def omada_wait(token):
     payment = _refresh_payment(ref)
     if payment is None or payment.tenant_id != tenant.id:
         return redirect(url_for('omada_portal', token=site.portal_token))
+    if payment.status == 'paid' and payment.voucher and payment.gift_phone:
+        session.pop('omada_ref', None)
+        return _omada_page(site, tenant, view='gift', code=payment.voucher.code, friend=payment.gift_phone,
+                           package=payment.package_name)
     if payment.status == 'paid' and payment.voucher:
         code = payment.voucher.code
         session.pop('omada_ref', None)
@@ -1813,7 +1819,7 @@ def omada_wait(token):
     timed_out = (datetime.utcnow() - payment.created_at).total_seconds() > 120 and not request.args.get('again')
     return _omada_page(site, tenant, view='wait', ref=ref, timed_out=timed_out,
                        info={'amount': f'{payment.amount:.0f}', 'currency': payment.currency, 'phone': payment.phone,
-                             'package': payment.package_name})
+                             'package': payment.package_name, 'gift_phone': payment.gift_phone or ''})
 
 
 # ---------------------------------------------------------------------------
@@ -2266,7 +2272,7 @@ def wifidog_buy(token):
     if payment_networks(tenant) and not network:
         return err('Choose your mobile-money network.')
     payment, error, _ = _start_purchase(tenant, site.id, package, phone, network, _wifidog_mac(guest.get('mac')),
-                                        guest.get('ip'), f'wifidog-{site.id}')
+                                        guest.get('ip'), f'wifidog-{site.id}', gift_phone=_gift_phone_field())
     if error:
         return err(error)
     session['wifidog_ref'] = payment.reference
@@ -2286,6 +2292,10 @@ def wifidog_wait(token):
     payment = _refresh_payment(ref)
     if payment is None or payment.tenant_id != tenant.id:
         return redirect(base)
+    if payment.status == 'paid' and payment.voucher and payment.gift_phone:
+        session.pop('wifidog_ref', None)
+        return _hotspot_page(site, tenant, base, view='gift', code=payment.voucher.code, friend=payment.gift_phone,
+                             package=payment.package_name)
     if payment.status == 'paid' and payment.voucher:
         code = payment.voucher.code
         session.pop('wifidog_ref', None)
@@ -2300,7 +2310,7 @@ def wifidog_wait(token):
     timed_out = (datetime.utcnow() - payment.created_at).total_seconds() > 120 and not request.args.get('again')
     return _hotspot_page(site, tenant, base, view='wait', ref=ref, timed_out=timed_out,
                          info={'amount': f'{payment.amount:.0f}', 'currency': payment.currency, 'phone': payment.phone,
-                               'package': payment.package_name})
+                               'package': payment.package_name, 'gift_phone': payment.gift_phone or ''})
 
 
 @app.route('/sites/<int:site_id>/wifidog', methods=['POST'])
@@ -2617,10 +2627,19 @@ def _fulfil_payment(payment):
     payment.paid_at = datetime.utcnow()
     log.info('payment %s paid: voucher %s', payment.reference, voucher.code)
     brand = _hotspot_settings(payment.tenant)
+    help_line = f' Help: {brand["support"]}' if brand['support'] else ''
+    valid = format_minutes(payment.validity_minutes)
+    if payment.gift_phone:
+        send_sms_async(payment.gift_phone, f'{brand["name"]}: 0{payment.phone[3:]} bought you {payment.package_name} of WiFi. '
+                                           f'Connect to {brand["name"]} WiFi and enter code {voucher.code}. Valid {valid} '
+                                           f'from first login.' + help_line, payment.reference)
+        send_sms_async(payment.phone, f'{brand["name"]}: payment of {payment.currency} {payment.amount:,.0f} received. '
+                                      f'We sent WiFi code {voucher.code} ({payment.package_name}) to 0{payment.gift_phone[3:]}.'
+                                      + help_line, payment.reference)
+        return
     send_sms_async(payment.phone, f'{brand["name"]}: payment of {payment.currency} {payment.amount:,.0f} received. '
-                                  f'Your WiFi code is {voucher.code}, valid {format_minutes(payment.validity_minutes)} '
-                                  f'from first login. Keep it to reconnect.'
-                                  + (f' Help: {brand["support"]}' if brand['support'] else ''), payment.reference)
+                                  f'Your WiFi code is {voucher.code}, valid {valid} '
+                                  f'from first login. Keep it to reconnect.' + help_line, payment.reference)
 
 
 def _refresh_payment(reference, force=False):
@@ -2760,6 +2779,7 @@ def _payment_json(payment):
         'amount': f'{payment.amount:.0f}',
         'currency': payment.currency,
         'phone': payment.phone,
+        'gift_phone': payment.gift_phone or '',
         'validity_minutes': payment.validity_minutes,
         'message': payment.message or '',
     }
@@ -2781,11 +2801,25 @@ def api_portal_packages():
                    networks=payment_networks(g.api_tenant))
 
 
-def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=None, nas=None):
-    """Create a payment and send the PIN prompt. Returns (payment or None, error, HTTP status)."""
+def _gift_phone_field():
+    """Friend's number from a portal buy form, when "buy for a friend" is ticked."""
+    if not request.form.get('gift'):
+        return None
+    return (request.form.get('gift_phone') or '').strip()[:20] or ''
+
+
+def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=None, nas=None, gift_phone=None):
+    """Create a payment and send the PIN prompt. Returns (payment or None, error, HTTP status).
+    gift_phone: bought for a friend, whose number gets the code by SMS (the payer's device isn't let in)."""
     phone = _normalize_tz_phone(str(phone or ''))
     if not phone:
         return None, 'Enter a valid mobile number, e.g. 0712 345 678.', 400
+    if gift_phone is not None:          # '' = "for a friend" ticked without a number
+        gift_phone = _normalize_tz_phone(str(gift_phone))
+        if not gift_phone:
+            return None, "Enter your friend's mobile number, e.g. 0712 345 678.", 400
+        if gift_phone == phone:
+            gift_phone = None
     account = _tenant_account(tenant)
     if not paylib.is_ready(account):
         return None, 'Mobile payments are not available right now.', 503
@@ -2802,7 +2836,7 @@ def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=
         tenant_id=tenant.id,
         reference='SN' + secrets.token_hex(6).upper(),
         package_id=package.id, package_name=package.name, plan_id=package.plan_id,
-        validity_minutes=package.validity_minutes, max_devices=package.max_devices or 1, phone=phone,
+        validity_minutes=package.validity_minutes, max_devices=package.max_devices or 1, phone=phone, gift_phone=gift_phone,
         amount=package.price, currency=package.currency,
         provider=account.provider, provider_account=account.owner,
         fee_amount=(package.price * _fee_percent(tenant) / 100).quantize(Decimal('0.01')) if account.owner == 'platform' else Decimal(0),
@@ -2838,7 +2872,8 @@ def api_portal_purchase():
         return jsonify(error='That package is no longer available.'), 404
     payment, error, status = _start_purchase(g.api_tenant, _api_site_id(), package, data.get('phone', ''),
                                              str(data.get('network') or '')[:16], str(data.get('mac', '')),
-                                             str(data.get('ip', '')), str(data.get('nas', '')))
+                                             str(data.get('ip', '')), str(data.get('nas', '')),
+                                             gift_phone=None if data.get('gift_phone') is None else str(data['gift_phone'])[:20])
     if error:
         return jsonify({**(_payment_json(payment) if payment else {}), 'error': error}), status
     return jsonify(_payment_json(payment))

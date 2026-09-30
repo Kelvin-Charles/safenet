@@ -687,8 +687,8 @@ MAX_PURCHASES = 3       # payment requests per device per 10 minutes
 PURCHASE_WAIT = 240     # seconds to keep checking before offering "check again"
 
 
-def start_purchase(mac, ip, package_id, phone, network=None):
-    """Returns (reference, error)."""
+def start_purchase(mac, ip, package_id, phone, network=None, gift_phone=None):
+    """Returns (reference, error). gift_phone: bought for a friend, who gets the code by SMS."""
     now = time.time()
     recent = [t for t in purchase_attempts.get(mac, []) if now - t < 600]
     if len(recent) >= MAX_PURCHASES:
@@ -697,13 +697,14 @@ def start_purchase(mac, ip, package_id, phone, network=None):
     try:
         data = safenet_api('POST', '/api/portal/purchase', {
             'package_id': package_id, 'phone': phone, 'mac': mac, 'ip': ip, 'nas': NAS_IDENTIFIER,
-            'network': network})
+            'network': network, **({'gift_phone': gift_phone} if gift_phone is not None else {})})
     except ApiError as e:
         log.info('purchase failed mac=%s: %s', mac, e)
         return None, str(e) if 'unreachable' not in str(e) else "We can't reach the payment server right now. Please try again."
     ref = data['reference']
     purchases[ref] = {'mac': mac, 'ip': ip, 'phone': data.get('phone', phone), 'amount': data.get('amount'),
-                      'currency': data.get('currency', 'TZS'), 'package': data.get('package'), 'created': now}
+                      'currency': data.get('currency', 'TZS'), 'package': data.get('package'), 'created': now,
+                      'gift_phone': data.get('gift_phone') or ''}
     log.info('purchase started ref=%s mac=%s package=%s', ref, mac, data.get('package'))
     return ref, None
 
@@ -901,7 +902,12 @@ class PortalHandler(BaseHTTPRequestHandler):
         network = form.get('network', '')[:16] or None
         if portal_networks() and not network:
             return err('Choose your mobile-money network.')
-        ref, error = start_purchase(mac, ip, package_id, phone, network)
+        gift_phone = None
+        if form.get('gift'):                     # buying for a friend
+            gift_phone = re.sub(r'\D', '', form.get('gift_phone', ''))
+            if len(gift_phone) == 9:
+                gift_phone = '255' + gift_phone
+        ref, error = start_purchase(mac, ip, package_id, phone, network, gift_phone)
         if error:
             return err(error)
         self._redirect(self._portal_url('/buy/wait', ref=ref))
@@ -917,6 +923,10 @@ class PortalHandler(BaseHTTPRequestHandler):
             log.warning('purchase status %s: %s', ref, e)
             data = {'status': 'pending'}
         status = data.get('status')
+        if status == 'paid' and data.get('code') and data.get('gift_phone'):
+            purchases.pop(ref, None)          # the friend got the code by SMS; this phone stays as it is
+            return self._send(200, ui.gift_page(_theme(), lang, code=data['code'], friend=data['gift_phone'],
+                                                package=data.get('package') or ''))
         if status == 'paid' and data.get('code'):
             purchases.pop(ref, None)
             code = data['code']

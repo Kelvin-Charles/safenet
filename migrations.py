@@ -126,6 +126,7 @@ def run():
     _add_column('payments', 'provider_account', "VARCHAR(16) NOT NULL DEFAULT 'platform'")
     _add_column('payments', 'fee_amount', 'NUMERIC(10, 2) NULL DEFAULT 0')
     _add_column('payments', 'net_amount', 'NUMERIC(10, 2) NULL')
+    _add_column('payments', 'gift_phone', 'VARCHAR(16)')
 
     tid = _default_tenant_id()
 

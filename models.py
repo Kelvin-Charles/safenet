@@ -490,7 +490,8 @@ class Payment(db.Model):
     plan_id = db.Column(db.Integer, db.ForeignKey('plans.id', ondelete='SET NULL'))
     validity_minutes = db.Column(db.Integer, nullable=False)
     max_devices = db.Column(db.Integer, nullable=False, default=1, server_default='1')
-    phone = db.Column(db.String(16), nullable=False, index=True)
+    phone = db.Column(db.String(16), nullable=False, index=True)     # who pays
+    gift_phone = db.Column(db.String(16))                             # bought for a friend: the code is sent here
     amount = db.Column(db.Numeric(10, 2), nullable=False)
     currency = db.Column(db.String(3), nullable=False, default='TZS')
     status = db.Column(db.String(16), nullable=False, default='pending', index=True)  # pending, paid, failed

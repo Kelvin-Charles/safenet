@@ -96,6 +96,12 @@ T = {
         'how4': 'Username and password: your voucher code. Leave <i>anonymous identity</i> empty.',
         'preview': 'Preview', 'left': 'left', 'total': 'total',
         'busy_pay': 'Sending payment request…', 'busy_connect': 'Connecting…', 'busy_pay_hint': 'Please wait, this takes a few seconds.',
+        'gift': 'Buy for a friend: send the code to their phone', 'gift_phone': "Friend's phone number",
+        'gift_hint': 'You pay with your number above. Your friend gets the code by SMS.',
+        'wait_step3_gift': "Stay on this page: we'll send the code to {phone} by SMS",
+        'gift_ok': 'Payment received. The code is on its way!', 'gift_lead': 'We sent the {package} code to {phone} by SMS.',
+        'gift_code': "Your friend's code", 'gift_share': "If the SMS doesn't arrive, share this code with them yourself.",
+        'gift_again': 'Back to packages',
     },
     'sw': {
         'wifi': 'Wi-Fi ya Wageni', 'switch': 'English', 'welcome': 'Karibu {name}',
@@ -127,6 +133,12 @@ T = {
         'how4': 'Jina la mtumiaji na nenosiri: namba ya vocha yako. Acha <i>anonymous identity</i> wazi.',
         'preview': 'Onyesho', 'left': 'imebaki', 'total': 'jumla',
         'busy_pay': 'Inatuma ombi la malipo…', 'busy_connect': 'Inaunganisha…', 'busy_pay_hint': 'Tafadhali subiri, inachukua sekunde chache.',
+        'gift': 'Nunulia rafiki: tuma vocha kwenye simu yake', 'gift_phone': 'Namba ya simu ya rafiki',
+        'gift_hint': 'Unalipa kwa namba yako hapo juu. Rafiki yako atapokea namba ya vocha kwa SMS.',
+        'wait_step3_gift': 'Baki kwenye ukurasa huu: tutatuma vocha kwa {phone} kwa SMS',
+        'gift_ok': 'Malipo yamepokelewa. Vocha imetumwa!', 'gift_lead': 'Tumetuma vocha ya {package} kwa {phone} kwa SMS.',
+        'gift_code': 'Namba ya vocha ya rafiki', 'gift_share': 'SMS isipofika, mtumie namba hii wewe mwenyewe.',
+        'gift_again': 'Rudi kwenye vifurushi',
     },
 }
 
@@ -153,7 +165,16 @@ MESSAGES_SW = {
     'This phone has already had a free trial. Buy a package to keep browsing.':
         'Simu hii tayari imetumia jaribio la bure. Nunua kifurushi kuendelea kutumia intaneti.',
     'The payment was not completed.': 'Malipo hayakukamilika.',
+    "Enter your friend's mobile number, e.g. 0712 345 678.": 'Weka namba sahihi ya simu ya rafiki yako, mfano 0712 345 678.',
 }
+
+
+def local_phone(phone):
+    """255712345678 -> 0712 345 678 (other text unchanged)."""
+    d = re.sub(r'\D', '', phone or '')
+    if len(d) == 12 and d.startswith('255'):
+        return f'0{d[3:6]} {d[6:9]} {d[9:]}'
+    return phone or ''
 
 
 def t(lang, key, **kw):
@@ -490,6 +511,15 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
           <div class="phone"><span>+255</span><input class="input" type="tel" id="phone" name="phone" inputmode="tel" autocomplete="tel"
             placeholder="7XX XXX XXX" required></div>
         </div>
+        <label class="check" for="gift" style="margin:4px 0 10px"><input type="checkbox" id="gift" name="gift" value="1"
+          onchange="var b=document.getElementById('gift-box'),i=document.getElementById('gift_phone');b.hidden=!this.checked;i.required=this.checked;if(this.checked)i.focus();">
+          <span>{t(lang, 'gift')}</span></label>
+        <div class="field" id="gift-box" hidden>
+          <label for="gift_phone">{t(lang, 'gift_phone')}</label>
+          <div class="phone"><span>+255</span><input class="input" type="tel" id="gift_phone" name="gift_phone" inputmode="tel"
+            autocomplete="off" placeholder="7XX XXX XXX"></div>
+          <p class="hint" style="margin-top:6px">{t(lang, 'gift_hint')}</p>
+        </div>
         {_terms_check(th, lang, 'agree-b')}
         <button class="btn" type="{submit_type}" id="paybtn">{e(t(lang, 'pay', price=first_price))}</button>
         <p class="hint">{t(lang, 'pay_hint')}</p>
@@ -549,6 +579,27 @@ def status_page(th, lang, *, user, remaining, total=None, dst='', new_code=None,
     return page(th, lang, body, hero_extra=False, preview=preview, lang_url=lang_url)
 
 
+def gift_page(th, lang, *, code, friend, package='', base='', lang_url='/', preview=False):
+    """Paid for a friend: the code went to their phone by SMS; this device stays offline."""
+    body = f"""
+      <div class="center">
+        <div class="state-ic ok">{icon('check', 36, 2.6)}</div>
+        <h2>{t(lang, 'gift_ok')}</h2>
+        <p class="lead">{e(t(lang, 'gift_lead', package=package or 'WiFi', phone=local_phone(friend)))}</p>
+      </div>
+      <div class="codebox"><div><small>{t(lang, 'gift_code')}</small><b id="vcode">{e(code)}</b></div>
+        <button type="button" class="copy" onclick="copyCode(this)">{icon("copy", 15)} <span>{t(lang, "copy")}</span></button></div>
+      <p class="hint" style="margin-top:6px">{t(lang, 'gift_share')}</p>
+      <div style="margin-top:18px"><a class="btn" href="{e(base or '/')}">{t(lang, 'gift_again')}</a></div>
+      <script>
+      function copyCode(b){{var c=document.getElementById('vcode').textContent,s=b.querySelector('span');
+        function done(){{s.textContent='{t(lang, "copied")}';}}
+        if(navigator.clipboard&&window.isSecureContext){{navigator.clipboard.writeText(c).then(done);return;}}
+        var i=document.createElement('input');i.value=c;document.body.appendChild(i);i.select();try{{document.execCommand('copy');done();}}catch(x){{}}i.remove();}}
+      </script>"""
+    return page(th, lang, body, hero_extra=False, preview=preview, lang_url=lang_url)
+
+
 def waiting_page(th, lang, *, ref, info, timed_out=False, base='', lang_url='/'):
     amount = money(info.get('currency', 'TZS'), info.get('amount'))
     phone = info.get('phone', '')
@@ -571,7 +622,7 @@ def waiting_page(th, lang, *, ref, info, timed_out=False, base='', lang_url='/')
       <ol class="steps">
         <li><b>1</b><span>{t(lang, 'wait_step1')}</span></li>
         <li><b>2</b><span>{e(t(lang, 'wait_step2', amount=amount))}</span></li>
-        <li><b>3</b><span>{t(lang, 'wait_step3')}</span></li>
+        <li><b>3</b><span>{e(t(lang, 'wait_step3_gift', phone=local_phone(info['gift_phone']))) if info.get('gift_phone') else t(lang, 'wait_step3')}</span></li>
       </ol>
       <p class="hint">{e(t(lang, 'sent_to', phone=phone))} · {t(lang, 'auto_update')}</p>"""
     return page(th, lang, body, hero_extra=False, lang_url=lang_url,

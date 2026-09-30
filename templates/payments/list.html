@@ -42,7 +42,7 @@
                     {% for p in pagination.items %}
                     <tr>
                         <td><small>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</small><small class="text-muted d-block font-monospace">{{ p.reference }}</small></td>
-                        <td>{{ p.phone }}{% if p.channel %}<small class="text-muted d-block">{{ p.channel }}</small>{% endif %}</td>
+                        <td>{{ p.phone }}{% if p.gift_phone %}<small class="d-block"><i class="bi bi-gift"></i> for {{ p.gift_phone }}</small>{% endif %}{% if p.channel %}<small class="text-muted d-block">{{ p.channel }}</small>{% endif %}</td>
                         <td>{{ p.package_name }}</td>
                         <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}</td>
                         <td>

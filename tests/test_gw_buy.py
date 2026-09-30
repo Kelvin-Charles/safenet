@@ -16,7 +16,8 @@ def fake_api(method, path, body=None, timeout=25):
         return {'payments_enabled': True, 'packages': [{'id': 7, 'name': '1 Day <b>', 'price': '1000', 'currency': 'TZS', 'validity': '1 day', 'description': ''}]}
     if path == '/api/portal/purchase':
         if body['phone'] in ('bad', ''): raise portal.ApiError('Enter a valid mobile number, e.g. 0712 345 678.')
-        return {'reference': 'SNABC123', 'status': 'pending', 'amount': '1000', 'currency': 'TZS', 'phone': '255712345678', 'package': '1 Day'}
+        return {'reference': 'SNABC123', 'status': 'pending', 'amount': '1000', 'currency': 'TZS', 'phone': '255712345678', 'package': '1 Day',
+                'gift_phone': body.get('gift_phone') or ''}
     if path == '/api/gateway/auth':
         return {'ok': body['username'] == '55556666', 'session_timeout': 86400}
     if path in ('/api/gateway/accounting', '/api/gateway/sessions/check'):
@@ -24,6 +25,7 @@ def fake_api(method, path, body=None, timeout=25):
     if path.startswith('/api/portal/purchase/'):
         d = {'status': state['status'], 'message': 'Insufficient balance' if state['status'] == 'failed' else ''}
         if state['status'] == 'paid': d['code'] = '55556666'
+        if state.get('gift'): d['gift_phone'] = state['gift']
         return d
 portal.safenet_api = fake_api
 srv = portal.Server(('127.0.0.1', 18080), portal.PortalHandler)
@@ -63,7 +65,20 @@ portal.sessions.clear(); state['status'] = 'pending'
 post('/buy', {'package_id': '7', 'phone': '0712345678', 'agree': '1'})
 state['status'] = 'failed'
 s, body, _ = get('/buy/wait?ref=SNABC123'); assert 'Payment not completed: Insufficient balance' in body
-# rate limit: 3 per 10 min (2 used + 1 bad earlier = 3)
+# buying for a friend: the friend's number goes to SafeNet, and when paid this phone is NOT let in
+portal.purchase_attempts.clear()
+s, body, h = post('/buy', {'package_id': '7', 'phone': '0712345678', 'agree': '1', 'gift': '1', 'gift_phone': '754 000 333'})
+assert s == 302 and state['calls'][-1][2]['gift_phone'] == '255754000333', state['calls'][-1]
+state.update(status='paid', gift='255754000333')
+s, body, _ = get('/buy/wait?ref=SNABC123')
+assert 'The code is on its way' in body and '0754 000 333' in body and '55556666' in body and 'aa:bb:cc:00:00:01' not in portal.sessions, body[-800:]
+state.update(status='pending', gift=None)
+s, body, h = post('/buy', {'package_id': '7', 'phone': '0712345678', 'agree': '1', 'gift_phone': '754000333'})   # not ticked
+assert 'gift_phone' not in state['calls'][-1][2]
+portal.purchase_attempts.clear()
+for ph in ('0712345678', '0712345678', 'bad'):
+    post('/buy', {'package_id': '7', 'phone': ph, 'agree': '1'})
+# rate limit: 3 per 10 min
 s, body, _ = post('/buy', {'package_id': '7', 'phone': '0712345678', 'agree': '1'}); assert 'Too many payment requests' in body
 # no packages -> buy section hidden
 portal._packages_cache.update(at=time.time(), items=[])
