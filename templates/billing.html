@@ -1,69 +1,69 @@
 {% extends "base.html" %}
 
-{% block title %}Billing - {{ app_name }}{% endblock %}
-{% block page_title %}Billing{% endblock %}
+{% block title %}{{ _('Billing') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Billing') }}{% endblock %}
 
 {% block content %}
 {% set st = state.state %}
 <div class="row">
     <div class="col-lg-5">
         <div class="card">
-            <div class="card-header"><i class="bi bi-receipt"></i> Your subscription</div>
+            <div class="card-header"><i class="bi bi-receipt"></i> {{ _('Your subscription') }}</div>
             <div class="card-body">
                 {% if st == 'complimentary' %}
-                <p class="mb-0"><span class="badge bg-success">Active</span> Your account has no end date.</p>
+                <p class="mb-0"><span class="badge bg-success">{{ _('Active') }}</span> {{ _('Your account has no end date.') }}</p>
                 {% elif st == 'trial' %}
-                <p><span class="badge bg-info">Free trial</span> {{ state.days_left }} day{{ '' if state.days_left == 1 else 's' }} left (ends {{ state.end.strftime('%d %b %Y') }}).</p>
+                <p><span class="badge bg-info">{{ _('Free trial') }}</span> {{ _('{n} day left (ends {date}).', n=state.days_left, date=state.end.strftime('%d %b %Y')) if state.days_left == 1 else _('{n} days left (ends {date}).', n=state.days_left, date=state.end.strftime('%d %b %Y')) }}</p>
                 {% elif st == 'active' %}
-                <p><span class="badge bg-success">Active</span> Paid until <strong>{{ state.end.strftime('%d %b %Y') }}</strong> ({{ state.days_left }} days).</p>
+                <p><span class="badge bg-success">{{ _('Active') }}</span> {{ _('Paid until') }} <strong>{{ state.end.strftime('%d %b %Y') }}</strong> ({{ _('{n} days', n=state.days_left) }}).</p>
                 {% elif st == 'grace' %}
-                <p><span class="badge bg-warning text-dark">Payment due</span> Your {{ 'trial' if not tenant.paid_until else 'subscription' }} ended on {{ state.end.strftime('%d %b %Y') }}.
-                    Your Wi-Fi keeps working until <strong>{{ state.service_until.strftime('%d %b %Y %H:%M') }} UTC</strong>. Renew before then.</p>
+                <p><span class="badge bg-warning text-dark">{{ _('Payment due') }}</span> {{ _('Your trial ended on {date}.', date=state.end.strftime('%d %b %Y')) if not tenant.paid_until else _('Your subscription ended on {date}.', date=state.end.strftime('%d %b %Y')) }}
+                    {{ _('Your Wi-Fi keeps working until') }} <strong>{{ state.service_until.strftime('%d %b %Y %H:%M') }} UTC</strong>. {{ _('Renew before then.') }}</p>
                 {% elif st == 'expired' %}
-                <p><span class="badge bg-danger">Expired</span> Your Wi-Fi is paused: guests can't log in and packages can't be sold. Renew to switch it back on immediately.</p>
+                <p><span class="badge bg-danger">{{ _('Expired') }}</span> {{ _("Your Wi-Fi is paused: guests can't log in and packages can't be sold. Renew to switch it back on immediately.") }}</p>
                 {% else %}
-                <p><span class="badge bg-danger">Suspended</span> Please contact SafeNet.</p>
+                <p><span class="badge bg-danger">{{ _('Suspended') }}</span> {{ _('Please contact SafeNet.') }}</p>
                 {% endif %}
-                {% if state.plan %}<p class="small text-muted mb-0">Plan: {{ state.plan.name }} · {{ state.plan.currency }} {{ '{:,.0f}'.format(state.plan.price) }} / month</p>{% endif %}
+                {% if state.plan %}<p class="small text-muted mb-0">{{ _('Plan: {name} · {price} / month', name=state.plan.name, price=state.plan.currency ~ ' ' ~ '{:,.0f}'.format(state.plan.price)) }}</p>{% endif %}
             </div>
         </div>
 
         {% if st != 'complimentary' %}
         <div class="card">
-            <div class="card-header"><i class="bi bi-phone"></i> Pay with mobile money</div>
+            <div class="card-header"><i class="bi bi-phone"></i> {{ _('Pay with mobile money') }}</div>
             <div class="card-body">
                 {% if not can_pay %}
-                <p class="text-muted mb-0">Only the account owner can pay. Please ask them to renew.</p>
+                <p class="text-muted mb-0">{{ _('Only the account owner can pay. Please ask them to renew.') }}</p>
                 {% elif not plans %}
-                <p class="text-muted mb-0">No plans are available yet. Please contact SafeNet.</p>
+                <p class="text-muted mb-0">{{ _('No plans are available yet. Please contact SafeNet.') }}</p>
                 {% elif not payments_ready %}
-                <p class="text-muted mb-0">Online payment isn't available right now. Please contact SafeNet to renew.</p>
+                <p class="text-muted mb-0">{{ _("Online payment isn't available right now. Please contact SafeNet to renew.") }}</p>
                 {% else %}
-                <form method="POST" action="{{ url_for('billing_pay') }}" onsubmit="if(this.dataset.sent)return false;this.dataset.sent=1;var b=this.querySelector('button[type=submit]');b.disabled=true;b.innerHTML='<span class=&quot;spinner-border spinner-border-sm me-2&quot;></span>Sending payment request…';">
+                <form method="POST" action="{{ url_for('billing_pay') }}" onsubmit="if(this.dataset.sent)return false;this.dataset.sent=1;var b=this.querySelector('button[type=submit]');b.disabled=true;b.innerHTML='<span class=&quot;spinner-border spinner-border-sm me-2&quot;></span>'+{{ _('Sending payment request…')|tojson|forceescape }};">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <label class="form-label">Plan</label>
+                    <label class="form-label">{{ _('Plan') }}</label>
                     {% for p in plans %}
                     <label class="d-flex align-items-start gap-2 border rounded p-2 mb-2" style="cursor:pointer">
                         <input type="radio" name="plan_id" value="{{ p.id }}" class="form-check-input mt-1" {{ 'checked' if (state.plan and state.plan.id == p.id) or (not state.plan and loop.first) }} required>
                         <span class="flex-grow-1"><strong>{{ p.name }}</strong>{% if p.description %}<small class="d-block text-muted">{{ p.description }}</small>{% endif %}
-                            <small class="d-block text-muted">{{ 'Unlimited' if p.max_customers is none else '{:,}'.format(p.max_customers) }} customers · {{ 'unlimited' if p.max_routers is none else p.max_routers }} routers · {{ 'unlimited' if p.max_sites is none else p.max_sites }} site{{ '' if p.max_sites == 1 else 's' }} · {{ 'unlimited' if p.max_staff is none else p.max_staff }} staff</small></span>
-                        <span class="fw-bold text-end">{{ p.currency }} {{ '{:,.0f}'.format(p.price) }}<small class="text-muted fw-normal">/mo</small>
-                            {% if p.price_yearly is not none %}<small class="d-block text-muted fw-normal">or {{ '{:,.0f}'.format(p.price_yearly) }} / year</small>{% endif %}</span>
+                            <small class="d-block text-muted">{{ _('Unlimited customers') if p.max_customers is none else _('{n} customers', n='{:,}'.format(p.max_customers)) }} · {{ _('{n} routers', n=_('unlimited') if p.max_routers is none else p.max_routers) }} · {{ _('{n} site', n=p.max_sites) if p.max_sites == 1 else _('{n} sites', n=_('unlimited') if p.max_sites is none else p.max_sites) }} · {{ _('{n} staff', n=_('unlimited') if p.max_staff is none else p.max_staff) }}</small></span>
+                        <span class="fw-bold text-end">{{ p.currency }} {{ '{:,.0f}'.format(p.price) }}<small class="text-muted fw-normal">{{ _('/mo') }}</small>
+                            {% if p.price_yearly is not none %}<small class="d-block text-muted fw-normal">{{ _('or {price} / year', price='{:,.0f}'.format(p.price_yearly)) }}</small>{% endif %}</span>
                     </label>
                     {% endfor %}
                     <div class="row g-2 mt-1">
                         <div class="col-5">
-                            <label class="form-label">Period</label>
-                            <select name="months" class="form-select">{% for m in months %}<option value="{{ m }}">{{ '1 year' if m == 12 else m ~ ' month' ~ ('' if m == 1 else 's') }}</option>{% endfor %}</select>
+                            <label class="form-label">{{ _('Period') }}</label>
+                            <select name="months" class="form-select">{% for m in months %}<option value="{{ m }}">{{ _('1 year') if m == 12 else (_('{n} month', n=m) if m == 1 else _('{n} months', n=m)) }}</option>{% endfor %}</select>
                         </div>
                         <div class="col-7">
-                            <label class="form-label">Mobile money number</label>
+                            <label class="form-label">{{ _('Mobile money number') }}</label>
                             <input type="text" name="phone" class="form-control" value="{{ default_phone }}" placeholder="07XX XXX XXX" required>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary mt-3 w-100"><i class="bi bi-send"></i> Send payment request</button>
-                    {% if sms_due[0] %}<div class="alert alert-info small py-2 mt-2 mb-0"><i class="bi bi-chat-dots"></i> {{ sms_due[0] }} voucher SMS sent to your guests ({{ state.plan.currency if state.plan else 'TZS' }} {{ sms_price }} each) will be added: <strong>{{ '{:,.0f}'.format(sms_due[1]) }}</strong> on top of the plan.</div>{% endif %}
-                    <p class="small text-muted mt-2 mb-0">You'll get a PIN prompt on your phone. Paying early adds time after your current period, so you never lose days.</p>
+                    <button type="submit" class="btn btn-primary mt-3 w-100"><i class="bi bi-send"></i> {{ _('Send payment request') }}</button>
+                    {% if sms_due[0] %}<div class="alert alert-info small py-2 mt-2 mb-0"><i class="bi bi-chat-dots"></i> {{ _('{n} voucher SMS sent to your guests ({price} each) will be added:', n=sms_due[0], price=(state.plan.currency if state.plan else 'TZS') ~ ' ' ~ sms_price|string) }} <strong>{{ '{:,.0f}'.format(sms_due[1]) }}</strong> {{ _('on top of the plan.') }}</div>{% endif %}
+                    <p class="small text-muted mt-2 mb-0">{{ _("You'll get a PIN prompt on your phone. Paying early adds time after your current period, so you never lose days.") }}</p>
                 </form>
                 {% endif %}
             </div>
@@ -72,23 +72,23 @@
     </div>
     <div class="col-lg-7">
         <div class="card">
-            <div class="card-header"><i class="bi bi-clock-history"></i> Payment history</div>
+            <div class="card-header"><i class="bi bi-clock-history"></i> {{ _('Payment history') }}</div>
             <div class="card-body">
                 {% if history %}
                 <div class="table-responsive">
                     <table class="table align-middle">
-                        <thead><tr><th>Date</th><th>Plan</th><th>Amount</th><th>Period</th><th>Status</th></tr></thead>
+                        <thead><tr><th>{{ _('Date') }}</th><th>{{ _('Plan') }}</th><th>{{ _('Amount') }}</th><th>{{ _('Period') }}</th><th>{{ _('Status') }}</th></tr></thead>
                         <tbody>
                             {% for p in history %}
                             <tr>
                                 <td><small>{{ p.created_at.strftime('%Y-%m-%d') }}</small><small class="d-block text-muted font-monospace">{{ p.reference }}</small></td>
                                 <td>{{ p.plan_name or '-' }} <small class="text-muted">× {{ p.months }}</small></td>
-                                <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}{% if p.sms_amount %}<small class="d-block text-muted">incl. {{ '{:,.0f}'.format(p.sms_amount) }} SMS</small>{% endif %}</td>
+                                <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}{% if p.sms_amount %}<small class="d-block text-muted">{{ _('incl. {amount} SMS', amount='{:,.0f}'.format(p.sms_amount)) }}</small>{% endif %}</td>
                                 <td><small>{% if p.period_end %}{{ p.period_start.strftime('%d %b') }} – {{ p.period_end.strftime('%d %b %Y') }}{% else %}-{% endif %}</small></td>
                                 <td>
-                                    {% if p.status == 'paid' %}<span class="badge bg-success">Paid</span>{% if p.method == 'manual' %}<small class="d-block text-muted">added by SafeNet</small>{% endif %}
-                                    {% elif p.status == 'pending' %}<a href="{{ url_for('billing_payment', reference=p.reference) }}" class="badge bg-warning text-dark text-decoration-none">Pending</a>
-                                    {% else %}<span class="badge bg-danger">{{ p.status|capitalize }}</span>{% if p.message %}<small class="d-block text-muted">{{ p.message }}</small>{% endif %}{% endif %}
+                                    {% if p.status == 'paid' %}<span class="badge bg-success">{{ _('Paid') }}</span>{% if p.method == 'manual' %}<small class="d-block text-muted">{{ _('added by SafeNet') }}</small>{% endif %}
+                                    {% elif p.status == 'pending' %}<a href="{{ url_for('billing_payment', reference=p.reference) }}" class="badge bg-warning text-dark text-decoration-none">{{ _('Pending') }}</a>
+                                    {% else %}<span class="badge bg-danger">{{ {'failed': _('Failed'), 'review': _('Review')}.get(p.status, p.status|capitalize) }}</span>{% if p.message %}<small class="d-block text-muted">{{ p.message }}</small>{% endif %}{% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
@@ -96,7 +96,7 @@
                     </table>
                 </div>
                 {% else %}
-                <p class="text-muted mb-0">No payments yet.</p>
+                <p class="text-muted mb-0">{{ _('No payments yet.') }}</p>
                 {% endif %}
             </div>
         </div>

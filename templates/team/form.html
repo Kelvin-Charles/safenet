@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "auth/_field.html" import field %}
 
-{% block title %}Add team member - {{ app_name }}{% endblock %}
+{% block title %}{{ _('Add team member') }} - {{ app_name }}{% endblock %}
 
 {% block extra_js %}
 <script>
@@ -12,12 +12,12 @@
 })();
 </script>
 {% endblock %}
-{% block page_title %}Add Team Member{% endblock %}
+{% block page_title %}{{ _('Add Team Member') }}{% endblock %}
 
 {% block content %}
 <div class="row"><div class="col-lg-6">
     <div class="card">
-        <div class="card-header"><i class="bi bi-person-plus"></i> New team member</div>
+        <div class="card-header"><i class="bi bi-person-plus"></i> {{ _('New team member') }}</div>
         <div class="card-body">
             <form method="POST" novalidate>
                 {{ form.hidden_tag() }}
@@ -25,11 +25,11 @@
                 {{ field(form.email) }}
                 {{ field(form.role, "form-select") }}
                 <div id="scope-box">{{ field(form.site_id, "form-select") }}
-                    <p class="small text-muted mt-n2">Partners see earnings, payments, vouchers and usage for what you choose here, and can't change anything.</p></div>
-                {{ field(form.password, help="Share it with them privately. They can change it with \"Forgot password\".") }}
+                    <p class="small text-muted mt-n2">{{ _("Partners see earnings, payments, vouchers and usage for what you choose here, and can't change anything.") }}</p></div>
+                {{ field(form.password, help=_('Share it with them privately. They can change it with "Forgot password".')) }}
                 <div class="d-flex justify-content-between">
-                    <a href="{{ url_for('team') }}" class="btn btn-outline-secondary">Cancel</a>
-                    <button type="submit" class="btn btn-primary">Add member</button>
+                    <a href="{{ url_for('team') }}" class="btn btn-outline-secondary">{{ _('Cancel') }}</a>
+                    <button type="submit" class="btn btn-primary">{{ _('Add member') }}</button>
                 </div>
             </form>
         </div>

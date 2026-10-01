@@ -20,7 +20,7 @@ def login(u):
 ca, cb = login('usera'), login('userb')
 r = ca.get('/routers'); assert 'VPN hub isn' in r.text
 r = ca.post('/routers/add', data={'csrf_token': tok(r.text), 'name': 'Kariakoo hotspot', 'vendor': 'mikrotik'}, follow_redirects=True)
-assert "hub isn't running yet" in r.text          # no script until the hub publishes its key
+assert "hub isn't running yet" in __import__('html').unescape(r.text)          # no script until the hub publishes its key
 with app.app_context():
     db.session.add(VpnServer(id=1, public_key='SERVERPUBKEY=', listen_port=51820)); db.session.commit()
     rt = Router.query.one(); nas = db.session.get(Nas, rt.nas_id)

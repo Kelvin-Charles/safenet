@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Payment - {{ app_name }}{% endblock %}
-{% block page_title %}Billing{% endblock %}
+{% block title %}{{ _('Payment') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Billing') }}{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -9,11 +9,11 @@
         <div class="card text-center">
             <div class="card-body p-5" id="box">
                 <div class="spinner-border text-primary mb-3" role="status" id="spin"></div>
-                <h4 id="title">Check your phone</h4>
-                <p id="text">Enter your mobile-money PIN to pay <strong>{{ sp.currency }} {{ '{:,.0f}'.format(sp.amount) }}</strong>
-                    for {{ sp.months }} month{{ '' if sp.months == 1 else 's' }} of {{ sp.plan_name }}. We sent the prompt to {{ sp.phone }}.</p>
-                <p class="small text-muted mb-0" id="hint">This page updates by itself.</p>
-                <a href="{{ url_for('billing') }}" class="btn btn-outline-secondary mt-3 d-none" id="back">Back to billing</a>
+                <h4 id="title">{{ _('Check your phone') }}</h4>
+                <p id="text">{{ _('Enter your mobile-money PIN to pay') }} <strong>{{ sp.currency }} {{ '{:,.0f}'.format(sp.amount) }}</strong>
+                    {{ _('for {n} month of {plan}.', n=sp.months, plan=sp.plan_name) if sp.months == 1 else _('for {n} months of {plan}.', n=sp.months, plan=sp.plan_name) }} {{ _('We sent the prompt to {phone}.', phone=sp.phone) }}</p>
+                <p class="small text-muted mb-0" id="hint">{{ _('This page updates by itself.') }}</p>
+                <a href="{{ url_for('billing') }}" class="btn btn-outline-secondary mt-3 d-none" id="back">{{ _('Back to billing') }}</a>
             </div>
         </div>
     </div>
@@ -25,6 +25,14 @@
 (function () {
     const $ = id => document.getElementById(id);
     let tries = 0;
+    const T = {
+        paid: {{ _('Payment received, thank you!')|tojson }},
+        paidUntil: {{ _('Your SafeNet service is paid until {date}.')|tojson }},
+        failed: {{ _('Payment not completed')|tojson }},
+        review: {{ _('Payment needs checking')|tojson }},
+        retry: {{ _('Please try again.')|tojson }},
+        waiting: {{ _("Still waiting. If you've paid, this page will update, or check Billing later.")|tojson }},
+    };
     async function poll() {
         tries++;
         try {
@@ -32,20 +40,20 @@
             const d = await r.json();
             if (d.status === 'paid') {
                 $('spin').remove();
-                $('title').textContent = 'Payment received, thank you!';
-                $('text').textContent = 'Your SafeNet service is paid until ' + d.paid_until + '.';
+                $('title').textContent = T.paid;
+                $('text').textContent = T.paidUntil.replace('{date}', d.paid_until);
                 $('hint').remove(); $('back').classList.remove('d-none');
                 return;
             }
             if (d.status === 'failed' || d.status === 'review') {
                 $('spin').remove();
-                $('title').textContent = d.status === 'failed' ? 'Payment not completed' : 'Payment needs checking';
-                $('text').textContent = d.message || 'Please try again.';
+                $('title').textContent = d.status === 'failed' ? T.failed : T.review;
+                $('text').textContent = d.message || T.retry;
                 $('hint').remove(); $('back').classList.remove('d-none');
                 return;
             }
         } catch (e) { /* retry */ }
-        if (tries > 80) { $('hint').textContent = "Still waiting. If you've paid, this page will update, or check Billing later."; }
+        if (tries > 80) { $('hint').textContent = T.waiting; }
         setTimeout(poll, 3000);
     }
     poll();

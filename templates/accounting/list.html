@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 
-{% block title %}Accounting - {{ app_name }}{% endblock %}
-{% block page_title %}Accounting & Sessions{% endblock %}
+{% block title %}{{ _('Accounting') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Accounting & Sessions') }}{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="card-header">
-        <i class="bi bi-graph-up"></i> Session Accounting
+        <i class="bi bi-graph-up"></i> {{ _('Session Accounting') }}
     </div>
     <div class="card-body">
         <!-- Search and Filter -->
@@ -14,22 +14,22 @@
             <div class="row">
                 <div class="col-md-8">
                     <div class="input-group">
-                        <input type="text" name="search" class="form-control" placeholder="Search by username, NAS IP, or user IP..." value="{{ search }}">
+                        <input type="text" name="search" class="form-control" placeholder="{{ _('Search by username, NAS IP, or user IP...') }}" value="{{ search }}">
                         <button class="btn btn-outline-secondary" type="submit">
-                            <i class="bi bi-search"></i> Search
+                            <i class="bi bi-search"></i> {{ _('Search') }}
                         </button>
                         {% if search %}
                         <a href="{{ url_for('accounting') }}" class="btn btn-outline-danger">
-                            <i class="bi bi-x"></i> Clear
+                            <i class="bi bi-x"></i> {{ _('Clear') }}
                         </a>
                         {% endif %}
                     </div>
                 </div>
                 <div class="col-md-4">
                     <select name="status" class="form-select" onchange="this.form.submit()">
-                        <option value="all" {% if status == 'all' %}selected{% endif %}>All Sessions</option>
-                        <option value="active" {% if status == 'active' %}selected{% endif %}>Active Only</option>
-                        <option value="closed" {% if status == 'closed' %}selected{% endif %}>Closed Only</option>
+                        <option value="all" {% if status == 'all' %}selected{% endif %}>{{ _('All Sessions') }}</option>
+                        <option value="active" {% if status == 'active' %}selected{% endif %}>{{ _('Active Only') }}</option>
+                        <option value="closed" {% if status == 'closed' %}selected{% endif %}>{{ _('Closed Only') }}</option>
                     </select>
                 </div>
             </div>
@@ -40,14 +40,14 @@
             <table class="table table-hover table-sm">
                 <thead>
                     <tr>
-                        <th>Username</th>
-                        <th>NAS IP</th>
-                        <th>User IP</th>
-                        <th>Start Time</th>
-                        <th>Duration</th>
-                        <th>Data Usage</th>
-                        <th>Status</th>
-                        <th>Actions</th>
+                        <th>{{ _('Username') }}</th>
+                        <th>{{ _('NAS IP') }}</th>
+                        <th>{{ _('User IP') }}</th>
+                        <th>{{ _('Start Time') }}</th>
+                        <th>{{ _('Duration') }}</th>
+                        <th>{{ _('Data Usage') }}</th>
+                        <th>{{ _('Status') }}</th>
+                        <th>{{ _('Actions') }}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -66,7 +66,7 @@
                             {% endif %}
                         </td>
                         <td>
-                            <small>{{ session.acctstarttime.strftime('%Y-%m-%d %H:%M') if session.acctstarttime else 'N/A' }}</small>
+                            <small>{{ session.acctstarttime.strftime('%Y-%m-%d %H:%M') if session.acctstarttime else _('N/A') }}</small>
                         </td>
                         <td>
                             {% if session.acctsessiontime %}
@@ -85,14 +85,14 @@
                         </td>
                         <td>
                             {% if session.acctstoptime %}
-                                <span class="badge bg-secondary">Closed</span>
+                                <span class="badge bg-secondary">{{ _('Closed') }}</span>
                             {% else %}
-                                <span class="badge bg-success">Active</span>
+                                <span class="badge bg-success">{{ _('Active') }}</span>
                             {% endif %}
                         </td>
                         <td>
                             <a href="{{ url_for('accounting_detail', session_id=session.radacctid) }}" class="btn btn-sm btn-outline-info">
-                                <i class="bi bi-eye"></i> View
+                                <i class="bi bi-eye"></i> {{ _('View') }}
                             </a>
                         </td>
                     </tr>
@@ -106,7 +106,7 @@
         <nav aria-label="Page navigation">
             <ul class="pagination justify-content-center">
                 <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('accounting', page=pagination.prev_num, search=search, status=status) if pagination.has_prev else '#' }}">Previous</a>
+                    <a class="page-link" href="{{ url_for('accounting', page=pagination.prev_num, search=search, status=status) if pagination.has_prev else '#' }}">{{ _('Previous') }}</a>
                 </li>
                 
                 {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
@@ -120,7 +120,7 @@
                 {% endfor %}
                 
                 <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
-                    <a class="page-link" href="{{ url_for('accounting', page=pagination.next_num, search=search, status=status) if pagination.has_next else '#' }}">Next</a>
+                    <a class="page-link" href="{{ url_for('accounting', page=pagination.next_num, search=search, status=status) if pagination.has_next else '#' }}">{{ _('Next') }}</a>
                 </li>
             </ul>
         </nav>
@@ -129,7 +129,7 @@
         {% else %}
         <div class="text-center py-5 text-muted">
             <i class="bi bi-inbox" style="font-size: 3rem;"></i>
-            <p class="mt-3">No sessions found</p>
+            <p class="mt-3">{{ _('No sessions found') }}</p>
         </div>
         {% endif %}
     </div>

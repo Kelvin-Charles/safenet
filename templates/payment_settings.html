@@ -1,79 +1,77 @@
 {% extends "base.html" %}
 {% from "auth/_field.html" import field %}
 
-{% block title %}Payment settings - {{ app_name }}{% endblock %}
-{% block page_title %}Payment Settings{% endblock %}
+{% block title %}{{ _('Payment settings') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Payment Settings') }}{% endblock %}
 
 {% block content %}
 <div class="row">
     <div class="col-lg-7">
         <div class="card">
-            <div class="card-header"><i class="bi bi-phone"></i> Mobile-money payments</div>
+            <div class="card-header"><i class="bi bi-phone"></i> {{ _('Mobile-money payments') }}</div>
             <div class="card-body">
                 <form method="POST" novalidate>
                     {{ form.hidden_tag() }}
                     {{ field(form.payment_mode, "form-select") }}
                     <div class="border rounded p-3 mb-3" id="own-box">
-                        <p class="small text-muted mb-2">Only needed for "my own ClickPesa or Snippe account".</p>
+                        <p class="small text-muted mb-2">{{ _('Only needed for "my own ClickPesa or Snippe account".') }}</p>
                         {{ field(form.own_provider, "form-select") }}
                         <div data-provider="clickpesa">
-                            <p class="small text-muted">Find the keys in ClickPesa under Settings → Developers.</p>
+                            <p class="small text-muted">{{ _('Find the keys in ClickPesa under Settings → Developers.') }}</p>
                             {{ field(form.client_id) }}
-                            {{ field(form.api_key, placeholder=("•••••••• saved" if has_api_key else "")) }}
-                            {{ field(form.checksum_key, placeholder=("•••••••• saved" if has_checksum else "")) }}
+                            {{ field(form.api_key, placeholder=("•••••••• " ~ _('saved') if has_api_key else "")) }}
+                            {{ field(form.checksum_key, placeholder=("•••••••• " ~ _('saved') if has_checksum else "")) }}
                             {% if has_checksum %}<div class="form-check mb-2">{{ form.clear_checksum(class="form-check-input") }} {{ form.clear_checksum.label(class="form-check-label") }}</div>{% endif %}
                         </div>
                         <div data-provider="snippe">
-                            <p class="small text-muted">Create an API key in the Snippe dashboard with the <code>collection:create</code> and <code>collection:read</code> scopes.</p>
-                            {{ field(form.snippe_api_key, placeholder=("•••••••• saved" if has_snippe_key else "snp_…")) }}
-                            {{ field(form.snippe_webhook_key, placeholder=("•••••••• saved" if has_snippe_webhook else "")) }}
+                            <p class="small text-muted">{{ _('Create an API key in the Snippe dashboard with the') }} <code>collection:create</code> {{ _('and') }} <code>collection:read</code> {{ _('scopes.') }}</p>
+                            {{ field(form.snippe_api_key, placeholder=("•••••••• " ~ _('saved') if has_snippe_key else "snp_…")) }}
+                            {{ field(form.snippe_webhook_key, placeholder=("•••••••• " ~ _('saved') if has_snippe_webhook else "")) }}
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> Save</button>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> {{ _('Save') }}</button>
                 </form>
                 <form method="POST" action="{{ url_for('test_payment_settings') }}" class="mt-2">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-plug"></i> Test my keys</button>
+                    <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-plug"></i> {{ _('Test my keys') }}</button>
                 </form>
             </div>
         </div>
         <div class="card" id="alerts">
-            <div class="card-header"><i class="bi bi-bell"></i> Alerts for you</div>
+            <div class="card-header"><i class="bi bi-bell"></i> {{ _('Alerts for you') }}</div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('notification_settings') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="form-check mb-1"><input class="form-check-input" type="checkbox" name="sale_sms" id="sale_sms" value="1" {{ 'checked' if tenant.notify_sale_sms }}>
-                        <label class="form-check-label" for="sale_sms"><strong>SMS for every sale</strong> <span class="text-muted small">(package, place, buyer's number, today's total)</span></label></div>
+                        <label class="form-check-label" for="sale_sms"><strong>{{ _('SMS for every sale') }}</strong> <span class="text-muted small">({{ _("package, place, buyer's number, today's total") }})</span></label></div>
                     <div class="form-check mb-1"><input class="form-check-input" type="checkbox" name="daily_sms" id="daily_sms" value="1" {{ 'checked' if tenant.notify_daily_sms }}>
-                        <label class="form-check-label" for="daily_sms"><strong>Daily summary by SMS</strong> <span class="text-muted small">at {{ summary_hour }}:00: today's sales, guests, data{% if tenant.payment_mode == 'platform' %} and balance{% endif %}</span></label></div>
+                        <label class="form-check-label" for="daily_sms"><strong>{{ _('Daily summary by SMS') }}</strong> <span class="text-muted small">{{ _("at {hour}:00: today's sales, guests, data and balance", hour=summary_hour) if tenant.payment_mode == 'platform' else _("at {hour}:00: today's sales, guests, data", hour=summary_hour) }}</span></label></div>
                     <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="daily_email" id="daily_email" value="1" {{ 'checked' if tenant.notify_daily_email }}>
-                        <label class="form-check-label" for="daily_email"><strong>Daily summary by email</strong> <span class="text-muted small">(free)</span></label></div>
-                    <label class="form-label small mb-1" for="notify_phone">Send SMS alerts to</label>
+                        <label class="form-check-label" for="daily_email"><strong>{{ _('Daily summary by email') }}</strong> <span class="text-muted small">({{ _('free') }})</span></label></div>
+                    <label class="form-label small mb-1" for="notify_phone">{{ _('Send SMS alerts to') }}</label>
                     <input class="form-control mb-1" style="max-width: 260px" id="notify_phone" name="notify_phone" value="{{ tenant.notify_phone or '' }}" placeholder="{{ owner_phone or '07XX XXX XXX' }}">
-                    <p class="small text-muted">Empty: your business number{% if owner_phone %} ({{ owner_phone }}){% endif %}. Alert SMS cost TZS {{ sms_price }} each like guest SMS: a daily summary is about TZS {{ sms_price * 30 }} a month. They come in your dashboard language.</p>
-                    <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> Save alerts</button>
+                    <p class="small text-muted">{{ _('Empty: your business number ({phone}).', phone=owner_phone) if owner_phone else _('Empty: your business number.') }} {{ _('Alert SMS cost TZS {price} each like guest SMS: a daily summary is about TZS {month} a month. They come in your dashboard language.', price=sms_price, month=sms_price * 30) }}</p>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> {{ _('Save alerts') }}</button>
                 </form>
             </div>
         </div>
         <div class="card" id="sms">
-            <div class="card-header"><i class="bi bi-chat-dots"></i> Voucher code by SMS</div>
+            <div class="card-header"><i class="bi bi-chat-dots"></i> {{ _('Voucher code by SMS') }}</div>
             <div class="card-body">
-                <p class="mb-2">SMS to paying guests is <strong class="{{ 'text-success' if tenant.sms_to_guests else 'text-danger' }}">{{ 'ON' if tenant.sms_to_guests else 'OFF' }}</strong>{% if tenant.sms_changed_at %}
-                    <span class="small text-muted">(since {{ tenant.sms_changed_at.strftime('%d %b %Y %H:%M') }})</span>{% endif %}.</p>
-                <p class="small text-muted mb-1"><strong>Each SMS costs TZS {{ sms_price }}</strong>, paid by you:
-                    taken from your balance with SafeNet Pay, or added to your monthly SafeNet bill with your own account.
-                    A paying guest gets 1 SMS; "Buy for a friend" sends 2 (the friend's code and a receipt to the payer).</p>
-                <p class="small text-muted mb-2">Turned off, SafeNet sends no SMS and charges nothing: guests see their code on screen after paying
-                    (they should write it down) and "Buy for a friend" is not offered. Guests still get the payment receipt that
-                    M-Pesa, Airtel Money and the other networks send themselves: that SMS is free and not from SafeNet.</p>
-                <p class="small text-muted mb-2">This month: {{ sms_month[0] }} SMS, TZS {{ '{:,.0f}'.format(sms_month[1]) }}. <a href="{{ url_for('earnings') }}#sms-history">See each SMS</a>.</p>
-                {% if not sms_ready %}<p class="small text-warning mb-2">SMS sending isn't set up on SafeNet yet, so no SMS are sent or charged.</p>{% endif %}
+                <p class="mb-2">{{ _('SMS to paying guests is') }} <strong class="{{ 'text-success' if tenant.sms_to_guests else 'text-danger' }}">{{ _('ON') if tenant.sms_to_guests else _('OFF') }}</strong>{% if tenant.sms_changed_at %}
+                    <span class="small text-muted">({{ _('since {date}', date=tenant.sms_changed_at.strftime('%d %b %Y %H:%M')) }})</span>{% endif %}.</p>
+                <p class="small text-muted mb-1"><strong>{{ _('Each SMS costs TZS {price}', price=sms_price) }}</strong>{{ _(', paid by you: taken from your balance with SafeNet Pay, or added to your monthly SafeNet bill with your own account.') }}
+                    {{ _('A paying guest gets 1 SMS; "Buy for a friend" sends 2 (the friend\'s code and a receipt to the payer).') }}</p>
+                <p class="small text-muted mb-2">{{ _('Turned off, SafeNet sends no SMS and charges nothing: guests see their code on screen after paying (they should write it down) and "Buy for a friend" is not offered.') }}
+                    {{ _('Guests still get the payment receipt that M-Pesa, Airtel Money and the other networks send themselves: that SMS is free and not from SafeNet.') }}</p>
+                <p class="small text-muted mb-2">{{ _('This month: {n} SMS, TZS {amount}.', n=sms_month[0], amount='{:,.0f}'.format(sms_month[1])) }} <a href="{{ url_for('earnings') }}#sms-history">{{ _('See each SMS') }}</a>.</p>
+                {% if not sms_ready %}<p class="small text-warning mb-2">{{ _("SMS sending isn't set up on SafeNet yet, so no SMS are sent or charged.") }}</p>{% endif %}
                 <form method="POST" action="{{ url_for('sms_setting') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     {% if tenant.sms_to_guests %}
-                    <button type="submit" name="sms" value="off" class="btn btn-outline-danger"><i class="bi bi-chat-square-x"></i> Turn SMS off</button>
+                    <button type="submit" name="sms" value="off" class="btn btn-outline-danger"><i class="bi bi-chat-square-x"></i> {{ _('Turn SMS off') }}</button>
                     {% else %}
-                    <button type="submit" name="sms" value="on" class="btn btn-outline-success"><i class="bi bi-chat-square-text"></i> Turn SMS on</button>
+                    <button type="submit" name="sms" value="on" class="btn btn-outline-success"><i class="bi bi-chat-square-text"></i> {{ _('Turn SMS on') }}</button>
                     {% endif %}
                 </form>
             </div>
@@ -81,16 +79,16 @@
     </div>
     <div class="col-lg-5">
         <div class="card">
-            <div class="card-header"><i class="bi bi-info-circle"></i> How it works</div>
+            <div class="card-header"><i class="bi bi-info-circle"></i> {{ _('How it works') }}</div>
             <div class="card-body small">
-                <p><strong>SafeNet Pay:</strong> guests pay into SafeNet's account{% if platform_name %} (through {{ platform_name }}){% endif %}. SafeNet keeps {{ fee_percent }} % and you withdraw the rest from Earnings to your mobile money.
-                    {% if not platform_ready %}<span class="text-danger">(Not available right now.)</span>{% endif %}</p>
-                <p><strong>Your own ClickPesa or Snippe:</strong> guests pay you directly and SafeNet keeps no fee.</p>
-                <p class="mb-1">ClickPesa: set the webhook for "PAYMENT RECEIVED" and "PAYMENT FAILED" to:</p>
+                <p><strong>SafeNet Pay:</strong> {{ _("guests pay into SafeNet's account (through {provider}).", provider=platform_name) if platform_name else _("guests pay into SafeNet's account.") }} {{ _('SafeNet keeps {fee} % and you withdraw the rest from Earnings to your mobile money.', fee=fee_percent) }}
+                    {% if not platform_ready %}<span class="text-danger">({{ _('Not available right now.') }})</span>{% endif %}</p>
+                <p><strong>{{ _('Your own ClickPesa or Snippe:') }}</strong> {{ _('guests pay you directly and SafeNet keeps no fee.') }}</p>
+                <p class="mb-1">{{ _('ClickPesa: set the webhook for "PAYMENT RECEIVED" and "PAYMENT FAILED" to:') }}</p>
                 <code class="d-block text-break mb-2">{{ webhook_url }}</code>
-                <p class="mb-1">Snippe: nothing to set up. SafeNet asks Snippe to report each payment to:</p>
+                <p class="mb-1">{{ _('Snippe: nothing to set up. SafeNet asks Snippe to report each payment to:') }}</p>
                 <code class="d-block text-break">{{ snippe_webhook_url }}</code>
-                <p class="mt-2 mb-0">Your keys are stored encrypted and only used to request and check your guests' payments.</p>
+                <p class="mt-2 mb-0">{{ _("Your keys are stored encrypted and only used to request and check your guests' payments.") }}</p>
             </div>
         </div>
     </div>

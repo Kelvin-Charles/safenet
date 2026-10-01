@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard - {{ app_name }}{% endblock %}
-{% block page_title %}Dashboard{% endblock %}
+{% block title %}{{ _('Dashboard') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Dashboard') }}{% endblock %}
 
 {% macro money(v) %}{{ currency }} {{ '{:,.0f}'.format(v) }}{% endmacro %}
-{% macro ago(dt) %}{% if dt %}{% set m = ((now - dt).total_seconds() // 60)|int %}{{ 'just now' if m < 2 else (m ~ ' min ago' if m < 60 else ((m // 60) ~ ' h ago' if m < 1440 else (dt + offset).strftime('%d %b %H:%M'))) }}{% else %}never{% endif %}{% endmacro %}
+{% macro ago(dt) %}{% if dt %}{% set m = ((now - dt).total_seconds() // 60)|int %}{{ _('just now') if m < 2 else (_('{n} min ago', n=m) if m < 60 else (_('{n} h ago', n=m // 60) if m < 1440 else (dt + offset).strftime('%d %b %H:%M'))) }}{% else %}{{ _('never') }}{% endif %}{% endmacro %}
 
 {% block extra_css %}
 <style>
@@ -84,22 +84,22 @@
     <div class="hero mb-4">
         <div class="d-flex flex-wrap justify-content-between gap-3 align-items-start">
             <div>
-                <div class="small"><span class="live-dot"></span>Network operations center{% if site %} · {{ site.name }}{% endif %}</div>
+                <div class="small"><span class="live-dot"></span>{{ _('Network operations center') }}{% if site %} · {{ site.name }}{% endif %}</div>
                 <h1>{{ greeting }}, {{ tenant.name }}</h1>
-                <p>Customers, network traffic, device health and collections{{ ' for ' ~ site.name if site else ' across all your sites' }} in one view.</p>
+                <p>{{ _('Customers, network traffic, device health and collections for {site} in one view.', site=site.name) if site else _('Customers, network traffic, device health and collections across all your sites in one view.') }}</p>
             </div>
             <div class="actions d-flex flex-wrap gap-2">
-                <a href="{{ url_for('add_user') }}" class="btn btn-hero solid"><i class="bi bi-plus-lg"></i> Add customer</a>
-                {% if current_user.has_role('admin') %}<a href="{{ url_for('gateways') }}" class="btn btn-hero"><i class="bi bi-router"></i> Add network</a>{% endif %}
-                {% if billing and billing.state != 'complimentary' and current_user.has_role('admin') %}<a href="{{ url_for('billing') }}" class="btn btn-hero"><i class="bi bi-receipt"></i> {{ 'Subscribe now' if billing.state == 'trial' else 'Billing' }}</a>{% endif %}
+                <a href="{{ url_for('add_user') }}" class="btn btn-hero solid"><i class="bi bi-plus-lg"></i> {{ _('Add customer') }}</a>
+                {% if current_user.has_role('admin') %}<a href="{{ url_for('gateways') }}" class="btn btn-hero"><i class="bi bi-router"></i> {{ _('Add network') }}</a>{% endif %}
+                {% if billing and billing.state != 'complimentary' and current_user.has_role('admin') %}<a href="{{ url_for('billing') }}" class="btn btn-hero"><i class="bi bi-receipt"></i> {{ _('Subscribe now') if billing.state == 'trial' else _('Billing') }}</a>{% endif %}
             </div>
         </div>
         <div class="stats row g-3">
-            <div class="col-6 col-md"><div class="k">Total earnings</div><div class="v">{{ money(all_time.total) }}</div></div>
-            <div class="col-6 col-md"><div class="k">Online devices</div><div class="v">{{ health.online }}<small>/{{ devices|length }}</small></div></div>
-            <div class="col-6 col-md"><div class="k">Users online</div><div class="v">{{ users_online }}</div></div>
-            <div class="col-6 col-md"><div class="k">Today's transfer</div><div class="v">{{ (down_today + up_today)|filesizeformat }}</div></div>
-            <div class="col-12 col-md"><div class="k">Last telemetry</div><div class="v" style="font-size: 1.05rem; padding-top: .35rem">{{ ago(last_telemetry) if last_telemetry else 'Awaiting telemetry' }}</div></div>
+            <div class="col-6 col-md"><div class="k">{{ _('Total earnings') }}</div><div class="v">{{ money(all_time.total) }}</div></div>
+            <div class="col-6 col-md"><div class="k">{{ _('Online devices') }}</div><div class="v">{{ health.online }}<small>/{{ devices|length }}</small></div></div>
+            <div class="col-6 col-md"><div class="k">{{ _('Users online') }}</div><div class="v">{{ users_online }}</div></div>
+            <div class="col-6 col-md"><div class="k">{{ _("Today's transfer") }}</div><div class="v">{{ (down_today + up_today)|filesizeformat }}</div></div>
+            <div class="col-12 col-md"><div class="k">{{ _('Last telemetry') }}</div><div class="v" style="font-size: 1.05rem; padding-top: .35rem">{{ ago(last_telemetry) if last_telemetry else _('Awaiting telemetry') }}</div></div>
         </div>
     </div>
 
@@ -107,10 +107,10 @@
     <div class="notice d-flex flex-wrap gap-3 align-items-center justify-content-between mb-4">
         <div class="d-flex gap-3 align-items-center">
             <div class="ic"><i class="bi bi-receipt"></i></div>
-            <div><strong>Free trial: {{ billing.days_left }} day{{ '' if billing.days_left == 1 else 's' }} left</strong>
-                <div class="small text-primary">Subscribe now without waiting for the trial to end: your paid month starts the day the trial ends.</div></div>
+            <div><strong>{{ _('Free trial: {n} day left', n=billing.days_left) if billing.days_left == 1 else _('Free trial: {n} days left', n=billing.days_left) }}</strong>
+                <div class="small text-primary">{{ _('Subscribe now without waiting for the trial to end: your paid month starts the day the trial ends.') }}</div></div>
         </div>
-        {% if current_user.has_role('owner') %}<a href="{{ url_for('billing') }}" class="btn btn-primary">Subscribe now <i class="bi bi-arrow-right"></i></a>{% endif %}
+        {% if current_user.has_role('owner') %}<a href="{{ url_for('billing') }}" class="btn btn-primary">{{ _('Subscribe now') }} <i class="bi bi-arrow-right"></i></a>{% endif %}
     </div>
     {% endif %}
 
@@ -118,69 +118,69 @@
     <div class="notice d-flex flex-wrap gap-3 align-items-center justify-content-between mb-4">
         <div class="d-flex gap-3 align-items-center">
             <div class="ic"><i class="bi bi-bell"></i></div>
-            <div><strong>Know every sale, even when you're away</strong>
-                <div class="small text-primary">Get an SMS for each sale and a summary every evening: sales, guests and data.</div></div>
+            <div><strong>{{ _("Know every sale, even when you're away") }}</strong>
+                <div class="small text-primary">{{ _('Get an SMS for each sale and a summary every evening: sales, guests and data.') }}</div></div>
         </div>
-        <a href="{{ url_for('payment_settings') }}#alerts" class="btn btn-primary">Turn on alerts <i class="bi bi-arrow-right"></i></a>
+        <a href="{{ url_for('payment_settings') }}#alerts" class="btn btn-primary">{{ _('Turn on alerts') }} <i class="bi bi-arrow-right"></i></a>
     </div>
     {% endif %}
 
     <!-- Financial overview -->
     <div class="d-flex flex-wrap justify-content-between align-items-end mb-3 gap-2">
-        <div><div class="eyebrow">Financial overview</div><h2 class="sec">Earnings for {{ period_label }}</h2><div class="sub">This calendar month{{ ', ' ~ site.name if site }}.</div></div>
-        {% if current_user.has_role('admin') %}<a href="{{ url_for('earnings') }}" class="fw-semibold text-decoration-none">Manage earnings <i class="bi bi-arrow-right"></i></a>{% endif %}
+        <div><div class="eyebrow">{{ _('Financial overview') }}</div><h2 class="sec">{{ _('Earnings for {period}', period=period_label) }}</h2><div class="sub">{{ _('This calendar month, {site}.', site=site.name) if site else _('This calendar month.') }}</div></div>
+        {% if current_user.has_role('admin') %}<a href="{{ url_for('earnings') }}" class="fw-semibold text-decoration-none">{{ _('Manage earnings') }} <i class="bi bi-arrow-right"></i></a>{% endif %}
     </div>
     <div class="row mb-4">
-        <div class="col-6 col-xl-3"><div class="kpi"><div class="d-flex justify-content-between"><div class="k">Collected this month</div><div class="ic"><i class="bi bi-cash-stack"></i></div></div>
-            <div class="v">{{ money(period.total) }}</div><div class="d">{{ money(today.total) }} collected today</div></div></div>
-        <div class="col-6 col-xl-3"><div class="kpi"><div class="d-flex justify-content-between"><div class="k">Online payments</div><div class="ic g"><i class="bi bi-phone"></i></div></div>
-            <div class="v">{{ money(period.online) }}</div><div class="d">{{ period.online_count }} mobile-money sale{{ '' if period.online_count == 1 else 's' }}</div></div></div>
-        <div class="col-6 col-xl-3"><div class="kpi"><div class="d-flex justify-content-between"><div class="k">Voucher sales</div><div class="ic o"><i class="bi bi-ticket-perforated"></i></div></div>
-            <div class="v">{{ money(period.vouchers) }}</div><div class="d">{{ period.voucher_count }} paid voucher{{ '' if period.voucher_count == 1 else 's' }} used</div></div></div>
-        <div class="col-6 col-xl-3"><div class="kpi"><div class="d-flex justify-content-between"><div class="k">Net income</div><div class="ic"><i class="bi bi-graph-up-arrow"></i></div></div>
-            <div class="v">{{ money(period.total - fees) }}</div><div class="d">{{ money(fees) }} in SafeNet fees this month</div></div></div>
+        <div class="col-6 col-xl-3"><div class="kpi"><div class="d-flex justify-content-between"><div class="k">{{ _('Collected this month') }}</div><div class="ic"><i class="bi bi-cash-stack"></i></div></div>
+            <div class="v">{{ money(period.total) }}</div><div class="d">{{ _('{amount} collected today', amount=money(today.total)) }}</div></div></div>
+        <div class="col-6 col-xl-3"><div class="kpi"><div class="d-flex justify-content-between"><div class="k">{{ _('Online payments') }}</div><div class="ic g"><i class="bi bi-phone"></i></div></div>
+            <div class="v">{{ money(period.online) }}</div><div class="d">{{ _('{n} mobile-money sale', n=period.online_count) if period.online_count == 1 else _('{n} mobile-money sales', n=period.online_count) }}</div></div></div>
+        <div class="col-6 col-xl-3"><div class="kpi"><div class="d-flex justify-content-between"><div class="k">{{ _('Voucher sales') }}</div><div class="ic o"><i class="bi bi-ticket-perforated"></i></div></div>
+            <div class="v">{{ money(period.vouchers) }}</div><div class="d">{{ _('{n} paid voucher used', n=period.voucher_count) if period.voucher_count == 1 else _('{n} paid vouchers used', n=period.voucher_count) }}</div></div></div>
+        <div class="col-6 col-xl-3"><div class="kpi"><div class="d-flex justify-content-between"><div class="k">{{ _('Net income') }}</div><div class="ic"><i class="bi bi-graph-up-arrow"></i></div></div>
+            <div class="v">{{ money(period.total - fees) }}</div><div class="d">{{ _('{amount} in SafeNet fees this month', amount=money(fees)) }}</div></div></div>
     </div>
 
     <!-- Operations KPIs -->
     <div class="row mb-4">
-        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Users online</div><div class="v">{{ users_online }}</div><div class="d">{{ via_hotspot }} on vouchers · {{ users_online - via_hotspot }} accounts</div></div></div>
-        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Total data used</div><div class="v">{{ total_bytes|filesizeformat }}</div><div class="d">All customers, all time</div></div></div>
-        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Data moved today</div><div class="v">{{ (down_today + up_today)|filesizeformat }}</div><div class="d">{{ down_today|filesizeformat }} down · {{ up_today|filesizeformat }} up</div></div></div>
-        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Average traffic</div><div class="v">{{ (avg_rate|int)|filesizeformat }}/s</div><div class="d">Average since midnight</div></div></div>
-        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Collections today</div><div class="v">{{ money(today.total) }}</div><div class="d">{{ money(week_total) }} in the last 7 days</div></div></div>
-        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">Available balance</div><div class="v">{{ money(balance) if platform_mode and not site else '—' }}</div><div class="d">{{ ('Business-wide: see all sites' if site else 'Ready to withdraw') if platform_mode else 'Paid straight to your own account' }}</div></div></div>
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">{{ _('Users online') }}</div><div class="v">{{ users_online }}</div><div class="d">{{ _('{v} on vouchers · {a} accounts', v=via_hotspot, a=users_online - via_hotspot) }}</div></div></div>
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">{{ _('Total data used') }}</div><div class="v">{{ total_bytes|filesizeformat }}</div><div class="d">{{ _('All customers, all time') }}</div></div></div>
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">{{ _('Data moved today') }}</div><div class="v">{{ (down_today + up_today)|filesizeformat }}</div><div class="d">{{ _('{down} down · {up} up', down=down_today|filesizeformat, up=up_today|filesizeformat) }}</div></div></div>
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">{{ _('Average traffic') }}</div><div class="v">{{ (avg_rate|int)|filesizeformat }}/s</div><div class="d">{{ _('Average since midnight') }}</div></div></div>
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">{{ _('Collections today') }}</div><div class="v">{{ money(today.total) }}</div><div class="d">{{ _('{amount} in the last 7 days', amount=money(week_total)) }}</div></div></div>
+        <div class="col-6 col-md-4 col-xl-2"><div class="kpi"><div class="k">{{ _('Available balance') }}</div><div class="v">{{ money(balance) if platform_mode and not site else '—' }}</div><div class="d">{{ (_('Business-wide: see all sites') if site else _('Ready to withdraw')) if platform_mode else _('Paid straight to your own account') }}</div></div></div>
     </div>
 
     <!-- Earnings -->
     <div class="panel mb-4">
-        <div class="eyebrow">Earnings</div><h2 class="sec mb-3">Total and where it came from</h2>
+        <div class="eyebrow">{{ _('Earnings') }}</div><h2 class="sec mb-3">{{ _('Total and where it came from') }}</h2>
         <div class="row">
             <div class="col-lg-5">
-                <div class="sub text-uppercase small fw-semibold">Total earnings</div>
+                <div class="sub text-uppercase small fw-semibold">{{ _('Total earnings') }}</div>
                 <div style="font-size: 2.1rem; font-weight: 700">{{ money(all_time.total) }}</div>
-                <div class="sub mb-3">All time{{ ', ' ~ site.name if site }}, collected from your customers.</div>
-                <div class="kv"><span>Online payments</span><strong>{{ money(all_time.online) }}</strong></div>
-                <div class="kv"><span>Voucher sales (cash)</span><strong>{{ money(all_time.vouchers) }}</strong></div>
+                <div class="sub mb-3">{{ _('All time, {site}, collected from your customers.', site=site.name) if site else _('All time, collected from your customers.') }}</div>
+                <div class="kv"><span>{{ _('Online payments') }}</span><strong>{{ money(all_time.online) }}</strong></div>
+                <div class="kv"><span>{{ _('Voucher sales (cash)') }}</span><strong>{{ money(all_time.vouchers) }}</strong></div>
                 {% if platform_mode and not site %}
-                <div class="kv"><span>Withdrawn to you</span><strong>{{ money(withdrawn) }}</strong></div>
-                <div class="kv"><span>Available balance</span><strong class="text-success">{{ money(balance) }}</strong></div>
+                <div class="kv"><span>{{ _('Withdrawn to you') }}</span><strong>{{ money(withdrawn) }}</strong></div>
+                <div class="kv"><span>{{ _('Available balance') }}</span><strong class="text-success">{{ money(balance) }}</strong></div>
                 {% endif %}
             </div>
             <div class="col-lg-7 mt-4 mt-lg-0">
                 {% set tot = all_time.total %}
-                <div class="sub text-uppercase small fw-semibold mb-2">Distribution by sales channel</div>
+                <div class="sub text-uppercase small fw-semibold mb-2">{{ _('Distribution by sales channel') }}</div>
                 {% if tot > 0 %}
-                <div class="split-bar mb-2" role="img" aria-label="Online {{ money(all_time.online) }}, vouchers {{ money(all_time.vouchers) }}">
-                    {% if all_time.online > 0 %}<span style="width: {{ (100 * all_time.online / tot)|round(1) }}%; background: var(--down)" title="Online payments {{ money(all_time.online) }}"></span>{% endif %}
-                    {% if all_time.vouchers > 0 %}<span style="width: {{ (100 * all_time.vouchers / tot)|round(1) }}%; background: var(--up)" title="Vouchers {{ money(all_time.vouchers) }}"></span>{% endif %}
+                <div class="split-bar mb-2" role="img" aria-label="{{ _('Online {online}, vouchers {vouchers}', online=money(all_time.online), vouchers=money(all_time.vouchers)) }}">
+                    {% if all_time.online > 0 %}<span style="width: {{ (100 * all_time.online / tot)|round(1) }}%; background: var(--down)" title="{{ _('Online payments') }} {{ money(all_time.online) }}"></span>{% endif %}
+                    {% if all_time.vouchers > 0 %}<span style="width: {{ (100 * all_time.vouchers / tot)|round(1) }}%; background: var(--up)" title="{{ _('Vouchers') }} {{ money(all_time.vouchers) }}"></span>{% endif %}
                 </div>
-                <div class="small mb-4"><span class="legend-dot" style="background: var(--down)"></span>Online payments {{ (100 * all_time.online / tot)|round|int }}% &nbsp; <span class="legend-dot" style="background: var(--up)"></span>Vouchers {{ (100 * all_time.vouchers / tot)|round|int }}%</div>
+                <div class="small mb-4"><span class="legend-dot" style="background: var(--down)"></span>{{ _('Online payments') }} {{ (100 * all_time.online / tot)|round|int }}% &nbsp; <span class="legend-dot" style="background: var(--up)"></span>{{ _('Vouchers') }} {{ (100 * all_time.vouchers / tot)|round|int }}%</div>
                 {% else %}
-                <div class="border rounded-3 text-center p-4 mb-3" style="border-style: dashed !important"><strong>No earnings yet</strong><div class="sub">Sell a voucher or take an online payment and the split appears here.</div></div>
+                <div class="border rounded-3 text-center p-4 mb-3" style="border-style: dashed !important"><strong>{{ _('No earnings yet') }}</strong><div class="sub">{{ _('Sell a voucher or take an online payment and the split appears here.') }}</div></div>
                 {% endif %}
                 {% if site_split|length > 1 %}
                 {% set mtot = site_split|sum(attribute='total') %}
-                <div class="sub text-uppercase small fw-semibold mb-2">This month by site</div>
+                <div class="sub text-uppercase small fw-semibold mb-2">{{ _('This month by site') }}</div>
                 {% for r in site_split|sort(attribute='total', reverse=True) %}
                 <div class="kv"><span>{{ r.site.name }}</span><span><strong>{{ money(r.total) }}</strong>{% if mtot > 0 %} <small class="text-muted">{{ (100 * r.total / mtot)|round|int }}%</small>{% endif %}</span></div>
                 {% endfor %}
@@ -192,12 +192,12 @@
     <!-- Recent connections -->
     <div class="panel mb-4" style="padding-bottom: .5rem">
         <div class="d-flex justify-content-between align-items-start">
-            <div><div class="eyebrow">Users &amp; devices</div><h2 class="sec">Last 10 connected users</h2><div class="sub">Most recent sessions{{ ' at ' ~ site.name if site }}.</div></div>
-            <a href="{{ url_for('live') }}" class="fw-semibold text-decoration-none">View live <i class="bi bi-arrow-right"></i></a>
+            <div><div class="eyebrow">{{ _('Users & devices') }}</div><h2 class="sec">{{ _('Last 10 connected users') }}</h2><div class="sub">{{ _('Most recent sessions at {site}.', site=site.name) if site else _('Most recent sessions.') }}</div></div>
+            <a href="{{ url_for('live') }}" class="fw-semibold text-decoration-none">{{ _('View live') }} <i class="bi bi-arrow-right"></i></a>
         </div>
         <div class="table-responsive mt-3">
             <table class="table table-dash align-middle">
-                <thead><tr><th>User / device</th><th>Access</th><th>Router</th><th>Last connected</th><th>Status</th></tr></thead>
+                <thead><tr><th>{{ _('User / device') }}</th><th>{{ _('Access') }}</th><th>{{ _('Router') }}</th><th>{{ _('Last connected') }}</th><th>{{ _('Status') }}</th></tr></thead>
                 <tbody>
                 {% for r in recent %}
                 <tr>
@@ -205,10 +205,10 @@
                     <td>{{ r.access }}</td>
                     <td>{{ r.router }}</td>
                     <td>{{ ago(r.last) }}</td>
-                    <td>{% if r.online %}<span class="badge bg-success">Online</span>{% else %}<span class="badge bg-light text-dark border">Offline</span>{% endif %}</td>
+                    <td>{% if r.online %}<span class="badge bg-success">{{ _('Online') }}</span>{% else %}<span class="badge bg-light text-dark border">{{ _('Offline') }}</span>{% endif %}</td>
                 </tr>
                 {% else %}
-                <tr><td colspan="5" class="text-center text-muted py-4">No connection history yet.</td></tr>
+                <tr><td colspan="5" class="text-center text-muted py-4">{{ _('No connection history yet.') }}</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
@@ -220,38 +220,38 @@
         <div class="col-xl-8">
             <div class="panel">
                 <div class="d-flex flex-wrap justify-content-between gap-2">
-                    <div><div class="eyebrow">Network traffic</div><h2 class="sec">Usage over the last 24 hours</h2><div class="sub">Data of sessions by the hour they last reported.</div></div>
-                    <div class="small"><span class="legend-dot" style="background: var(--down)"></span>Download &nbsp; <span class="legend-dot" style="background: var(--up)"></span>Upload</div>
+                    <div><div class="eyebrow">{{ _('Network traffic') }}</div><h2 class="sec">{{ _('Usage over the last 24 hours') }}</h2><div class="sub">{{ _('Data of sessions by the hour they last reported.') }}</div></div>
+                    <div class="small"><span class="legend-dot" style="background: var(--down)"></span>{{ _('Download') }} &nbsp; <span class="legend-dot" style="background: var(--up)"></span>{{ _('Upload') }}</div>
                 </div>
                 {% if peak > 1 %}
-                <div class="chart mt-3" role="img" aria-label="Hourly download and upload for the last 24 hours">
+                <div class="chart mt-3" role="img" aria-label="{{ _('Hourly download and upload for the last 24 hours') }}">
                     {% for h in hours %}
-                    <div class="hcol" title="{{ h.label }}: {{ h.down|filesizeformat }} down, {{ h.up|filesizeformat }} up">
+                    <div class="hcol" title="{{ h.label }}: {{ _('{down} down, {up} up', down=h.down|filesizeformat, up=h.up|filesizeformat) }}">
                         <div class="b" style="height: {{ (100 * h.down / peak)|round(1) }}%; background: var(--down)"></div>
                         <div class="b" style="height: {{ (100 * h.up / peak)|round(1) }}%; background: var(--up)"></div>
                     </div>
                     {% endfor %}
                 </div>
                 <div class="axis">{% for h in hours %}<span>{{ h.label[:2] if loop.index0 % 4 == 0 else '' }}</span>{% endfor %}</div>
-                <details class="mt-2 small"><summary class="text-muted">Show as table</summary>
-                    <table class="table table-sm mt-2"><thead><tr><th>Hour</th><th>Download</th><th>Upload</th></tr></thead>
+                <details class="mt-2 small"><summary class="text-muted">{{ _('Show as table') }}</summary>
+                    <table class="table table-sm mt-2"><thead><tr><th>{{ _('Hour') }}</th><th>{{ _('Download') }}</th><th>{{ _('Upload') }}</th></tr></thead>
                     <tbody>{% for h in hours if h.down or h.up %}<tr><td>{{ h.label }}</td><td>{{ h.down|filesizeformat }}</td><td>{{ h.up|filesizeformat }}</td></tr>{% endfor %}</tbody></table>
                 </details>
                 {% else %}
-                <div class="text-center py-5"><i class="bi bi-bar-chart fs-3 text-muted"></i><div class="fw-semibold mt-2">Traffic appears once guests start browsing</div><div class="sub">Connect a SafeNet gateway or a MikroTik router that sends accounting.</div></div>
+                <div class="text-center py-5"><i class="bi bi-bar-chart fs-3 text-muted"></i><div class="fw-semibold mt-2">{{ _('Traffic appears once guests start browsing') }}</div><div class="sub">{{ _('Connect a SafeNet gateway or a MikroTik router that sends accounting.') }}</div></div>
                 {% endif %}
             </div>
         </div>
         <!-- Health -->
         <div class="col-xl-4">
             <div class="panel">
-                <div class="eyebrow">Network health</div><h2 class="sec mb-3">Gateways and routers</h2>
+                <div class="eyebrow">{{ _('Network health') }}</div><h2 class="sec mb-3">{{ _('Gateways and routers') }}</h2>
                 <div class="health mb-3">
-                    <div class="h-on">Online<strong>{{ health.online }}</strong></div>
-                    <div class="h-deg">Slow to report<strong>{{ health.degraded }}</strong></div>
-                    <div class="h-off">Offline<strong>{{ health.offline }}</strong></div>
+                    <div class="h-on">{{ _('Online') }}<strong>{{ health.online }}</strong></div>
+                    <div class="h-deg">{{ _('Slow to report') }}<strong>{{ health.degraded }}</strong></div>
+                    <div class="h-off">{{ _('Offline') }}<strong>{{ health.offline }}</strong></div>
                 </div>
-                <div class="sub">Online: reported in the last 3 minutes. Slow: 3–15 minutes. Offline: longer, or never.</div>
+                <div class="sub">{{ _('Online: reported in the last 3 minutes. Slow: 3–15 minutes. Offline: longer, or never.') }}</div>
             </div>
         </div>
     </div>
@@ -261,22 +261,22 @@
         <div class="col-xl-7">
             <div class="panel" style="padding-bottom: .5rem">
                 <div class="d-flex justify-content-between align-items-start">
-                    <div><div class="eyebrow">Infrastructure</div><h2 class="sec">Device fleet</h2></div>
-                    {% if current_user.has_role('admin') %}<a href="{{ url_for('gateways') }}" class="fw-semibold text-decoration-none">Manage devices <i class="bi bi-arrow-right"></i></a>{% endif %}
+                    <div><div class="eyebrow">{{ _('Infrastructure') }}</div><h2 class="sec">{{ _('Device fleet') }}</h2></div>
+                    {% if current_user.has_role('admin') %}<a href="{{ url_for('gateways') }}" class="fw-semibold text-decoration-none">{{ _('Manage devices') }} <i class="bi bi-arrow-right"></i></a>{% endif %}
                 </div>
                 <div class="table-responsive mt-2">
                     <table class="table table-dash align-middle">
-                        <thead><tr><th>Device</th>{% if not site and sites|length > 1 %}<th>Site</th>{% endif %}<th>Last report</th><th class="text-end">Users online</th></tr></thead>
+                        <thead><tr><th>{{ _('Device') }}</th>{% if not site and sites|length > 1 %}<th>{{ _('Site') }}</th>{% endif %}<th>{{ _('Last report') }}</th><th class="text-end">{{ _('Users online') }}</th></tr></thead>
                         <tbody>
                         {% for d in devices %}
                         <tr>
                             <td><span class="dot {{ d.state }}"></span><strong>{{ d.name }}</strong><small class="d-block text-muted">{{ d.kind }}</small></td>
                             {% if not site and sites|length > 1 %}<td>{% for s_ in sites if s_.id == d.site %}{{ s_.name }}{% endfor %}</td>{% endif %}
-                            <td>{{ ago(d.last) if d.last else 'Awaiting telemetry' }}</td>
+                            <td>{{ ago(d.last) if d.last else _('Awaiting telemetry') }}</td>
                             <td class="text-end">{{ d.users }}</td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="4" class="text-center text-muted py-4">No gateways or routers yet. {% if current_user.has_role('admin') %}<a href="{{ url_for('gateways') }}">Add one</a>{% endif %}</td></tr>
+                        <tr><td colspan="4" class="text-center text-muted py-4">{{ _('No gateways or routers yet.') }} {% if current_user.has_role('admin') %}<a href="{{ url_for('gateways') }}">{{ _('Add one') }}</a>{% endif %}</td></tr>
                         {% endfor %}
                         </tbody>
                     </table>
@@ -286,8 +286,8 @@
         <!-- Revenue 7 days -->
         <div class="col-xl-5">
             <div class="panel">
-                <div class="eyebrow">Collections</div><h2 class="sec mb-3">Revenue, last 7 days</h2>
-                <div class="days" role="img" aria-label="Revenue per day for the last 7 days">
+                <div class="eyebrow">{{ _('Collections') }}</div><h2 class="sec mb-3">{{ _('Revenue, last 7 days') }}</h2>
+                <div class="days" role="img" aria-label="{{ _('Revenue per day for the last 7 days') }}">
                     {% for d in days %}
                     <div class="slot" title="{{ d.date }}: {{ money(d.total) }}"><span style="height: {{ (100 * d.total / day_peak)|round(1) if d.total > 0 else 0 }}%"></span></div>
                     {% endfor %}
@@ -295,8 +295,8 @@
                 <div class="days-l">{% for d in days %}<span>{{ d.label }}</span>{% endfor %}</div>
                 <hr>
                 <div class="d-flex justify-content-between align-items-end">
-                    <div><div class="sub">Seven-day collections</div><div style="font-size: 1.5rem; font-weight: 700">{{ money(week_total) }}</div></div>
-                    <a href="{{ url_for('payments') }}" class="fw-semibold text-decoration-none">Payments <i class="bi bi-arrow-right"></i></a>
+                    <div><div class="sub">{{ _('Seven-day collections') }}</div><div style="font-size: 1.5rem; font-weight: 700">{{ money(week_total) }}</div></div>
+                    <a href="{{ url_for('payments') }}" class="fw-semibold text-decoration-none">{{ _('Payments') }} <i class="bi bi-arrow-right"></i></a>
                 </div>
             </div>
         </div>
@@ -306,19 +306,19 @@
         <!-- Subscribers -->
         <div class="col-lg-4">
             <div class="panel">
-                <div class="d-flex justify-content-between"><div><div class="eyebrow">Subscribers</div><h2 class="sec">Customer accounts</h2></div>
-                    <div class="text-end"><strong class="fs-4">{{ subs.total }}</strong><div class="sub">total</div></div></div>
+                <div class="d-flex justify-content-between"><div><div class="eyebrow">{{ _('Subscribers') }}</div><h2 class="sec">{{ _('Customer accounts') }}</h2></div>
+                    <div class="text-end"><strong class="fs-4">{{ subs.total }}</strong><div class="sub">{{ _('total') }}</div></div></div>
                 {% set t = subs.total or 1 %}
                 {% set a1 = 100 * subs.active / t %}{% set a2 = a1 + 100 * subs.expiring / t %}{% set a3 = a2 + 100 * subs.expired / t %}
                 <div class="d-flex gap-4 align-items-center mt-3">
                     <div class="donut" style="background: {% if subs.total %}conic-gradient(#15803D 0 {{ a1 }}%, #F59E0B 0 {{ a2 }}%, #B91C1C 0 {{ a3 }}%, #94A3B8 0 100%){% else %}#E5E7EB{% endif %}">
-                        <div><span><strong>{{ (100 * subs.active / t)|round|int if subs.total else 0 }}%</strong><br><small class="text-muted">active</small></span></div>
+                        <div><span><strong>{{ (100 * subs.active / t)|round|int if subs.total else 0 }}%</strong><br><small class="text-muted">{{ _('active') }}</small></span></div>
                     </div>
                     <div class="flex-grow-1">
-                        <div class="kv"><span><span class="dot online"></span>Active</span><strong>{{ subs.active }}</strong></div>
-                        <div class="kv"><span><span class="dot" style="background: #F59E0B"></span>Expiring in 3 days</span><strong>{{ subs.expiring }}</strong></div>
-                        <div class="kv"><span><span class="dot" style="background: #B91C1C"></span>Expired</span><strong>{{ subs.expired }}</strong></div>
-                        <div class="kv"><span><span class="dot offline"></span>Disabled</span><strong>{{ subs.disabled }}</strong></div>
+                        <div class="kv"><span><span class="dot online"></span>{{ _('Active') }}</span><strong>{{ subs.active }}</strong></div>
+                        <div class="kv"><span><span class="dot" style="background: #F59E0B"></span>{{ _('Expiring in 3 days') }}</span><strong>{{ subs.expiring }}</strong></div>
+                        <div class="kv"><span><span class="dot" style="background: #B91C1C"></span>{{ _('Expired') }}</span><strong>{{ subs.expired }}</strong></div>
+                        <div class="kv"><span><span class="dot offline"></span>{{ _('Disabled') }}</span><strong>{{ subs.disabled }}</strong></div>
                     </div>
                 </div>
             </div>
@@ -326,13 +326,13 @@
         <!-- Alerts -->
         <div class="col-lg-4">
             <div class="panel">
-                <div class="d-flex justify-content-between align-items-start"><div><div class="eyebrow">Attention</div><h2 class="sec">Network alerts</h2></div>
-                    {% if not alerts %}<span class="badge rounded-pill" style="background: #EAF7EF; color: #15803D">All clear</span>{% else %}<span class="badge rounded-pill bg-danger">{{ alerts|length }}</span>{% endif %}</div>
+                <div class="d-flex justify-content-between align-items-start"><div><div class="eyebrow">{{ _('Attention') }}</div><h2 class="sec">{{ _('Network alerts') }}</h2></div>
+                    {% if not alerts %}<span class="badge rounded-pill" style="background: #EAF7EF; color: #15803D">{{ _('All clear') }}</span>{% else %}<span class="badge rounded-pill bg-danger">{{ alerts|length }}</span>{% endif %}</div>
                 <div class="mt-3">
                 {% for level, text in alerts[:6] %}
                     <div class="alert-row"><i class="bi {{ 'bi-x-octagon text-danger' if level == 'danger' else ('bi-exclamation-triangle text-warning' if level == 'warning' else 'bi-info-circle text-primary') }}"></i><span>{{ text }}</span></div>
                 {% else %}
-                    <div class="text-center py-4"><i class="bi bi-check2-circle fs-3" style="color: #15803D"></i><div class="fw-semibold mt-1">No problems right now</div><div class="sub">Your devices are reporting and payments are flowing.</div></div>
+                    <div class="text-center py-4"><i class="bi bi-check2-circle fs-3" style="color: #15803D"></i><div class="fw-semibold mt-1">{{ _('No problems right now') }}</div><div class="sub">{{ _('Your devices are reporting and payments are flowing.') }}</div></div>
                 {% endfor %}
                 </div>
             </div>
@@ -340,13 +340,13 @@
         <!-- Quick actions -->
         <div class="col-lg-4">
             <div class="panel quick">
-                <div class="eyebrow">Quick actions</div><h2 class="sec mb-3">Keep growing</h2>
-                <a href="{{ url_for('add_user') }}">Add customer <i class="bi bi-arrow-right"></i></a>
-                <a href="{{ url_for('generate_vouchers') }}">Generate vouchers <i class="bi bi-arrow-right"></i></a>
-                <a href="{{ url_for('docs') }}" target="_blank" rel="noopener">Connect a Wi-Fi device <i class="bi bi-arrow-right"></i></a>
+                <div class="eyebrow">{{ _('Quick actions') }}</div><h2 class="sec mb-3">{{ _('Keep growing') }}</h2>
+                <a href="{{ url_for('add_user') }}">{{ _('Add customer') }} <i class="bi bi-arrow-right"></i></a>
+                <a href="{{ url_for('generate_vouchers') }}">{{ _('Generate vouchers') }} <i class="bi bi-arrow-right"></i></a>
+                <a href="{{ url_for('docs') }}" target="_blank" rel="noopener">{{ _('Connect a Wi-Fi device') }} <i class="bi bi-arrow-right"></i></a>
                 {% if current_user.has_role('admin') %}
-                <a href="{{ url_for('add_package') }}">Create package <i class="bi bi-arrow-right"></i></a>
-                <a href="{{ url_for('sites_page') }}">Manage sites <i class="bi bi-arrow-right"></i></a>
+                <a href="{{ url_for('add_package') }}">{{ _('Create package') }} <i class="bi bi-arrow-right"></i></a>
+                <a href="{{ url_for('sites_page') }}">{{ _('Manage sites') }} <i class="bi bi-arrow-right"></i></a>
                 {% endif %}
             </div>
         </div>

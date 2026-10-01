@@ -8,7 +8,7 @@
     <div class="col-md-8 offset-md-2">
         <div class="card">
             <div class="card-header">
-                <i class="bi bi-plus-circle"></i> Add Attribute to {{ plan.name }}
+                <i class="bi bi-plus-circle"></i> {{ _('Add Attribute to {plan}', plan=plan.name) }}
             </div>
             <div class="card-body">
                 <form method="POST" novalidate>
@@ -57,7 +57,7 @@
                                 {% for error in form.vendor.errors %}{{ error }}{% endfor %}
                             </div>
                         {% endif %}
-                        <small class="form-text text-muted">Leave as "Standard" for universal RADIUS attributes</small>
+                        <small class="form-text text-muted">{{ _('Leave as "Standard" for universal RADIUS attributes') }}</small>
                     </div>
                     
                     <div class="mb-3">
@@ -68,15 +68,15 @@
                                 {% for error in form.priority.errors %}{{ error }}{% endfor %}
                             </div>
                         {% endif %}
-                        <small class="form-text text-muted">Lower numbers are processed first</small>
+                        <small class="form-text text-muted">{{ _('Lower numbers are processed first') }}</small>
                     </div>
                     
                     <div class="d-flex justify-content-between">
                         <a href="{{ url_for('edit_plan', plan_id=plan.id) }}" class="btn btn-secondary">
-                            <i class="bi bi-arrow-left"></i> Cancel
+                            <i class="bi bi-arrow-left"></i> {{ _('Cancel') }}
                         </a>
                         <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-check-circle"></i> Add Attribute
+                            <i class="bi bi-check-circle"></i> {{ _('Add Attribute') }}
                         </button>
                     </div>
                 </form>

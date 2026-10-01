@@ -1,61 +1,61 @@
 {% extends "base.html" %}
 
-{% block title %}Session Detail - {{ app_name }}{% endblock %}
-{% block page_title %}Session Detail{% endblock %}
+{% block title %}{{ _('Session Detail') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Session Detail') }}{% endblock %}
 
 {% block content %}
 <div class="row">
     <div class="col-md-8 offset-md-2">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-info-circle"></i> Session Information</span>
+                <span><i class="bi bi-info-circle"></i> {{ _('Session Information') }}</span>
                 {% if session.acctstoptime %}
-                    <span class="badge bg-secondary">Closed Session</span>
+                    <span class="badge bg-secondary">{{ _('Closed Session') }}</span>
                 {% else %}
-                    <span class="badge bg-success">Active Session</span>
+                    <span class="badge bg-success">{{ _('Active Session') }}</span>
                 {% endif %}
             </div>
             <div class="card-body">
                 <div class="row mb-3">
                     <div class="col-md-6">
-                        <h6 class="text-muted">User Information</h6>
+                        <h6 class="text-muted">{{ _('User Information') }}</h6>
                         <table class="table table-sm">
                             <tr>
-                                <th width="40%">Username:</th>
+                                <th width="40%">{{ _('Username') }}:</th>
                                 <td><strong>{{ session.username }}</strong></td>
                             </tr>
                             <tr>
-                                <th>Group:</th>
+                                <th>{{ _('Group') }}:</th>
                                 <td>{{ session.groupname or '-' }}</td>
                             </tr>
                             <tr>
-                                <th>Realm:</th>
+                                <th>{{ _('Realm') }}:</th>
                                 <td>{{ session.realm or '-' }}</td>
                             </tr>
                             <tr>
-                                <th>Framed IP:</th>
+                                <th>{{ _('Framed IP') }}:</th>
                                 <td><code>{{ session.framedipaddress or '-' }}</code></td>
                             </tr>
                         </table>
                     </div>
                     
                     <div class="col-md-6">
-                        <h6 class="text-muted">NAS Information</h6>
+                        <h6 class="text-muted">{{ _('NAS Information') }}</h6>
                         <table class="table table-sm">
                             <tr>
-                                <th width="40%">NAS IP:</th>
+                                <th width="40%">{{ _('NAS IP') }}:</th>
                                 <td><code>{{ session.nasipaddress }}</code></td>
                             </tr>
                             <tr>
-                                <th>Port ID:</th>
+                                <th>{{ _('Port ID') }}:</th>
                                 <td>{{ session.nasportid or '-' }}</td>
                             </tr>
                             <tr>
-                                <th>Port Type:</th>
+                                <th>{{ _('Port Type') }}:</th>
                                 <td>{{ session.nasporttype or '-' }}</td>
                             </tr>
                             <tr>
-                                <th>Service Type:</th>
+                                <th>{{ _('Service Type') }}:</th>
                                 <td>{{ session.servicetype or '-' }}</td>
                             </tr>
                         </table>
@@ -66,18 +66,18 @@
                 
                 <div class="row mb-3">
                     <div class="col-md-6">
-                        <h6 class="text-muted">Session Timing</h6>
+                        <h6 class="text-muted">{{ _('Session Timing') }}</h6>
                         <table class="table table-sm">
                             <tr>
-                                <th width="40%">Start Time:</th>
-                                <td>{{ session.acctstarttime.strftime('%Y-%m-%d %H:%M:%S') if session.acctstarttime else 'N/A' }}</td>
+                                <th width="40%">{{ _('Start Time') }}:</th>
+                                <td>{{ session.acctstarttime.strftime('%Y-%m-%d %H:%M:%S') if session.acctstarttime else _('N/A') }}</td>
                             </tr>
                             <tr>
-                                <th>Stop Time:</th>
-                                <td>{{ session.acctstoptime.strftime('%Y-%m-%d %H:%M:%S') if session.acctstoptime else 'Still Active' }}</td>
+                                <th>{{ _('Stop Time') }}:</th>
+                                <td>{{ session.acctstoptime.strftime('%Y-%m-%d %H:%M:%S') if session.acctstoptime else _('Still Active') }}</td>
                             </tr>
                             <tr>
-                                <th>Duration:</th>
+                                <th>{{ _('Duration') }}:</th>
                                 <td>
                                     {% if duration_seconds %}
                                         {{ (duration_seconds // 3600)|int }}h 
@@ -96,17 +96,17 @@
                                 </td>
                             </tr>
                             <tr>
-                                <th>Terminate Cause:</th>
+                                <th>{{ _('Terminate Cause') }}:</th>
                                 <td>{{ session.acctterminatecause or '-' }}</td>
                             </tr>
                         </table>
                     </div>
                     
                     <div class="col-md-6">
-                        <h6 class="text-muted">Data Usage</h6>
+                        <h6 class="text-muted">{{ _('Data Usage') }}</h6>
                         <table class="table table-sm">
                             <tr>
-                                <th width="40%">Input Octets:</th>
+                                <th width="40%">{{ _('Input Octets') }}:</th>
                                 <td>
                                     {% if session.acctinputoctets %}
                                         {{ "%.2f"|format(session.acctinputoctets / 1024 / 1024) }} MB
@@ -116,7 +116,7 @@
                                 </td>
                             </tr>
                             <tr>
-                                <th>Output Octets:</th>
+                                <th>{{ _('Output Octets') }}:</th>
                                 <td>
                                     {% if session.acctoutputoctets %}
                                         {{ "%.2f"|format(session.acctoutputoctets / 1024 / 1024) }} MB
@@ -126,7 +126,7 @@
                                 </td>
                             </tr>
                             <tr>
-                                <th>Total:</th>
+                                <th>{{ _('Total') }}:</th>
                                 <td>
                                     {% if total_bytes %}
                                         <strong>{{ "%.2f"|format(total_mb) }} MB</strong>
@@ -137,7 +137,7 @@
                                 </td>
                             </tr>
                             <tr>
-                                <th>Average Speed:</th>
+                                <th>{{ _('Average Speed') }}:</th>
                                 <td>
                                     {% if total_bytes and duration_seconds and duration_seconds > 0 %}
                                         {% set avg_speed_mbps = (total_bytes * 8) / duration_seconds / 1000000 %}
@@ -155,30 +155,30 @@
                 
                 <div class="row">
                     <div class="col-md-12">
-                        <h6 class="text-muted">Additional Information</h6>
+                        <h6 class="text-muted">{{ _('Additional Information') }}</h6>
                         <table class="table table-sm">
                             <tr>
-                                <th width="20%">Session ID:</th>
+                                <th width="20%">{{ _('Session ID') }}:</th>
                                 <td><code>{{ session.acctsessionid }}</code></td>
                             </tr>
                             <tr>
-                                <th>Unique ID:</th>
+                                <th>{{ _('Unique ID') }}:</th>
                                 <td><code>{{ session.acctuniqueid }}</code></td>
                             </tr>
                             <tr>
-                                <th>Called Station:</th>
+                                <th>{{ _('Called Station') }}:</th>
                                 <td>{{ session.calledstationid or '-' }}</td>
                             </tr>
                             <tr>
-                                <th>Calling Station:</th>
+                                <th>{{ _('Calling Station') }}:</th>
                                 <td>{{ session.callingstationid or '-' }}</td>
                             </tr>
                             <tr>
-                                <th>Connect Info (Start):</th>
+                                <th>{{ _('Connect Info (Start)') }}:</th>
                                 <td>{{ session.connectinfo_start or '-' }}</td>
                             </tr>
                             <tr>
-                                <th>Connect Info (Stop):</th>
+                                <th>{{ _('Connect Info (Stop)') }}:</th>
                                 <td>{{ session.connectinfo_stop or '-' }}</td>
                             </tr>
                         </table>
@@ -187,7 +187,7 @@
                 
                 <div class="d-flex justify-content-between mt-4">
                     <a href="{{ url_for('accounting') }}" class="btn btn-secondary">
-                        <i class="bi bi-arrow-left"></i> Back to Sessions
+                        <i class="bi bi-arrow-left"></i> {{ _('Back to Sessions') }}
                     </a>
                 </div>
             </div>

@@ -1,50 +1,49 @@
 {% extends "base.html" %}
 {% from "auth/_field.html" import field %}
 
-{% block title %}Earnings - {{ app_name }}{% endblock %}
-{% block page_title %}Earnings{% endblock %}
+{% block title %}{{ _('Earnings') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Earnings') }}{% endblock %}
 
 {% block content %}
 {% set cur = tenant.currency %}
 <div class="row mb-3">
-    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.gross) }}</div><div class="stat-label">{{ cur }} mobile-money sales</div></div></div>
-    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.cash) }}</div><div class="stat-label">{{ cur }} cash vouchers used</div></div></div>
-    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.withdrawn) }}</div><div class="stat-label">{{ cur }} withdrawn / pending</div></div></div>
-    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value text-success">{{ '{:,.0f}'.format(stats.balance) }}</div><div class="stat-label">{{ cur }} available to withdraw</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.gross) }}</div><div class="stat-label">{{ _('{currency} mobile-money sales', currency=cur) }}</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.cash) }}</div><div class="stat-label">{{ _('{currency} cash vouchers used', currency=cur) }}</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.withdrawn) }}</div><div class="stat-label">{{ _('{currency} withdrawn / pending', currency=cur) }}</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value text-success">{{ '{:,.0f}'.format(stats.balance) }}</div><div class="stat-label">{{ _('{currency} available to withdraw', currency=cur) }}</div></div></div>
 </div>
 
 <div class="row">
     <div class="col-lg-5">
         <div class="card">
-            <div class="card-header"><i class="bi bi-wallet2"></i> How you are paid</div>
+            <div class="card-header"><i class="bi bi-wallet2"></i> {{ _('How you are paid') }}</div>
             <div class="card-body small">
                 {% if tenant.payment_mode == 'own' %}
-                <p>Package payments go <strong>straight into your own {{ 'Snippe' if tenant.own_provider == 'snippe' else 'ClickPesa' }} account</strong>
-                    ({{ cur }} {{ '{:,.0f}'.format(stats.own_gross) }} so far). Nothing to withdraw here.</p>
+                <p>{{ _('Package payments go') }} <strong>{{ _('straight into your own {provider} account', provider='Snippe' if tenant.own_provider == 'snippe' else 'ClickPesa') }}</strong>
+                    ({{ _('{amount} so far', amount=cur ~ ' ' ~ '{:,.0f}'.format(stats.own_gross)) }}). {{ _('Nothing to withdraw here.') }}</p>
                 {% else %}
-                <p>SafeNet collects package payments for you and keeps a <strong>{{ fee_percent }} %</strong> fee.
-                    Sales so far: {{ cur }} {{ '{:,.0f}'.format(stats.platform_gross) }}, fees {{ cur }} {{ '{:,.0f}'.format(stats.fees) }},
-                    your share {{ cur }} {{ '{:,.0f}'.format(stats.earned) }}{% if stats.sms_balance %}, less {{ cur }} {{ '{:,.0f}'.format(stats.sms_balance) }} for SMS to your guests{% endif %}.</p>
+                <p>{{ _('SafeNet collects package payments for you and keeps a') }} <strong>{{ fee_percent }} %</strong> {{ _('fee.') }}
+                    {{ _('Sales so far: {sales}, fees {fees}, your share {share}', sales=cur ~ ' ' ~ '{:,.0f}'.format(stats.platform_gross), fees=cur ~ ' ' ~ '{:,.0f}'.format(stats.fees), share=cur ~ ' ' ~ '{:,.0f}'.format(stats.earned)) }}{% if stats.sms_balance %}{{ _(', less {amount} for SMS to your guests', amount=cur ~ ' ' ~ '{:,.0f}'.format(stats.sms_balance)) }}{% endif %}.</p>
                 {% endif %}
-                <p class="mb-2"><i class="bi bi-chat-dots"></i> <strong>Voucher SMS cost {{ cur }} {{ sms_price }} each.</strong>
-                    {% if tenant.payment_mode == 'own' %}They are added to your monthly SafeNet bill.{% else %}They are taken from your balance.{% endif %}
-                    This month: {{ stats.sms_month[0] }} SMS, {{ cur }} {{ '{:,.0f}'.format(stats.sms_month[1]) }}.
-                    {% if not tenant.sms_to_guests %}<span class="text-muted">(SMS to guests is off.)</span>{% endif %}</p>
-                {% if current_user.has_role('owner') %}<a href="{{ url_for('payment_settings') }}">Change payment settings</a>{% endif %}
+                <p class="mb-2"><i class="bi bi-chat-dots"></i> <strong>{{ _('Voucher SMS cost {price} each.', price=cur ~ ' ' ~ sms_price|string) }}</strong>
+                    {% if tenant.payment_mode == 'own' %}{{ _('They are added to your monthly SafeNet bill.') }}{% else %}{{ _('They are taken from your balance.') }}{% endif %}
+                    {{ _('This month: {n} SMS, {amount}.', n=stats.sms_month[0], amount=cur ~ ' ' ~ '{:,.0f}'.format(stats.sms_month[1])) }}
+                    {% if not tenant.sms_to_guests %}<span class="text-muted">{{ _('(SMS to guests is off.)') }}</span>{% endif %}</p>
+                {% if current_user.has_role('owner') %}<a href="{{ url_for('payment_settings') }}">{{ _('Change payment settings') }}</a>{% endif %}
             </div>
         </div>
 
         {% if can_withdraw and (stats.balance > 0 or tenant.payment_mode == 'platform') %}
         <div class="card">
-            <div class="card-header"><i class="bi bi-cash-coin"></i> Withdraw</div>
+            <div class="card-header"><i class="bi bi-cash-coin"></i> {{ _('Withdraw') }}</div>
             <div class="card-body">
                 {% if stats.balance >= min_withdrawal %}
                 <form method="POST" action="{{ url_for('request_withdrawal') }}" novalidate>
                     {{ form.hidden_tag() }}
-                    {{ field(form.amount, help="Minimum " ~ cur ~ " " ~ '{:,}'.format(min_withdrawal) ~ ", up to " ~ '{:,.0f}'.format(stats.balance)) }}
+                    {{ field(form.amount, help=_('Minimum {min}, up to {max}', min=cur ~ ' ' ~ '{:,}'.format(min_withdrawal), max='{:,.0f}'.format(stats.balance))) }}
                     {{ field(form.method, "form-select") }}
                     <div data-method="lipa">
-                        {{ field(form.lipa_namba, inputmode="numeric", placeholder="e.g. 48001268") }}
+                        {{ field(form.lipa_namba, inputmode="numeric", placeholder=_('e.g. {example}', example='48001268')) }}
                         {{ field(form.lipa_network, "form-select") }}
                     </div>
                     <div data-method="bank">
@@ -53,10 +52,10 @@
                     </div>
                     {{ field(form.phone) }}
                     {{ field(form.account_name) }}
-                    <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> Request withdrawal</button>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> {{ _('Request withdrawal') }}</button>
                 </form>
                 {% else %}
-                <p class="text-muted mb-0">You can withdraw once your balance reaches {{ cur }} {{ '{:,}'.format(min_withdrawal) }}.</p>
+                <p class="text-muted mb-0">{{ _('You can withdraw once your balance reaches {amount}.', amount=cur ~ ' ' ~ '{:,}'.format(min_withdrawal)) }}</p>
                 {% endif %}
             </div>
         </div>
@@ -64,12 +63,12 @@
     </div>
     <div class="col-lg-7">
         <div class="card">
-            <div class="card-header"><i class="bi bi-clock-history"></i> Withdrawals</div>
+            <div class="card-header"><i class="bi bi-clock-history"></i> {{ _('Withdrawals') }}</div>
             <div class="card-body">
                 {% if withdrawals %}
                 <div class="table-responsive">
                     <table class="table align-middle">
-                        <thead><tr><th>Requested</th><th>Amount</th><th>To</th><th>Status</th></tr></thead>
+                        <thead><tr><th>{{ _('Requested') }}</th><th>{{ _('Amount') }}</th><th>{{ _('To') }}</th><th>{{ _('Status') }}</th></tr></thead>
                         <tbody>
                             {% for w in withdrawals %}
                             <tr>
@@ -77,10 +76,10 @@
                                 <td>{{ cur }} {{ '{:,.0f}'.format(w.amount) }}</td>
                                 <td><small>{{ w.destination }}{% if w.account_name %}<span class="d-block text-muted">{{ w.account_name }}</span>{% endif %}</small></td>
                                 <td>
-                                    {% if w.status == 'paid' %}<span class="badge bg-success">Paid</span><small class="d-block text-muted">Ref {{ w.reference }}</small>
-                                    {% elif w.status == 'requested' %}<span class="badge bg-warning text-dark">Pending</span>
-                                    {% elif w.status == 'sending' %}<span class="badge bg-info text-dark">Being sent</span>
-                                    {% else %}<span class="badge bg-danger">Rejected</span>{% if w.note %}<small class="d-block text-muted">{{ w.note }}</small>{% endif %}{% endif %}
+                                    {% if w.status == 'paid' %}<span class="badge bg-success">{{ _('Paid') }}</span><small class="d-block text-muted">{{ _('Ref {reference}', reference=w.reference) }}</small>
+                                    {% elif w.status == 'requested' %}<span class="badge bg-warning text-dark">{{ _('Pending') }}</span>
+                                    {% elif w.status == 'sending' %}<span class="badge bg-info text-dark">{{ _('Being sent') }}</span>
+                                    {% else %}<span class="badge bg-danger">{{ _('Rejected') }}</span>{% if w.note %}<small class="d-block text-muted">{{ w.note }}</small>{% endif %}{% endif %}
                                 </td>
                             </tr>
                             {% endfor %}
@@ -88,36 +87,36 @@
                     </table>
                 </div>
                 {% else %}
-                <p class="text-muted mb-0">No withdrawals yet.</p>
+                <p class="text-muted mb-0">{{ _('No withdrawals yet.') }}</p>
                 {% endif %}
             </div>
         </div>
         <div class="card" id="sms-history">
-            <div class="card-header"><i class="bi bi-chat-dots"></i> SMS sent to your guests <small class="text-muted">({{ cur }} {{ sms_price }} each)</small></div>
+            <div class="card-header"><i class="bi bi-chat-dots"></i> {{ _('SMS sent to your guests') }} <small class="text-muted">({{ _('{price} each', price=cur ~ ' ' ~ sms_price|string) }})</small></div>
             <div class="card-body">
-                <p class="small text-muted">Voucher SMS is <strong>{{ 'on' if tenant.sms_to_guests else 'off' }}</strong>{% if tenant.sms_changed_at %} since {{ tenant.sms_changed_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}.
-                    Only these SMS are charged. Payment receipts from M-Pesa, Airtel Money and the other networks are free and not from SafeNet.
-                    {% if current_user.has_role('owner') %}<a href="{{ url_for('payment_settings') }}#sms">Change</a>{% endif %}</p>
+                <p class="small text-muted">{{ _('Voucher SMS is') }} <strong>{{ _('on') if tenant.sms_to_guests else _('off') }}</strong>{% if tenant.sms_changed_at %} {{ _('since {date}', date=tenant.sms_changed_at.strftime('%Y-%m-%d %H:%M')) }}{% endif %}.
+                    {{ _('Only these SMS are charged. Payment receipts from M-Pesa, Airtel Money and the other networks are free and not from SafeNet.') }}
+                    {% if current_user.has_role('owner') %}<a href="{{ url_for('payment_settings') }}#sms">{{ _('Change') }}</a>{% endif %}</p>
                 {% if sms_history %}
                 <div class="table-responsive">
                     <table class="table table-sm align-middle">
-                        <thead><tr><th>Sent</th><th>To</th><th>What</th><th>SMS</th><th>Cost</th><th>Paid from</th></tr></thead>
+                        <thead><tr><th>{{ _('Sent') }}</th><th>{{ _('To') }}</th><th>{{ _('What') }}</th><th>SMS</th><th>{{ _('Cost') }}</th><th>{{ _('Paid from') }}</th></tr></thead>
                         <tbody>
                             {% for c in sms_history %}
                             <tr>
                                 <td><small>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</small></td>
                                 <td><small>{{ c.phone }}</small></td>
-                                <td><small>{{ {'voucher': 'Voucher code', 'gift': 'Code for a friend', 'receipt': 'Receipt to the payer', 'sale': 'Sale alert to you', 'daily': 'Daily summary to you'}.get(c.kind, c.kind) }}</small></td>
+                                <td><small>{{ {'voucher': _('Voucher code'), 'gift': _('Code for a friend'), 'receipt': _('Receipt to the payer'), 'sale': _('Sale alert to you'), 'daily': _('Daily summary to you')}.get(c.kind, c.kind) }}</small></td>
                                 <td>{{ c.parts }}</td>
                                 <td>{{ cur }} {{ '{:,.0f}'.format(c.amount) }}</td>
-                                <td><small>{{ 'Balance' if c.method == 'balance' else 'SafeNet bill' }}</small></td>
+                                <td><small>{{ _('Balance') if c.method == 'balance' else _('SafeNet bill') }}</small></td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
                 {% else %}
-                <p class="text-muted mb-0">No SMS charged yet.</p>
+                <p class="text-muted mb-0">{{ _('No SMS charged yet.') }}</p>
                 {% endif %}
             </div>
         </div>

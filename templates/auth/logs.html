@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 
-{% block title %}Authentication Logs - {{ app_name }}{% endblock %}
-{% block page_title %}Authentication & Authorization Logs{% endblock %}
+{% block title %}{{ _('Authentication Logs') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Authentication & Authorization Logs') }}{% endblock %}
 
 {% block content %}
 <div class="row mb-4">
     <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
-                <h5 class="text-muted mb-1">Total Auths</h5>
+                <h5 class="text-muted mb-1">{{ _('Total Auths') }}</h5>
                 <h2 class="mb-0">{{ total_auths }}</h2>
             </div>
         </div>
@@ -16,7 +16,7 @@
     <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
-                <h5 class="text-success mb-1">Accepted</h5>
+                <h5 class="text-success mb-1">{{ _('Accepted') }}</h5>
                 <h2 class="mb-0 text-success">{{ accepted }}</h2>
             </div>
         </div>
@@ -24,7 +24,7 @@
     <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
-                <h5 class="text-danger mb-1">Rejected</h5>
+                <h5 class="text-danger mb-1">{{ _('Rejected') }}</h5>
                 <h2 class="mb-0 text-danger">{{ rejected }}</h2>
             </div>
         </div>
@@ -32,7 +32,7 @@
     <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
-                <h5 class="text-warning mb-1">Challenged</h5>
+                <h5 class="text-warning mb-1">{{ _('Challenged') }}</h5>
                 <h2 class="mb-0 text-warning">{{ challenged }}</h2>
             </div>
         </div>
@@ -41,20 +41,20 @@
 
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-shield-check"></i> Authentication & Authorization Events</span>
+        <span><i class="bi bi-shield-check"></i> {{ _('Authentication & Authorization Events') }}</span>
         <form method="GET" class="d-flex gap-2">
-            <input type="text" name="search" class="form-control form-control-sm" placeholder="Search username..." value="{{ search }}" style="width: 200px;">
+            <input type="text" name="search" class="form-control form-control-sm" placeholder="{{ _('Search username...') }}" value="{{ search }}" style="width: 200px;">
             <select name="reply" class="form-select form-select-sm" style="width: 150px;">
-                <option value="all" {% if reply_filter == 'all' %}selected{% endif %}>All Replies</option>
-                <option value="Access-Accept" {% if reply_filter == 'Access-Accept' %}selected{% endif %}>Accepted</option>
-                <option value="Access-Reject" {% if reply_filter == 'Access-Reject' %}selected{% endif %}>Rejected</option>
-                <option value="Access-Challenge" {% if reply_filter == 'Access-Challenge' %}selected{% endif %}>Challenged</option>
+                <option value="all" {% if reply_filter == 'all' %}selected{% endif %}>{{ _('All Replies') }}</option>
+                <option value="Access-Accept" {% if reply_filter == 'Access-Accept' %}selected{% endif %}>{{ _('Accepted') }}</option>
+                <option value="Access-Reject" {% if reply_filter == 'Access-Reject' %}selected{% endif %}>{{ _('Rejected') }}</option>
+                <option value="Access-Challenge" {% if reply_filter == 'Access-Challenge' %}selected{% endif %}>{{ _('Challenged') }}</option>
             </select>
             <button type="submit" class="btn btn-sm btn-primary">
-                <i class="bi bi-search"></i> Filter
+                <i class="bi bi-search"></i> {{ _('Filter') }}
             </button>
             <a href="{{ url_for('auth_logs') }}" class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-arrow-clockwise"></i> Reset
+                <i class="bi bi-arrow-clockwise"></i> {{ _('Reset') }}
             </a>
         </form>
     </div>
@@ -64,10 +64,10 @@
             <table class="table table-hover">
                 <thead>
                     <tr>
-                        <th>Timestamp</th>
-                        <th>Username</th>
-                        <th>Reply</th>
-                        <th>Password Used</th>
+                        <th>{{ _('Timestamp') }}</th>
+                        <th>{{ _('Username') }}</th>
+                        <th>{{ _('Reply') }}</th>
+                        <th>{{ _('Password Used') }}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -107,11 +107,11 @@
         
         <!-- Pagination -->
         {% if pagination.pages > 1 %}
-        <nav aria-label="Page navigation">
+        <nav aria-label="{{ _('Page navigation') }}">
             <ul class="pagination justify-content-center">
                 {% if pagination.has_prev %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('auth_logs', page=pagination.prev_num, search=search, reply=reply_filter) }}">Previous</a>
+                    <a class="page-link" href="{{ url_for('auth_logs', page=pagination.prev_num, search=search, reply=reply_filter) }}">{{ _('Previous') }}</a>
                 </li>
                 {% endif %}
                 
@@ -135,7 +135,7 @@
                 
                 {% if pagination.has_next %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('auth_logs', page=pagination.next_num, search=search, reply=reply_filter) }}">Next</a>
+                    <a class="page-link" href="{{ url_for('auth_logs', page=pagination.next_num, search=search, reply=reply_filter) }}">{{ _('Next') }}</a>
                 </li>
                 {% endif %}
             </ul>
@@ -144,7 +144,7 @@
         {% else %}
         <div class="text-center py-5 text-muted">
             <i class="bi bi-inbox" style="font-size: 3rem;"></i>
-            <p class="mt-3">No authentication logs found</p>
+            <p class="mt-3">{{ _('No authentication logs found') }}</p>
         </div>
         {% endif %}
     </div>

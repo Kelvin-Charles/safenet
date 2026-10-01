@@ -56,6 +56,7 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Please log in to access this page.'
+login_manager.localize_callback = tr
 
 
 @login_manager.user_loader
@@ -121,10 +122,10 @@ def block_suspended_tenants():
                 return redirect(url_for('stop_impersonating'))
         if tenant is None or tenant.status == 'suspended' or not current_user.is_active:
             logout_user()
-            flash('This account is suspended. Please contact support.', 'danger')
+            flash(tr('This account is suspended. Please contact support.'), 'danger')
             return redirect(url_for('login'))
         if tenant_blocked(tenant) and request.endpoint not in BILLING_ENDPOINTS:
-            flash('Your SafeNet subscription has expired and your Wi-Fi is paused. Renew to continue.', 'danger')
+            flash(tr('Your SafeNet subscription has expired and your Wi-Fi is paused. Renew to continue.'), 'danger')
             return redirect(url_for('billing'))
 
 
@@ -144,8 +145,8 @@ def partners_are_read_only():
     if request.endpoint in allowed and (request.method in ('GET', 'HEAD') or request.endpoint in VIEWER_CHANGES):
         return None
     if request.path.startswith('/api/'):
-        return jsonify(error='Your account can view only.'), 403
-    flash('Your account can view but not change anything.', 'info')
+        return jsonify(error=tr('Your account can view only.')), 403
+    flash(tr('Your account can view but not change anything.'), 'info')
     return redirect(url_for('dashboard'))
 
 
@@ -214,17 +215,17 @@ def login():
     if form.validate_on_submit():
         user_key, ip_key = f'user:{form.username.data.strip().lower()}', f'ip:{_client_ip()}'
         if _rate_limited('login', user_key, LOGIN_LIMITS[0][1], 15) or _rate_limited('login', ip_key, LOGIN_LIMITS[1][1], 15):
-            flash('Too many failed attempts. Please wait 15 minutes, or reset your password.', 'danger')
+            flash(tr('Too many failed attempts. Please wait 15 minutes, or reset your password.'), 'danger')
             return render_template('auth/login.html', form=form), 429
         admin = Admin.query.filter_by(username=form.username.data).first()
         if admin and admin.check_password(form.password.data):
             if not admin.is_active:
-                flash('Your account has been disabled.', 'danger')
+                flash(tr('Your account has been disabled.'), 'danger')
                 return redirect(url_for('login'))
             if not admin.email_verified_at:
                 return render_template('auth/verify_notice.html', email=admin.email, form=EmailForm(email=admin.email))
             if not admin.is_superadmin and admin.tenant and admin.tenant.status == 'suspended':
-                flash('This account is suspended. Please contact support.', 'danger')
+                flash(tr('This account is suspended. Please contact support.'), 'danger')
                 return redirect(url_for('login'))
             
             admin.last_login = datetime.utcnow()
@@ -237,7 +238,7 @@ def login():
             return redirect(next_page)
         else:
             _rate_hit('login', user_key, ip_key)
-            flash('Invalid username or password.', 'danger')
+            flash(tr('Invalid username or password.'), 'danger')
     
     return render_template('auth/login.html', form=form)
 
@@ -249,7 +250,7 @@ def logout():
         return _end_impersonation()
     session.pop('tenant_id', None); session.pop('site_id', None)
     logout_user()
-    flash('You have been logged out.', 'info')
+    flash(tr('You have been logged out.'), 'info')
     return redirect(url_for('login'))
 
 
@@ -383,15 +384,15 @@ def dashboard():
     # Devices (gateways + VPN routers) and their health
     devices = []
     for gw in view['devices'](scoped(Gateway)).order_by(Gateway.name):
-        devices.append({'name': gw.name, 'kind': 'Gateway', 'site': gw.site_id, 'last': gw.last_seen_at,
+        devices.append({'name': gw.name, 'kind': tr('Gateway'), 'site': gw.site_id, 'last': gw.last_seen_at,
                         'state': _device_state(gw.last_seen_at, now) if gw.is_active else 'offline', 'where': gw.name})
     for r in view['devices'](scoped(Router)).order_by(Router.name):
-        devices.append({'name': r.name, 'kind': 'MikroTik' if r.vendor == 'mikrotik' else 'Router', 'site': r.site_id,
+        devices.append({'name': r.name, 'kind': 'MikroTik' if r.vendor == 'mikrotik' else tr('Router'), 'site': r.site_id,
                         'last': r.last_handshake_at, 'state': _device_state(r.last_handshake_at, now) if r.is_active else 'offline',
                         'where': r.tunnel_ip})
     for st in ([site] if site else tenant_sites(tid)):
         if st.wifidog_enabled:
-            devices.append({'name': f'{st.name} access points', 'kind': 'Ruijie / WiFiDog', 'site': st.id, 'last': st.wifidog_seen_at,
+            devices.append({'name': tr('{site} access points', site=st.name), 'kind': 'Ruijie / WiFiDog', 'site': st.id, 'last': st.wifidog_seen_at,
                             'state': _device_state(st.wifidog_seen_at, now), 'where': f'wifidog-{st.id}'})
     online_now = sessions().filter(RadAcct.acctstoptime.is_(None), last_seen >= now - timedelta(minutes=LIVE_STALE_MINUTES))
     per_device = dict(online_now.with_entities(RadAcct.calledstationid, func.count()).group_by(RadAcct.calledstationid).all())
@@ -462,7 +463,7 @@ def dashboard():
     codes = {v.code: v for v in scoped(Voucher).filter(Voucher.code.in_([r.username for r in recent]))} if recent else {}
     cutoff = now - timedelta(minutes=LIVE_STALE_MINUTES)
     recent_rows = [{'user': r.username, 'mac': r.callingstationid, 'ip': r.framedipaddress,
-                    'access': ('Voucher' if r.username in codes else 'Account') + (f' · {r.groupname}' if r.groupname else ''),
+                    'access': (tr('Voucher') if r.username in codes else tr('Account')) + (f' · {r.groupname}' if r.groupname else ''),
                     'router': _session_where(r, tid), 'last': r.acctupdatetime or r.acctstarttime,
                     'online': r.acctstoptime is None and (r.acctupdatetime or r.acctstarttime) >= cutoff} for r in recent]
 
@@ -470,20 +471,24 @@ def dashboard():
     alerts = []
     for d in devices:
         if d['state'] == 'offline':
-            alerts.append(('danger', f"{d['kind']} {d['name']} is offline" + (f" (last seen {(d['last'] + offset):%d %b %H:%M})" if d['last'] else ' (never connected)')))
+            alerts.append(('danger', tr('{kind} {name} is offline (last seen {when})', kind=d['kind'], name=d['name'],
+                                        when=f"{(d['last'] + offset):%d %b %H:%M}") if d['last'] else
+                           tr('{kind} {name} is offline (never connected)', kind=d['kind'], name=d['name'])))
         elif d['state'] == 'degraded':
-            alerts.append(('warning', f"{d['kind']} {d['name']} has not reported for a few minutes"))
+            alerts.append(('warning', tr('{kind} {name} has not reported for a few minutes', kind=d['kind'], name=d['name'])))
     stuck = view['payments'](scoped(Payment).filter(Payment.status == 'pending', Payment.created_at < now - timedelta(minutes=10))).count()
     if stuck:
-        alerts.append(('warning', f'{stuck} mobile-money payment{"s" if stuck > 1 else ""} still pending after 10 minutes'))
+        alerts.append(('warning', tr('{n} mobile-money payments still pending after 10 minutes', n=stuck) if stuck > 1 else
+                         tr('{n} mobile-money payment still pending after 10 minutes', n=stuck)))
     failed = view['payments'](scoped(Payment).filter(Payment.status == 'failed', Payment.created_at >= midnight)).count()
     if failed:
-        alerts.append(('info', f'{failed} payment{"s" if failed > 1 else ""} failed today'))
+        alerts.append(('info', tr('{n} payments failed today', n=failed) if failed > 1 else tr('{n} payment failed today', n=failed)))
     if subs['expiring']:
-        alerts.append(('info', f"{subs['expiring']} customer account{'s' if subs['expiring'] > 1 else ''} expire within 3 days"))
+        alerts.append(('info', tr('{n} customer accounts expire within 3 days', n=subs['expiring']) if subs['expiring'] > 1 else
+                      tr('{n} customer account expire within 3 days', n=subs['expiring'])))
 
     hour = datetime.now().hour
-    greeting = 'Good morning' if hour < 12 else ('Good afternoon' if hour < 17 else 'Good evening')
+    greeting = tr('Good morning') if hour < 12 else (tr('Good afternoon') if hour < 17 else tr('Good evening'))
     return render_template('dashboard.html', greeting=greeting, site=site, devices=devices, health=health,
                            last_telemetry=last_telemetry, users_online=users_online, via_hotspot=via_hotspot,
                            down_today=down_today, up_today=up_today, total_bytes=total_bytes,
@@ -517,16 +522,16 @@ def users():
 @login_required
 def add_user():
     form = UserForm()
-    form.plan_id.choices = [(0, '-- No Plan --')] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
+    form.plan_id.choices = [(0, tr('-- No Plan --'))] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
     
     if form.validate_on_submit():
         if _plan_limit_reached(current_tenant(), 'customers'):
-            flash('Your plan does not allow more customers. Upgrade on the Billing page.', 'warning')
+            flash(tr('Your plan does not allow more customers. Upgrade on the Billing page.'), 'warning')
             return redirect(url_for('users'))
         # Usernames are global in RADIUS: check every tenant's users and vouchers
         if _radius_username_taken(form.username.data):
-            flash('That username is already taken. Choose another.', 'danger')
-            return render_template('users/form.html', form=form, title='Add User')
+            flash(tr('That username is already taken. Choose another.'), 'danger')
+            return render_template('users/form.html', form=form, title=tr('Add User'))
         
         # Create RadUser
         user = RadUser(
@@ -566,12 +571,12 @@ def add_user():
                 db.session.add(usergroup)
         
         db.session.commit()
-        flash(f'User {form.username.data} created successfully.', 'success')
+        flash(tr('User {name} created successfully.', name=form.username.data), 'success')
         return redirect(url_for('users'))
     
     # Get NAS list for testing (empty for new users - they need to be saved first)
     nas_list = scoped(Nas).filter_by(is_active=True).all()
-    return render_template('users/form.html', form=form, nas_list=nas_list, title='Add User')
+    return render_template('users/form.html', form=form, nas_list=nas_list, title=tr('Add User'))
 
 
 @app.route('/users/edit/<int:user_id>', methods=['GET', 'POST'])
@@ -579,7 +584,7 @@ def add_user():
 def edit_user(user_id):
     user = owned_or_404(RadUser, user_id)
     form = UserForm(obj=user)
-    form.plan_id.choices = [(0, '-- No Plan --')] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
+    form.plan_id.choices = [(0, tr('-- No Plan --'))] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
     
     # Convert data_cap from bytes to GB for display
     if user.data_cap:
@@ -638,10 +643,10 @@ def edit_user(user_id):
                 db.session.add(usergroup)
         
         db.session.commit()
-        flash(f'User {user.username} updated successfully.', 'success')
+        flash(tr('User {name} updated successfully.', name=user.username), 'success')
         return redirect(url_for('users'))
     
-    return render_template('users/form.html', form=form, user=user, nas_list=nas_list, title='Edit User')
+    return render_template('users/form.html', form=form, user=user, nas_list=nas_list, title=tr('Edit User'))
 
 
 @app.route('/users/test-connection/<int:user_id>', methods=['POST'])
@@ -656,9 +661,9 @@ def test_user_connection(user_id):
         if request.is_json:
             return jsonify({
                 'success': False,
-                'message': 'Please select a NAS device to test against'
+                'message': tr('Please select a NAS device to test against')
             }), 400
-        flash('Please select a NAS device to test against.', 'danger')
+        flash(tr('Please select a NAS device to test against.'), 'danger')
         return redirect(url_for('edit_user', user_id=user_id))
     
     nas = owned_or_404(Nas, nas_id)
@@ -673,9 +678,9 @@ def test_user_connection(user_id):
         if request.is_json:
             return jsonify({
                 'success': False,
-                'message': f'User {user.username} does not have a password set'
+                'message': tr('User {name} does not have a password set', name=user.username)
             }), 400
-        flash(f'User {user.username} does not have a password set.', 'danger')
+        flash(tr('User {name} does not have a password set.', name=user.username), 'danger')
         return redirect(url_for('edit_user', user_id=user_id))
     
     password = radcheck.value
@@ -696,9 +701,9 @@ def test_user_connection(user_id):
                 user.is_active = True
                 db.session.commit()
             
-            message = f'Authentication successful! User {user.username} can connect to {nas.shortname} ({nas.nasname})'
-            if was_inactive:
-                message += '. User has been activated.'
+            where = dict(name=user.username, nas=nas.shortname, ip=nas.nasname)
+            message = (tr('Authentication successful! User {name} can connect to {nas} ({ip}). User has been activated.', **where)
+                       if was_inactive else tr('Authentication successful! User {name} can connect to {nas} ({ip})', **where))
             
             if request.is_json:
                 return jsonify({
@@ -709,11 +714,11 @@ def test_user_connection(user_id):
             flash(message, 'success')
             return redirect(url_for('edit_user', user_id=user_id))
         else:
-            error_msg = 'Authentication failed'
+            error_msg = tr('Authentication failed')
             if 'Access-Reject' in result.stdout:
-                error_msg += ': Invalid credentials or user not found'
+                error_msg = tr('Authentication failed: Invalid credentials or user not found')
             elif result.stderr:
-                error_msg += f': {result.stderr[:100]}'
+                error_msg = tr('Authentication failed: {error}', error=result.stderr[:100])
             
             if request.is_json:
                 return jsonify({
@@ -725,7 +730,7 @@ def test_user_connection(user_id):
             return redirect(url_for('edit_user', user_id=user_id))
             
     except subprocess.TimeoutExpired:
-        error_msg = f'Connection test timed out. NAS {nas.shortname} may be unreachable.'
+        error_msg = tr('Connection test timed out. NAS {nas} may be unreachable.', nas=nas.shortname)
         if request.is_json:
             return jsonify({
                 'success': False,
@@ -734,7 +739,7 @@ def test_user_connection(user_id):
         flash(error_msg, 'danger')
         return redirect(url_for('edit_user', user_id=user_id))
     except FileNotFoundError:
-        error_msg = 'RADIUS test tool not available. Please test manually.'
+        error_msg = tr('RADIUS test tool not available. Please test manually.')
         if request.is_json:
             return jsonify({
                 'success': False,
@@ -744,7 +749,7 @@ def test_user_connection(user_id):
         flash(error_msg, 'warning')
         return redirect(url_for('edit_user', user_id=user_id))
     except Exception as e:
-        error_msg = f'Test failed: {str(e)}'
+        error_msg = tr('Test failed: {error}', error=str(e))
         if request.is_json:
             return jsonify({
                 'success': False,
@@ -769,7 +774,7 @@ def delete_user(user_id):
     db.session.delete(user)
     
     db.session.commit()
-    flash(f'User {username} deleted successfully.', 'success')
+    flash(tr('User {name} deleted successfully.', name=username), 'success')
     return redirect(url_for('users'))
 
 
@@ -791,8 +796,8 @@ def add_plan():
     
     if form.validate_on_submit():
         if scoped(Plan).filter_by(name=form.name.data).first():
-            flash('Plan name already exists.', 'danger')
-            return render_template('plans/form.html', form=form, title='Add Plan')
+            flash(tr('Plan name already exists.'), 'danger')
+            return render_template('plans/form.html', form=form, title=tr('Add Plan'))
         
         plan = Plan(
             tenant_id=tenant_id(),
@@ -812,10 +817,10 @@ def add_plan():
         _sync_plan_rate_limit(plan)
         db.session.commit()
         
-        flash(f'Plan {form.name.data} created successfully.', 'success')
+        flash(tr('Plan {name} created successfully.', name=form.name.data), 'success')
         return redirect(url_for('edit_plan', plan_id=plan.id))
     
-    return render_template('plans/form.html', form=form, title='Add Plan')
+    return render_template('plans/form.html', form=form, title=tr('Add Plan'))
 
 
 @app.route('/plans/edit/<int:plan_id>', methods=['GET', 'POST'])
@@ -835,7 +840,7 @@ def edit_plan(plan_id):
     if form.validate_on_submit():
         clash = scoped(Plan).filter(Plan.name == form.name.data, Plan.id != plan.id).first()
         if clash:
-            flash('Plan name already exists.', 'danger')
+            flash(tr('Plan name already exists.'), 'danger')
             return redirect(url_for('edit_plan', plan_id=plan.id))
         plan.name = form.name.data   # group_name stays fixed, so users keep their plan
         plan.description = form.description.data
@@ -855,13 +860,13 @@ def edit_plan(plan_id):
         
         _sync_plan_rate_limit(plan)
         db.session.commit()
-        flash(f'Plan {plan.name} updated successfully.', 'success')
+        flash(tr('Plan {name} updated successfully.', name=plan.name), 'success')
         return redirect(url_for('plans'))
     
     # Get attributes
     attributes = PlanAttribute.query.filter_by(plan_id=plan.id).order_by(PlanAttribute.priority).all()
     
-    return render_template('plans/edit.html', form=form, plan=plan, attributes=attributes, title='Edit Plan')
+    return render_template('plans/edit.html', form=form, plan=plan, attributes=attributes, title=tr('Edit Plan'))
 
 
 @app.route('/plans/<int:plan_id>/attributes/add', methods=['GET', 'POST'])
@@ -870,7 +875,7 @@ def edit_plan(plan_id):
 def add_plan_attribute(plan_id):
     plan = owned_or_404(Plan, plan_id)
     form = PlanAttributeForm()
-    form.vendor.choices = [('', '-- Standard --')] + Config.SUPPORTED_VENDORS
+    form.vendor.choices = [('', tr('-- Standard --'))] + Config.SUPPORTED_VENDORS
     
     if form.validate_on_submit():
         attribute = PlanAttribute(
@@ -894,10 +899,10 @@ def add_plan_attribute(plan_id):
         db.session.add(groupreply)
         
         db.session.commit()
-        flash('Attribute added successfully.', 'success')
+        flash(tr('Attribute added successfully.'), 'success')
         return redirect(url_for('edit_plan', plan_id=plan.id))
     
-    return render_template('plans/attribute_form.html', form=form, plan=plan, title='Add Attribute')
+    return render_template('plans/attribute_form.html', form=form, plan=plan, title=tr('Add Attribute'))
 
 
 @app.route('/plans/reset-data-cap/<int:plan_id>', methods=['POST'])
@@ -916,8 +921,22 @@ def reset_plan_data_cap(plan_id):
             user.last_reset = datetime.utcnow()
     
     db.session.commit()
-    flash(f'Data cap reset for plan {plan.name} and all users in this plan. Counter will reset based on {plan.data_cap_period or "monthly"} period.', 'success')
+    flash(tr('Data cap reset for plan {name} and all users in this plan. Counter will reset based on {period} period.',
+             name=plan.name, period=tr(plan.data_cap_period or 'monthly')), 'success')
     return redirect(url_for('edit_plan', plan_id=plan_id))
+
+
+@app.route('/users/<int:user_id>/reset-data-cap', methods=['POST'])
+@login_required
+@role_required('admin')
+def reset_user_data_cap(user_id):
+    """Start one customer's data cap counter again (the edit page offered this, but the route was missing)."""
+    _check_csrf()
+    user = owned_or_404(RadUser, user_id)
+    user.last_reset = datetime.utcnow()
+    db.session.commit()
+    flash(tr('Data cap counter reset for {name}.', name=user.username), 'success')
+    return redirect(url_for('edit_user', user_id=user.id))
 
 
 @app.route('/plans/<int:plan_id>/attributes/<int:attr_id>/delete', methods=['POST'])
@@ -937,7 +956,7 @@ def delete_plan_attribute(plan_id, attr_id):
     db.session.delete(attribute)
     db.session.commit()
     
-    flash('Attribute deleted successfully.', 'success')
+    flash(tr('Attribute deleted successfully.'), 'success')
     return redirect(url_for('edit_plan', plan_id=plan_id))
 
 
@@ -957,7 +976,7 @@ def delete_plan(plan_id):
     db.session.delete(plan)
     db.session.commit()
     
-    flash(f'Plan {plan_name} deleted successfully.', 'success')
+    flash(tr('Plan {name} deleted successfully.', name=plan_name), 'success')
     return redirect(url_for('plans'))
 
 
@@ -980,8 +999,8 @@ def add_nas():
     if form.validate_on_submit():
         # IPs are global: FreeRADIUS identifies a router by its address
         if Nas.query.filter_by(nasname=form.nasname.data).first():
-            flash('A router with this IP address is already registered.', 'danger')
-            return render_template('nas/form.html', form=form, title='Add NAS')
+            flash(tr('A router with this IP address is already registered.'), 'danger')
+            return render_template('nas/form.html', form=form, title=tr('Add NAS'))
         
         nas = Nas(
             tenant_id=tenant_id(),
@@ -1000,10 +1019,10 @@ def add_nas():
         db.session.add(nas)
         db.session.commit()
         
-        flash(f'NAS {form.shortname.data} added successfully.', 'success')
+        flash(tr('NAS {name} added successfully.', name=form.shortname.data), 'success')
         return redirect(url_for('nas_list'))
     
-    return render_template('nas/form.html', form=form, title='Add NAS')
+    return render_template('nas/form.html', form=form, title=tr('Add NAS'))
 
 
 @app.route('/nas/edit/<int:nas_id>', methods=['GET', 'POST'])
@@ -1016,8 +1035,8 @@ def edit_nas(nas_id):
     
     if form.validate_on_submit():
         if Nas.query.filter(Nas.nasname == form.nasname.data, Nas.id != nas.id).first():
-            flash('A router with this IP address is already registered.', 'danger')
-            return render_template('nas/form.html', form=form, nas=nas, title='Edit NAS')
+            flash(tr('A router with this IP address is already registered.'), 'danger')
+            return render_template('nas/form.html', form=form, nas=nas, title=tr('Edit NAS'))
         nas.nasname = form.nasname.data
         nas.shortname = form.shortname.data
         nas.type = form.type.data
@@ -1030,10 +1049,10 @@ def edit_nas(nas_id):
         nas.is_active = form.is_active.data
         
         db.session.commit()
-        flash(f'NAS {nas.shortname} updated successfully.', 'success')
+        flash(tr('NAS {name} updated successfully.', name=nas.shortname), 'success')
         return redirect(url_for('nas_list'))
     
-    return render_template('nas/form.html', form=form, nas=nas, title='Edit NAS')
+    return render_template('nas/form.html', form=form, nas=nas, title=tr('Edit NAS'))
 
 
 @app.route('/nas/test/<int:nas_id>', methods=['POST'])
@@ -1054,7 +1073,7 @@ def test_nas_connection(nas_id):
         sock.close()
         
         if test_result == 0:
-            message = f'NAS {nas.shortname} ({nas.nasname}) is reachable on port 1812'
+            message = tr('NAS {name} ({ip}) is reachable on port 1812', name=nas.shortname, ip=nas.nasname)
             if request.is_json:
                 return jsonify({
                     'success': True,
@@ -1062,7 +1081,7 @@ def test_nas_connection(nas_id):
                 })
             flash(message, 'success')
         else:
-            message = f'Cannot reach NAS {nas.shortname} ({nas.nasname}) on port 1812. Check network connectivity.'
+            message = tr('Cannot reach NAS {name} ({ip}) on port 1812. Check network connectivity.', name=nas.shortname, ip=nas.nasname)
             if request.is_json:
                 return jsonify({
                     'success': False,
@@ -1070,7 +1089,7 @@ def test_nas_connection(nas_id):
                 }), 400
             flash(message, 'warning')
     except socket.gaierror:
-        message = f'Invalid IP address: {nas.nasname}'
+        message = tr('Invalid IP address: {ip}', ip=nas.nasname)
         if request.is_json:
             return jsonify({
                 'success': False,
@@ -1078,7 +1097,7 @@ def test_nas_connection(nas_id):
             }), 400
         flash(message, 'danger')
     except Exception as e:
-        message = f'Connection test failed: {str(e)}'
+        message = tr('Connection test failed: {error}', error=str(e))
         if request.is_json:
             return jsonify({
                 'success': False,
@@ -1100,7 +1119,7 @@ def delete_nas(nas_id):
     db.session.delete(nas)
     db.session.commit()
     
-    flash(f'NAS {shortname} deleted successfully.', 'success')
+    flash(tr('NAS {name} deleted successfully.', name=shortname), 'success')
     return redirect(url_for('nas_list'))
 
 
@@ -1470,7 +1489,7 @@ def _free_trial_stats(tid):
 @login_required
 def generate_vouchers():
     form = VoucherGenerateForm()
-    form.plan_id.choices = [(0, '-- No Plan --')] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
+    form.plan_id.choices = [(0, tr('-- No Plan --'))] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
 
     if form.validate_on_submit():
         plan = scoped(Plan).filter_by(id=form.plan_id.data).first() if form.plan_id.data else None
@@ -1483,7 +1502,7 @@ def generate_vouchers():
                          is_free=form.is_free.data, site_id=site_for_new_things().id)
         db.session.commit()
 
-        flash(f'{form.count.data} vouchers created in batch "{batch}".', 'success')
+        flash(tr('{n} vouchers created in batch "{batch}".', n=form.count.data, batch=batch), 'success')
         return redirect(url_for('vouchers', batch=batch))
 
     return render_template('vouchers/generate.html', form=form, currency=current_tenant().currency)
@@ -1494,7 +1513,7 @@ def generate_vouchers():
 def print_vouchers():
     batch = request.args.get('batch', '', type=str)
     if not batch:
-        flash('Choose a batch to print.', 'warning')
+        flash(tr('Choose a batch to print.'), 'warning')
         return redirect(url_for('vouchers'))
     items = scoped(Voucher).filter_by(batch=batch, status='unused').order_by(Voucher.id).all()
     return render_template('vouchers/print.html', vouchers=items, batch=batch,
@@ -1508,11 +1527,11 @@ def toggle_voucher(voucher_id):
     voucher = owned_or_404(Voucher, voucher_id)
     if voucher.status == 'disabled':
         voucher.status = 'active' if voucher.first_used_at else 'unused'
-        flash(f'Voucher {voucher.code} enabled.', 'success')
+        flash(tr('Voucher {code} enabled.', code=voucher.code), 'success')
     else:
         voucher.status = 'disabled'
         disconnect_subscriber(voucher.tenant_id, voucher.code)
-        flash(f'Voucher {voucher.code} disabled and its devices disconnected.', 'success')
+        flash(tr('Voucher {code} disabled and its devices disconnected.', code=voucher.code), 'success')
     db.session.commit()
     return redirect(request.referrer or url_for('vouchers'))
 
@@ -1530,7 +1549,7 @@ def delete_voucher(voucher_id):
     RadUserGroup.query.filter_by(username=code).delete()
     db.session.delete(voucher)
     db.session.commit()
-    flash(f'Voucher {code} deleted.', 'success')
+    flash(tr('Voucher {code} deleted.', code=code), 'success')
     return redirect(request.referrer or url_for('vouchers'))
 
 
@@ -1546,7 +1565,7 @@ def delete_unused_batch():
         RadUserGroup.query.filter(RadUserGroup.username.in_(codes)).delete(synchronize_session=False)
         Voucher.query.filter(Voucher.code.in_(codes)).delete(synchronize_session=False)
         db.session.commit()
-    flash(f'Deleted {len(codes)} unused vouchers from batch "{batch}".', 'success')
+    flash(tr('Deleted {n} unused vouchers from batch "{batch}".', n=len(codes), batch=batch), 'success')
     return redirect(url_for('vouchers'))
 
 
@@ -2252,7 +2271,7 @@ def _omada_unauth_async(site, mac):
 def site_wifi(site_id):
     site = owned_or_404(Site, site_id)
     if not _omada_openapi_available():
-        flash("Adding access points from SafeNet isn't switched on for this server yet.", 'warning')
+        flash(tr("Adding access points from SafeNet isn't switched on for this server yet."), 'warning')
         return redirect(url_for('sites_page'))
     devices, error = [], None
     if site.omada_site_id:
@@ -2262,7 +2281,7 @@ def site_wifi(site_id):
             error = str(e)
     for d in devices:
         label, color = OMADA_STATUS.get(d.get('status'), ('Unknown', 'secondary'))
-        d['label'], d['color'] = OMADA_DETAIL.get(d.get('detailStatus'), label), color
+        d['label'], d['color'] = tr(OMADA_DETAIL.get(d.get('detailStatus'), label)), color
     return render_template('sites_wifi.html', site=site, devices=devices, error=error,
                            omada_host=Config.OMADA_HOSTED_HOST)
 
@@ -2277,14 +2296,14 @@ def site_wifi_setup(site_id):
         abort(404)
     name = (request.form.get('wifi_name') or '').strip()[:32]
     if not name:
-        flash('Enter the Wi-Fi name guests will see.', 'danger')
+        flash(tr('Enter the Wi-Fi name guests will see.'), 'danger')
         return redirect(url_for('site_wifi', site_id=site.id))
     try:
         _omada_provision(site, current_tenant(), name)
-        flash(f'Your Wi-Fi "{name}" is ready. Now add your access point below.', 'success')
+        flash(tr('Your Wi-Fi "{name}" is ready. Now add your access point below.', name=name), 'success')
     except omada.OmadaError as e:
         site.omada_error = str(e)[:255]
-        flash(f'Could not set up the Wi-Fi: {e}', 'danger')
+        flash(tr('Could not set up the Wi-Fi: {error}', error=e), 'danger')
     db.session.commit()
     return redirect(url_for('site_wifi', site_id=site.id))
 
@@ -2303,11 +2322,11 @@ def site_wifi_adopt(site_id):
         mac = api.mac(request.form.get('mac'))
         known = {(d.get('mac') or '').upper() for d in api.devices(site.omada_site_id)}
         if mac in known:
-            flash(f'{mac} is already one of your access points.', 'info')
+            flash(tr('{mac} is already one of your access points.', mac=mac), 'info')
             return back
         if mac not in {(d.get('mac') or '').upper() for d in api.pending(site.omada_site_id)}:
-            flash(f"SafeNet can't see {mac} yet. Check it is plugged in with internet and pointed to {Config.OMADA_HOSTED_HOST}, "
-                  'wait 2 minutes, then try again.', 'warning')
+            flash(tr("SafeNet can't see {mac} yet. Check it is plugged in with internet and pointed to {host}, wait 2 minutes, then try again.",
+                     mac=mac, host=Config.OMADA_HOSTED_HOST), 'warning')
             return back
         user, password = (request.form.get('username') or '').strip(), request.form.get('password') or ''
         api.adopt(site.omada_site_id, mac, user or None, password or None)
@@ -2319,11 +2338,11 @@ def site_wifi_adopt(site_id):
                 break
         code = result.get('adoptErrorCode')
         if code == 0 or code is None:
-            flash(f'{mac} is being added. It restarts once and shows "Online" in 1–3 minutes.', 'success')
+            flash(tr('{mac} is being added. It restarts once and shows "Online" in 1–3 minutes.', mac=mac), 'success')
         elif result.get('adoptFailedType') == -2:
-            flash(f'{mac} needs its own login: enter the username and password you set on the access point, then try again.', 'warning')
+            flash(tr('{mac} needs its own login: enter the username and password you set on the access point, then try again.', mac=mac), 'warning')
         else:
-            flash(f'The access point did not accept (code {code}). Restart it and try again in 2 minutes.', 'danger')
+            flash(tr('The access point did not accept (code {code}). Restart it and try again in 2 minutes.', code=code), 'danger')
     except omada.OmadaError as e:
         flash(str(e)[0].upper() + str(e)[1:], 'danger')
     return back
@@ -2659,7 +2678,8 @@ def site_wifidog(site_id):
     if site.wifidog_enabled and not site.portal_token:
         site.portal_token = secrets.token_urlsafe(12)[:16]
     db.session.commit()
-    flash(f'Ruijie / WiFiDog access points {"switched on" if site.wifidog_enabled else "switched off"} for "{site.name}".', 'success')
+    flash(tr('Ruijie / WiFiDog access points switched on for "{site}".', site=site.name) if site.wifidog_enabled else
+          tr('Ruijie / WiFiDog access points switched off for "{site}".', site=site.name), 'success')
     return redirect(url_for('sites_page'))
 
 
@@ -2675,7 +2695,7 @@ def site_omada(site_id):
         site.omada_url = site.omada_user = site.omada_password_enc = site.omada_error = None
         site.omada_checked_at, site.omada_hosted = None, False
         db.session.commit()
-        flash(f'Omada removed from "{site.name}".', 'success')
+        flash(tr('Omada removed from "{site}".', site=site.name), 'success')
         return redirect(url_for('sites_page'))
     if action == 'hosted':
         if not _omada_hosted_available():
@@ -2687,10 +2707,11 @@ def site_omada(site_id):
         try:
             _omada_controller(site).check()
             site.omada_checked_at, site.omada_error = datetime.utcnow(), None
-            flash(f'"{site.name}" now uses SafeNet\'s Omada Controller. Point your access points to {Config.OMADA_HOSTED_HOST} (steps below).', 'success')
+            flash(tr("\"{site}\" now uses SafeNet's Omada Controller. Point your access points to {host} (steps below).",
+                     site=site.name, host=Config.OMADA_HOSTED_HOST), 'success')
         except omada.OmadaError as e:
             site.omada_error = str(e)[:255]
-            flash(f"Saved, but SafeNet's Omada Controller did not answer: {e}", 'warning')
+            flash(tr("Saved, but SafeNet's Omada Controller did not answer: {error}", error=e), 'warning')
         db.session.commit()
         return redirect(url_for('sites_page'))
     url = (request.form.get('omada_url') or '').strip().rstrip('/')[:255]
@@ -2698,11 +2719,11 @@ def site_omada(site_id):
     password = request.form.get('omada_password') or ''
     parsed = urlparse(url)
     if parsed.scheme not in ('http', 'https') or not parsed.hostname or not user or not (password or site.omada_password_enc):
-        flash('Enter the controller address (e.g. https://203.0.113.5:8043), the hotspot operator name and password.', 'danger')
+        flash(tr('Enter the controller address (e.g. https://203.0.113.5:8043), the hotspot operator name and password.'), 'danger')
         return redirect(url_for('sites_page'))
     problem = omada.public_address_problem(url)
     if problem:
-        flash(f'Controller address not accepted: {problem}.', 'danger')
+        flash(tr('Controller address not accepted: {problem}.', problem=problem), 'danger')
         return redirect(url_for('sites_page'))
     site.omada_url, site.omada_user, site.omada_hosted = url, user, False
     if password:
@@ -2713,10 +2734,10 @@ def site_omada(site_id):
     try:
         _omada_controller(site).check()
         site.omada_checked_at, site.omada_error = datetime.utcnow(), None
-        flash(f'Connected to the Omada Controller for "{site.name}". Now set the portal in Omada (steps below).', 'success')
+        flash(tr('Connected to the Omada Controller for "{site}". Now set the portal in Omada (steps below).', site=site.name), 'success')
     except omada.OmadaError as e:
         site.omada_error = str(e)[:255]
-        flash(f'Saved, but SafeNet could not log in to the controller: {e}', 'warning')
+        flash(tr('Saved, but SafeNet could not log in to the controller: {error}', error=e), 'warning')
     db.session.commit()
     return redirect(url_for('sites_page'))
 
@@ -2754,7 +2775,7 @@ def portal_settings():
             data = upload.read(MAX_LOGO_BYTES + 1)
             kind = _logo_type(data)
             if len(data) > MAX_LOGO_BYTES or not kind:
-                flash('The logo must be a PNG, JPG or WebP image of at most 300 KB.', 'danger')
+                flash(tr('The logo must be a PNG, JPG or WebP image of at most 300 KB.'), 'danger')
                 return redirect(url_for('portal_settings'))
             tenant.portal_logo, tenant.portal_logo_type, tenant.portal_logo_at = data, kind, datetime.utcnow()
         elif form.remove_logo.data:
@@ -2767,7 +2788,7 @@ def portal_settings():
         tenant.portal_show_voucher = form.show_voucher.data
         tenant.portal_show_packages = form.show_packages.data
         db.session.commit()
-        flash('Captive portal saved. Gateways pick up the changes within 5 minutes.', 'success')
+        flash(tr('Captive portal saved. Gateways pick up the changes within 5 minutes.'), 'success')
         return redirect(url_for('portal_settings'))
     return render_template('portal_settings.html', form=form, has_logo=bool(tenant.portal_logo_at),
                            logo_url=url_for('portal_logo', slug=tenant.slug, v=int(tenant.portal_logo_at.timestamp()))
@@ -2804,7 +2825,7 @@ def packages():
 
 def _package_form():
     form = PackageForm()
-    form.plan_id.choices = [(0, '-- No speed limit --')] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
+    form.plan_id.choices = [(0, tr('-- No speed limit --'))] + [(p.id, p.name) for p in scoped(Plan).filter_by(is_active=True).all()]
     return form
 
 
@@ -2830,9 +2851,9 @@ def add_package():
         _fill_package(package, form)
         db.session.add(package)
         db.session.commit()
-        flash(f'Package "{package.name}" created.', 'success')
+        flash(tr('Package "{name}" created.', name=package.name), 'success')
         return redirect(url_for('packages'))
-    return render_template('packages/form.html', form=form, title='New Package')
+    return render_template('packages/form.html', form=form, title=tr('New Package'))
 
 
 @app.route('/packages/<int:package_id>/edit', methods=['GET', 'POST'])
@@ -2849,9 +2870,9 @@ def edit_package(package_id):
     if form.validate_on_submit():
         _fill_package(package, form)
         db.session.commit()
-        flash(f'Package "{package.name}" updated.', 'success')
+        flash(tr('Package "{name}" updated.', name=package.name), 'success')
         return redirect(url_for('packages'))
-    return render_template('packages/form.html', form=form, title='Edit Package', package=package)
+    return render_template('packages/form.html', form=form, title=tr('Edit Package'), package=package)
 
 
 @app.route('/packages/<int:package_id>/delete', methods=['POST'])
@@ -2863,7 +2884,7 @@ def delete_package(package_id):
     name = package.name
     db.session.delete(package)
     db.session.commit()
-    flash(f'Package "{name}" deleted. Past payments keep their records.', 'success')
+    flash(tr('Package "{name}" deleted. Past payments keep their records.', name=name), 'success')
     return redirect(url_for('packages'))
 
 
@@ -3247,7 +3268,7 @@ def refresh_payment(payment_id):
     _check_csrf()
     payment = owned_or_404(Payment, payment_id)
     payment = _refresh_payment(payment.reference, force=True)
-    flash(f'Payment {payment.reference}: {payment.status}.', 'info')
+    flash(tr('Payment {reference}: {status}.', reference=payment.reference, status=tr(payment.status)), 'info')
     return redirect(request.referrer or url_for('payments'))
 
 
@@ -3811,11 +3832,11 @@ def signup():
     if form.validate_on_submit():
         email = form.email.data.strip().lower()
         if _rate_limited('signup', f'ip:{_client_ip()}', 5, 60):
-            flash('Too many new accounts from this connection. Please try again in an hour.', 'danger')
+            flash(tr('Too many new accounts from this connection. Please try again in an hour.'), 'danger')
         elif Admin.query.filter_by(username=form.username.data).first():
-            form.username.errors.append('That username is taken.')
+            form.username.errors.append(tr('That username is taken.'))
         elif Admin.query.filter(func.lower(Admin.email) == email).first():
-            form.email.errors.append('An account with this email already exists. Log in or reset your password.')
+            form.email.errors.append(tr('An account with this email already exists. Log in or reset your password.'))
         else:
             _rate_hit('signup', f'ip:{_client_ip()}')
             tenant = Tenant(name=form.business_name.data.strip(), slug=_unique_slug(form.business_name.data),
@@ -3838,7 +3859,7 @@ def verify_email(token):
     try:
         data = _tokens('verify-email').loads(token, max_age=3 * 86400)
     except SignatureExpired:
-        flash('That confirmation link has expired. Log in to get a new one.', 'warning')
+        flash(tr('That confirmation link has expired. Log in to get a new one.'), 'warning')
         return redirect(url_for('login'))
     except BadSignature:
         abort(404)
@@ -3848,7 +3869,7 @@ def verify_email(token):
     if not admin.email_verified_at:
         admin.email_verified_at = datetime.utcnow()
         db.session.commit()
-    flash('Email confirmed. You can log in now.', 'success')
+    flash(tr('Email confirmed. You can log in now.'), 'success')
     return redirect(url_for('login'))
 
 
@@ -3862,7 +3883,7 @@ def resend_verification():
             admin = Admin.query.filter(func.lower(Admin.email) == email).first()
             if admin and not admin.email_verified_at:
                 _send_verification(admin)
-    flash('If that account is waiting for confirmation, we sent a new link.', 'info')
+    flash(tr('If that account is waiting for confirmation, we sent a new link.'), 'info')
     return redirect(url_for('login'))
 
 
@@ -3880,7 +3901,7 @@ def forgot_password():
             send_mail(admin.email, 'Reset your SafeNet password',
                       f'Hi {admin.username},\n\nReset your password here (valid for 1 hour):\n'
                       f'{_link("reset_password", token=token)}\n\nIf you did not ask for this, ignore this email.\n')
-        flash('If an account uses that email, we sent a reset link.', 'info')
+        flash(tr('If an account uses that email, we sent a reset link.'), 'info')
         return redirect(url_for('login'))
     return render_template('auth/forgot.html', form=form)
 
@@ -3895,19 +3916,19 @@ def reset_password(token):
     try:
         data = _tokens('reset-password').loads(token, max_age=3600)
     except (BadSignature, SignatureExpired):
-        flash('That reset link is invalid or has expired.', 'warning')
+        flash(tr('That reset link is invalid or has expired.'), 'warning')
         return redirect(url_for('forgot_password'))
     admin = db.session.get(Admin, data.get('id'))
     # The token carries a fingerprint of the old password, so it stops working once used
     if not admin or not hmac.compare_digest(_reset_fingerprint(admin), str(data.get('h') or '')):
-        flash('That reset link has already been used.', 'warning')
+        flash(tr('That reset link has already been used.'), 'warning')
         return redirect(url_for('forgot_password'))
     form = ResetPasswordForm()
     if form.validate_on_submit():
         admin.set_password(form.password.data)
         admin.email_verified_at = admin.email_verified_at or datetime.utcnow()
         db.session.commit()
-        flash('Password changed. You can log in now.', 'success')
+        flash(tr('Password changed. You can log in now.'), 'success')
         return redirect(url_for('login'))
     return render_template('auth/reset.html', form=form)
 
@@ -3930,7 +3951,7 @@ def tenant_settings():
         tenant.terms = (form.terms.data or '').strip() or None
         tenant.block_tethering = form.block_tethering.data
         db.session.commit()
-        flash('Settings saved.', 'success')
+        flash(tr('Settings saved.'), 'success')
         return redirect(url_for('tenant_settings'))
     return render_template('settings.html', form=form)
 
@@ -3959,16 +3980,16 @@ def add_team_member():
     form = TeamMemberForm()
     if not (current_user.is_superadmin or current_user.role == 'owner'):
         form.role.choices = [c for c in form.role.choices if c[0] == 'staff']   # partners see the finances: owners only
-    form.site_id.choices = [(0, 'The whole business (all sites)')] + [(x.id, f'Only {x.name}') for x in tenant_sites()]
+    form.site_id.choices = [(0, tr('The whole business (all sites)'))] + [(x.id, tr('Only {site}', site=x.name)) for x in tenant_sites()]
     if form.validate_on_submit():
         if form.role.data != 'viewer' and _plan_limit_reached(current_tenant(), 'staff'):
-            flash('Your plan does not allow more staff accounts. Upgrade on the Billing page.', 'warning')
+            flash(tr('Your plan does not allow more staff accounts. Upgrade on the Billing page.'), 'warning')
             return redirect(url_for('team'))
         email = form.email.data.strip().lower()
         if Admin.query.filter_by(username=form.username.data).first():
-            form.username.errors.append('That username is taken.')
+            form.username.errors.append(tr('That username is taken.'))
         elif Admin.query.filter(func.lower(Admin.email) == email).first():
-            form.email.errors.append('That email already has an account.')
+            form.email.errors.append(tr('That email already has an account.'))
         else:
             member = Admin(username=form.username.data, email=email, tenant_id=tenant_id(),
                            role=form.role.data, email_verified_at=datetime.utcnow(),
@@ -3980,7 +4001,10 @@ def add_team_member():
                       f'Hi {member.username},\n\n{current_user.username} added you to {current_tenant().name}.\n'
                       f'Log in at {_link("login")} with username "{member.username}" and the temporary '
                       f'password they gave you, then change it with "Forgot password".\n')
-            flash(f'{member.username} added as {"a partner (view only)" if member.role == "viewer" else member.role}.', 'success')
+            flash(tr('{name} added as a partner (view only).', name=member.username) if member.role == 'viewer' else
+                  tr('{name} added as staff.', name=member.username) if member.role == 'staff' else
+                  tr('{name} added as admin.', name=member.username) if member.role == 'admin' else
+                  tr('{name} added as {role}.', name=member.username, role=member.role), 'success')
             return redirect(url_for('team'))
     return render_template('team/form.html', form=form)
 
@@ -3995,7 +4019,7 @@ def toggle_team_member(member_id):
         abort(403)
     member.is_active = not member.is_active
     db.session.commit()
-    flash(f'{member.username} {"enabled" if member.is_active else "disabled"}.', 'success')
+    flash(tr('{name} enabled.', name=member.username) if member.is_active else tr('{name} disabled.', name=member.username), 'success')
     return redirect(url_for('team'))
 
 
@@ -4010,7 +4034,7 @@ def delete_team_member(member_id):
     name = member.username
     db.session.delete(member)
     db.session.commit()
-    flash(f'{name} removed from the team.', 'success')
+    flash(tr('{name} removed from the team.', name=name), 'success')
     return redirect(url_for('team'))
 
 
@@ -4075,15 +4099,15 @@ def add_site():
     _check_csrf()
     name = (request.form.get('name') or '').strip()[:64]
     if not name:
-        flash('Give the site a name.', 'danger')
+        flash(tr('Give the site a name.'), 'danger')
     elif _plan_limit_reached(current_tenant(), 'sites'):
-        flash('Your plan does not allow more sites. Upgrade on the Billing page.', 'warning')
+        flash(tr('Your plan does not allow more sites. Upgrade on the Billing page.'), 'warning')
     else:
         site = Site(tenant_id=tenant_id(), name=name, location=(request.form.get('location') or '').strip()[:128] or None)
         db.session.add(site)
         db.session.commit()
         session['site_id'] = site.id
-        flash(f'Site "{name}" added and selected. New gateways, routers and vouchers now go to it.', 'success')
+        flash(tr('Site "{name}" added and selected. New gateways, routers and vouchers now go to it.', name=name), 'success')
     return redirect(url_for('sites_page'))
 
 
@@ -4098,7 +4122,7 @@ def edit_site(site_id):
         site.name = name
         site.location = (request.form.get('location') or '').strip()[:128] or None
         db.session.commit()
-        flash(f'Site "{name}" saved.', 'success')
+        flash(tr('Site "{name}" saved.', name=name), 'success')
     return redirect(url_for('sites_page'))
 
 
@@ -4110,7 +4134,7 @@ def delete_site(site_id):
     site = owned_or_404(Site, site_id)
     others = [x for x in tenant_sites() if x.id != site.id]
     if not others:
-        flash('You need at least one site.', 'warning')
+        flash(tr('You need at least one site.'), 'warning')
         return redirect(url_for('sites_page'))
     target = others[0]
     for model in (Gateway, Router, Nas, Payment, Voucher):
@@ -4120,7 +4144,7 @@ def delete_site(site_id):
         session.pop('site_id', None)
     db.session.delete(site)
     db.session.commit()
-    flash(f'Site "{site.name}" deleted. Its devices, packages and sales moved to "{target.name}".', 'success')
+    flash(tr('Site "{name}" deleted. Its devices, packages and sales moved to "{target}".', name=site.name, target=target.name), 'success')
     return redirect(url_for('sites_page'))
 
 
@@ -4158,7 +4182,7 @@ def assign_site():
     if model is Router and item.nas:
         item.nas.site_id = item.site_id
     db.session.commit()
-    flash('Site updated.', 'success')
+    flash(tr('Site updated.'), 'success')
     return redirect(_safe_back(url_for('sites_page')))
 
 
@@ -4176,10 +4200,10 @@ def gateways():
 def add_gateway():
     form = GatewayForm()
     if _plan_limit_reached(current_tenant(), 'gateways'):
-        flash('Your plan does not allow more gateways. Upgrade on the Billing page.', 'warning')
+        flash(tr('Your plan does not allow more gateways. Upgrade on the Billing page.'), 'warning')
         return redirect(url_for('gateways'))
     if not form.validate_on_submit():
-        flash('Give the gateway a name.', 'danger')
+        flash(tr('Give the gateway a name.'), 'danger')
         return redirect(url_for('gateways'))
     key = 'sgw_' + secrets.token_urlsafe(32)
     gw = Gateway(tenant_id=tenant_id(), name=form.name.data.strip(), key_prefix=key[:8], key_hash=_hash_key(key),
@@ -4199,7 +4223,7 @@ def revoke_gateway(gateway_id):
     gw = owned_or_404(Gateway, gateway_id)
     gw.is_active = False
     db.session.commit()
-    flash(f'Gateway "{gw.name}" disabled. Its key no longer works.', 'success')
+    flash(tr('Gateway "{name}" disabled. Its key no longer works.', name=gw.name), 'success')
     return redirect(url_for('gateways'))
 
 
@@ -4212,7 +4236,7 @@ def delete_gateway(gateway_id):
     name = gw.name
     db.session.delete(gw)
     db.session.commit()
-    flash(f'Gateway "{name}" deleted.', 'success')
+    flash(tr('Gateway "{name}" deleted.', name=name), 'success')
     return redirect(url_for('gateways'))
 
 
@@ -4344,7 +4368,7 @@ def platform_switch_back():
 @login_required
 def earnings():
     if not (current_user.has_role('admin') or (current_user.is_viewer and not current_user.site_id)):
-        flash("You don't have permission to open that page.", 'warning')
+        flash(tr("You don't have permission to open that page."), 'warning')
         return redirect(url_for('dashboard'))
     tenant = current_tenant()
     tid = tenant.id
@@ -4379,11 +4403,11 @@ def earnings():
 def request_withdrawal():
     form = WithdrawalForm()
     if not form.validate_on_submit():
-        flash(' '.join(e for errs in form.errors.values() for e in errs) or 'Check the form.', 'danger')
+        flash(' '.join(str(e) for errs in form.errors.values() for e in errs) or tr('Check the form.'), 'danger')
         return redirect(url_for('earnings'))
     phone = _normalize_tz_phone(form.phone.data)
     if not phone:
-        flash('Enter a valid mobile number, e.g. 0712 345 678.', 'danger')
+        flash(tr('Enter a valid mobile number, e.g. 0712 345 678.'), 'danger')
         return redirect(url_for('earnings'))
     method = form.method.data if form.method.data in ('mobile', 'lipa', 'bank') else 'mobile'
     account_name = (form.account_name.data or '').strip() or None
@@ -4391,11 +4415,11 @@ def request_withdrawal():
     bank_name, bank_account = (form.bank_name.data or '').strip(), (form.bank_account.data or '').strip()
     problem = None
     if method == 'lipa' and not re.fullmatch(r'\d{5,12}', lipa_namba):
-        problem = 'Enter the Lipa Namba (the merchant till number, digits only).'
+        problem = tr('Enter the Lipa Namba (the merchant till number, digits only).')
     elif method == 'lipa' and not form.lipa_network.data:
-        problem = 'Choose the network or bank of the Lipa Namba.'
+        problem = tr('Choose the network or bank of the Lipa Namba.')
     elif method == 'bank' and not (bank_name and bank_account and account_name):
-        problem = 'Enter the bank, the account number and the name on the account.'
+        problem = tr('Enter the bank, the account number and the name on the account.')
     if problem:
         flash(problem, 'danger')
         return redirect(url_for('earnings'))
@@ -4404,11 +4428,11 @@ def request_withdrawal():
     balance, _, _ = tenant_balance(tenant.id)
     if amount < Config.MIN_WITHDRAWAL:
         db.session.rollback()
-        flash(f'The minimum withdrawal is {tenant.currency} {Config.MIN_WITHDRAWAL:,}.', 'danger')
+        flash(tr('The minimum withdrawal is {cur} {amount}.', cur=tenant.currency, amount=f'{Config.MIN_WITHDRAWAL:,}'), 'danger')
         return redirect(url_for('earnings'))
     if amount > balance:
         db.session.rollback()
-        flash(f'You can withdraw up to {tenant.currency} {balance:,.0f}.', 'danger')
+        flash(tr('You can withdraw up to {cur} {amount}.', cur=tenant.currency, amount=f'{balance:,.0f}'), 'danger')
         return redirect(url_for('earnings'))
     w = Withdrawal(tenant_id=tenant.id, amount=amount, phone=phone, account_name=account_name, method=method,
                    requested_by_id=current_user.id)
@@ -4422,7 +4446,8 @@ def request_withdrawal():
         send_mail(admin.email, f'Withdrawal request: {tenant.name} {tenant.currency} {amount:,.0f}',
                   f'{tenant.name} asked to withdraw {tenant.currency} {amount:,.0f} to {w.destination}'
                   f'{" (" + w.account_name + ")" if w.account_name else ""}.\n\nProcess it at {_link("platform_payouts")}\n')
-    flash(f'Withdrawal of {tenant.currency} {amount:,.0f} requested. You will get an email when it is paid.', 'success')
+    flash(tr('Withdrawal of {cur} {amount} requested. You will get an email when it is paid.', cur=tenant.currency,
+             amount=f'{amount:,.0f}'), 'success')
     return redirect(url_for('earnings'))
 
 
@@ -4451,14 +4476,14 @@ def payment_settings():
         own = _own_account(tenant)
         if mode == 'own' and not paylib.is_ready(own):
             db.session.rollback()
-            need = 'your Snippe API key' if own.provider == 'snippe' else 'your ClickPesa Client ID and API key'
-            flash(f'Enter {need} to receive payments directly.', 'danger')
+            flash(tr('Enter your Snippe API key to receive payments directly.') if own.provider == 'snippe' else
+                  tr('Enter your ClickPesa Client ID and API key to receive payments directly.'), 'danger')
             return redirect(url_for('payment_settings'))
         if mode == 'own' and own.provider == 'snippe' and not own.creds.webhook_key:
-            flash('Saved. Add your Snippe webhook signing key too, so payments are confirmed the moment they arrive.', 'warning')
+            flash(tr('Saved. Add your Snippe webhook signing key too, so payments are confirmed the moment they arrive.'), 'warning')
         tenant.payment_mode = mode
         db.session.commit()
-        flash('Payment settings saved.', 'success')
+        flash(tr('Payment settings saved.'), 'success')
         return redirect(url_for('payment_settings'))
     platform = _platform_account()
     return render_template('payment_settings.html', form=form, has_api_key=bool(tenant.clickpesa_api_key_enc),
@@ -4482,8 +4507,8 @@ def sms_setting():
         tenant.sms_to_guests, tenant.sms_changed_at = on, datetime.utcnow()
         db.session.commit()
         log.info('tenant %s turned voucher SMS %s', tenant.id, 'on' if on else 'off')
-    flash(f'Voucher SMS to guests is {"ON: each SMS costs TZS " + str(Config.SMS_PRICE) if on else "OFF: no SMS are sent or charged"}.',
-          'success')
+    flash(tr('Voucher SMS to guests is ON: each SMS costs TZS {price}.', price=Config.SMS_PRICE) if on else
+          tr('Voucher SMS to guests is OFF: no SMS are sent or charged.'), 'success')
     return redirect(url_for('payment_settings') + '#sms')
 
 
@@ -4497,7 +4522,7 @@ def notification_settings():
     raw = (request.form.get('notify_phone') or '').strip()
     phone = _normalize_tz_phone(raw) if raw else None
     if raw and not phone:
-        flash('Enter a valid mobile number for alerts, e.g. 0712 345 678.', 'danger')
+        flash(tr('Enter a valid mobile number for alerts, e.g. 0712 345 678.'), 'danger')
         return redirect(url_for('payment_settings') + '#alerts')
     tenant.notify_phone = phone
     tenant.notify_sale_sms = bool(request.form.get('sale_sms'))
@@ -4505,10 +4530,10 @@ def notification_settings():
     tenant.notify_daily_email = bool(request.form.get('daily_email'))
     if (tenant.notify_sale_sms or tenant.notify_daily_sms) and not _owner_phone(tenant):
         db.session.rollback()
-        flash('Add the mobile number the alerts should go to.', 'danger')
+        flash(tr('Add the mobile number the alerts should go to.'), 'danger')
         return redirect(url_for('payment_settings') + '#alerts')
     db.session.commit()
-    flash('Alerts saved.', 'success')
+    flash(tr('Alerts saved.'), 'success')
     return redirect(url_for('payment_settings') + '#alerts')
 
 
@@ -4520,13 +4545,13 @@ def test_payment_settings():
     account = _own_account(current_tenant())
     label = paylib.name(account)
     if not paylib.is_ready(account):
-        flash(f'Save your {label} keys first.', 'warning')
+        flash(tr('Save your {provider} keys first.', provider=label), 'warning')
     else:
         try:
             paylib.test(account)
-            flash(f'{label} accepted your keys.', 'success')
+            flash(tr('{provider} accepted your keys.', provider=label), 'success')
         except paylib.PaymentError as e:
-            flash(f'{label} rejected the keys: {e}', 'danger')
+            flash(tr('{provider} rejected the keys: {error}', provider=label, error=e), 'danger')
     return redirect(url_for('payment_settings'))
 
 
@@ -4837,12 +4862,12 @@ def routers():
 def add_router():
     _check_csrf()
     if _plan_limit_reached(current_tenant(), 'routers'):
-        flash('Your plan does not allow more routers. Upgrade on the Billing page.', 'warning')
+        flash(tr('Your plan does not allow more routers. Upgrade on the Billing page.'), 'warning')
         return redirect(url_for('routers'))
     name = (request.form.get('name') or '').strip()[:64]
     vendor = request.form.get('vendor') if request.form.get('vendor') in dict(ROUTER_VENDORS) else 'mikrotik'
     if not name:
-        flash('Give the router a name.', 'danger')
+        flash(tr('Give the router a name.'), 'danger')
         return redirect(url_for('routers'))
     private, public = _wg_keypair()
     tunnel_ip = _next_tunnel_ip()
@@ -4855,7 +4880,7 @@ def add_router():
                     private_key_enc=secretbox.encrypt(private), nas_id=nas.id, site_id=nas.site_id)
     db.session.add(router)
     db.session.commit()
-    flash(f'Router "{name}" added with VPN address {tunnel_ip}. Paste the setup script into the router.', 'success')
+    flash(tr('Router "{name}" added with VPN address {ip}. Paste the setup script into the router.', name=name, ip=tunnel_ip), 'success')
     return redirect(url_for('router_script', router_id=router.id))
 
 
@@ -4879,7 +4904,8 @@ def toggle_router(router_id):
     if router.nas:
         router.nas.is_active = router.is_active
     db.session.commit()
-    flash(f'Router "{router.name}" {"enabled" if router.is_active else "disconnected from the VPN"}.', 'success')
+    flash(tr('Router "{name}" enabled.', name=router.name) if router.is_active else
+          tr('Router "{name}" disconnected from the VPN.', name=router.name), 'success')
     return redirect(url_for('routers'))
 
 
@@ -4894,7 +4920,7 @@ def delete_router(router_id):
         db.session.delete(router.nas)
     db.session.delete(router)
     db.session.commit()
-    flash(f'Router "{name}" removed.', 'success')
+    flash(tr('Router "{name}" removed.', name=name), 'success')
     return redirect(url_for('routers'))
 
 
@@ -5035,10 +5061,10 @@ def billing_pay():
     months = request.form.get('months', type=int)
     phone = _normalize_tz_phone(request.form.get('phone', ''))
     if not plan or months not in BILLING_MONTHS:
-        flash('Choose a plan and a period.', 'danger')
+        flash(tr('Choose a plan and a period.'), 'danger')
         return redirect(url_for('billing'))
     if not phone:
-        flash('Enter a valid mobile money number, e.g. 0712 345 678.', 'danger')
+        flash(tr('Enter a valid mobile money number, e.g. 0712 345 678.'), 'danger')
         return redirect(url_for('billing'))
     account = _platform_account()
     sms_count, sms_amount, sms_ids = _unbilled_sms(tenant.id)
@@ -5048,7 +5074,7 @@ def billing_pay():
         flash(problem, 'danger')
         return redirect(url_for('billing'))
     if not paylib.is_ready(account):
-        flash('Online payment is not available right now. Please contact SafeNet.', 'danger')
+        flash(tr('Online payment is not available right now. Please contact SafeNet.'), 'danger')
         return redirect(url_for('billing'))
     sp = SubscriptionPayment(tenant_id=tenant.id, billing_plan_id=plan.id, plan_name=plan.name, months=months,
                              amount=total, sms_amount=sms_amount, currency=plan.currency, phone=phone, method=account.provider,
@@ -5067,7 +5093,7 @@ def billing_pay():
         _release_sms(sp)
     db.session.commit()
     if sp.status == 'failed':
-        flash(f"We couldn't send the payment request: {sp.message or 'try again'}.", 'danger')
+        flash(tr("We couldn't send the payment request: {error}.", error=sp.message or tr('try again')), 'danger')
         return redirect(url_for('billing'))
     return redirect(url_for('billing_payment', reference=sp.reference))
 

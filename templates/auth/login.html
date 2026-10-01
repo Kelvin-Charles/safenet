@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Login - {{ app_name }}{% endblock %}
+{% block title %}{{ _('Login') }} - {{ app_name }}{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -9,7 +9,7 @@
             <div class="card-body p-5">
                 <div class="text-center mb-4">
                     <img src="{{ url_for('static', filename='img/safenet-logo.png') }}" alt="SafeNet" style="width: 150px; height: auto;" class="mb-2">
-                    <p class="text-muted mb-0">Log in to manage your Wi-Fi</p>
+                    <p class="text-muted mb-0">{{ _('Log in to manage your Wi-Fi') }}</p>
                 </div>
                 
                 <form method="POST" novalidate>
@@ -17,7 +17,7 @@
                     
                     <div class="mb-3">
                         {{ form.username.label(class="form-label") }}
-                        {{ form.username(class="form-control form-control-lg" + (" is-invalid" if form.username.errors else ""), placeholder="Enter username") }}
+                        {{ form.username(class="form-control form-control-lg" + (" is-invalid" if form.username.errors else ""), placeholder=_('Enter username')) }}
                         {% if form.username.errors %}
                             <div class="invalid-feedback">
                                 {% for error in form.username.errors %}{{ error }}{% endfor %}
@@ -27,7 +27,7 @@
                     
                     <div class="mb-4">
                         {{ form.password.label(class="form-label") }}
-                        {{ form.password(class="form-control form-control-lg" + (" is-invalid" if form.password.errors else ""), placeholder="Enter password") }}
+                        {{ form.password(class="form-control form-control-lg" + (" is-invalid" if form.password.errors else ""), placeholder=_('Enter password')) }}
                         {% if form.password.errors %}
                             <div class="invalid-feedback">
                                 {% for error in form.password.errors %}{{ error }}{% endfor %}
@@ -37,19 +37,27 @@
                     
                     <div class="d-grid">
                         <button type="submit" class="btn btn-primary btn-lg">
-                            <i class="bi bi-box-arrow-in-right"></i> Login
+                            <i class="bi bi-box-arrow-in-right"></i> {{ _('Login') }}
                         </button>
                     </div>
                 </form>
                 <div class="d-flex justify-content-between mt-3 small">
-                    <a href="{{ url_for('forgot_password') }}">Forgot password?</a>
-                    {% if signup_enabled %}<a href="{{ url_for('signup') }}">Create an account</a>{% endif %}
+                    <a href="{{ url_for('forgot_password') }}">{{ _('Forgot password?') }}</a>
+                    {% if signup_enabled %}<a href="{{ url_for('signup') }}">{{ _('Create an account') }}</a>{% endif %}
                 </div>
+                <form method="POST" action="{{ url_for('set_language') }}" class="text-center mt-3 mb-0 small">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    <i class="bi bi-translate text-muted"></i>
+                    <button type="submit" name="lang" value="sw" class="btn btn-link btn-sm p-0 align-baseline{{ ' fw-bold text-dark' if lang == 'sw' }}">Kiswahili</button>
+                    <span class="text-muted">|</span>
+                    <button type="submit" name="lang" value="en" class="btn btn-link btn-sm p-0 align-baseline{{ ' fw-bold text-dark' if lang != 'sw' }}">English</button>
+                </form>
             </div>
         </div>
         
         <div class="text-center mt-3 text-muted">
-            <small><a href="{{ url_for('landing') }}" class="text-muted">← Back to SafeNet home</a> · Powered by Safezone Tech</small>
+            <small><a href="{{ url_for('landing') }}" class="text-muted">← {{ _('Back to SafeNet home') }}</a> · {{ _('Powered by Safezone Tech') }}</small>
         </div>
     </div>
 </div>

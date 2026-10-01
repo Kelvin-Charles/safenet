@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vouchers {{ batch }} - {{ hotspot.name }}</title>
+    <title>{{ _('Vouchers') }} {{ batch }} - {{ hotspot.name }}</title>
     <style>
         @page { size: A4; margin: 10mm; }
         * { box-sizing: border-box; }
@@ -28,8 +28,8 @@
 </head>
 <body>
     <div class="toolbar">
-        <button onclick="window.print()">Print</button>
-        <span>Batch <strong>{{ batch }}</strong> &middot; {{ vouchers|length }} unused voucher{{ '' if vouchers|length == 1 else 's' }}</span>
+        <button onclick="window.print()">{{ _('Print') }}</button>
+        <span>{{ _('Batch') }} <strong>{{ batch }}</strong> &middot; {{ _('{n} unused voucher', n=vouchers|length) if vouchers|length == 1 else _('{n} unused vouchers', n=vouchers|length) }}</span>
     </div>
     {% if vouchers %}
     <div class="sheet">
@@ -37,23 +37,23 @@
         <div class="voucher">
             <div class="brand">
                 <span>{{ hotspot.name }}</span>
-                {% if v.is_free %}<span class="free">FREE TRIAL</span>
+                {% if v.is_free %}<span class="free">{{ _('FREE TRIAL') }}</span>
                 {% elif v.price is not none %}<span class="price">{{ hotspot.currency }} {{ '{:,.0f}'.format(v.price) }}</span>{% endif %}
             </div>
-            <div class="code-label">Voucher code</div>
+            <div class="code-label">{{ _('Voucher code') }}</div>
             <div class="code">{{ v.code }}</div>
             <div class="meta">
-                Valid {{ v.validity_label }} from first login{% if v.plan %} &middot; {{ v.plan.name }}{% endif %}<br>
+                {{ _('Valid {time} from first login', time=v.validity_label) }}{% if v.plan %} &middot; {{ v.plan.name }}{% endif %}<br>
                 {% if hotspot.ssid %}Wi-Fi: <strong>{{ hotspot.ssid }}</strong><br>{% endif %}
-                Use the code as both username and password.
-                {% if hotspot.support %}<br>Help: {{ hotspot.support }}{% endif %}
-                {% if v.is_free %}<br><strong>Enjoyed it? Buy a package on the Wi-Fi login page.</strong>{% endif %}
+                {{ _('Use the code as both username and password.') }}
+                {% if hotspot.support %}<br>{{ _('Help:') }} {{ hotspot.support }}{% endif %}
+                {% if v.is_free %}<br><strong>{{ _('Enjoyed it? Buy a package on the Wi-Fi login page.') }}</strong>{% endif %}
             </div>
         </div>
         {% endfor %}
     </div>
     {% else %}
-    <div class="empty">No unused vouchers in this batch.</div>
+    <div class="empty">{{ _('No unused vouchers in this batch.') }}</div>
     {% endif %}
 </body>
 </html>

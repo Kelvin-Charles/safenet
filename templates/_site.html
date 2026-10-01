@@ -5,8 +5,8 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="kind" value="{{ kind }}">
     <input type="hidden" name="id" value="{{ item.id }}">
-    <select name="site_id" class="form-select form-select-sm" style="min-width: 130px" onchange="this.form.submit()" aria-label="Site">
-        {% if allow_all %}<option value="" {{ 'selected' if not item.site_id }}>All sites</option>{% endif %}
+    <select name="site_id" class="form-select form-select-sm" style="min-width: 130px" onchange="this.form.submit()" aria-label="{{ _('Site') }}">
+        {% if allow_all %}<option value="" {{ 'selected' if not item.site_id }}>{{ _('All sites') }}</option>{% endif %}
         {% for s in sites %}<option value="{{ s.id }}" {{ 'selected' if item.site_id == s.id }}>{{ s.name }}</option>{% endfor %}
     </select>
 </form>
@@ -16,7 +16,7 @@
 {# Site choice when adding a device (defaults to the site picked in the top bar). #}
 {% macro new_site_field() %}
 {% if sites|length > 1 %}
-<select name="site_id" class="form-select" aria-label="Site">
+<select name="site_id" class="form-select" aria-label="{{ _('Site') }}">
     {% for s in sites %}<option value="{{ s.id }}" {{ 'selected' if (site and site.id == s.id) or (not site and loop.first) }}>{{ s.name }}</option>{% endfor %}
 </select>
 {% endif %}

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "auth/_field.html" import field %}
 
-{% block title %}Create your account - {{ app_name }}{% endblock %}
+{% block title %}{{ _('Create your account') }} - {{ app_name }}{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -10,12 +10,12 @@
             <div class="card-body p-5">
                 <div class="text-center mb-4">
                     <img src="{{ url_for('static', filename='img/safenet-logo.png') }}" alt="SafeNet" style="width: 150px; height: auto;" class="mb-2">
-                    <h3 class="fw-bold">Start your Wi-Fi business</h3>
-                    <p class="text-muted">{{ trial_days }}-day free trial. Sell vouchers and packages, and manage your users and routers.</p>
+                    <h3 class="fw-bold">{{ _('Start your Wi-Fi business') }}</h3>
+                    <p class="text-muted">{{ _('{n}-day free trial. Sell vouchers and packages, and manage your users and routers.', n=trial_days) }}</p>
                 </div>
                 <form method="POST" novalidate>
                     {{ form.hidden_tag() }}
-                    {{ field(form.business_name, placeholder="e.g. Mama Salma Cafe") }}
+                    {{ field(form.business_name, placeholder=_('e.g. Mama Salma Cafe')) }}
                     <div class="row">
                         <div class="col-sm-6">{{ field(form.username) }}</div>
                         <div class="col-sm-6">{{ field(form.phone, placeholder="07XX XXX XXX") }}</div>
@@ -29,9 +29,17 @@
                         {{ form.accept(class="form-check-input" + (" is-invalid" if form.accept.errors else "")) }}
                         {{ form.accept.label(class="form-check-label") }}
                     </div>
-                    <div class="d-grid"><button type="submit" class="btn btn-primary btn-lg">Create account</button></div>
+                    <div class="d-grid"><button type="submit" class="btn btn-primary btn-lg">{{ _('Create account') }}</button></div>
                 </form>
-                <p class="text-center mt-3 mb-0 small">Already have an account? <a href="{{ url_for('login') }}">Log in</a></p>
+                <p class="text-center mt-3 mb-0 small">{{ _('Already have an account?') }} <a href="{{ url_for('login') }}">{{ _('Log in') }}</a></p>
+                <form method="POST" action="{{ url_for('set_language') }}" class="text-center mt-3 mb-0 small">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    <i class="bi bi-translate text-muted"></i>
+                    <button type="submit" name="lang" value="sw" class="btn btn-link btn-sm p-0 align-baseline{{ ' fw-bold text-dark' if lang == 'sw' }}">Kiswahili</button>
+                    <span class="text-muted">|</span>
+                    <button type="submit" name="lang" value="en" class="btn btn-link btn-sm p-0 align-baseline{{ ' fw-bold text-dark' if lang != 'sw' }}">English</button>
+                </form>
             </div>
         </div>
     </div>

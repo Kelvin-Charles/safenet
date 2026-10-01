@@ -41,4 +41,20 @@ SW = {
     'Your trial has ended.': 'Majaribio yako yameisha.',
     'Your subscription has ended.': 'Usajili wako umeisha.',
     'Your Wi-Fi stops on {date} unless you renew.': 'Wi-Fi yako itasimama tarehe {date} usipolipia.',
+
+    # Agreed words (used on several pages)
+    'Active': 'Inatumika',
+    'Disabled': 'Imezimwa',
+    'Expired': 'Imeisha muda',
+    'Rejected': 'Imekataliwa',
+    'Online': 'Mtandaoni',
+    'Offline': 'Nje ya mtandao',
+    'Login': 'Ingia',
+    'Never': 'Haijawahi',
+    'Only {site}': '{site} pekee',
+    'Operator': 'Opereta',
+    'Plan': 'Mpango',
+    'Vendor': 'Mtengenezaji',
+    'Download Speed': 'Kasi ya kupakua (download)',
+    'Upload Speed': 'Kasi ya kupakia (upload)',
 }

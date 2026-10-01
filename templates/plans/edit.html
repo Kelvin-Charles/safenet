@@ -8,7 +8,7 @@
     <div class="col-md-6">
         <div class="card">
             <div class="card-header">
-                <i class="bi bi-box"></i> Plan Details
+                <i class="bi bi-box"></i> {{ _('Plan Details') }}
             </div>
             <div class="card-body">
                 <form method="POST" novalidate>
@@ -45,13 +45,13 @@
                     </div>
                     
                     <hr class="my-4">
-                    <h6 class="mb-3"><i class="bi bi-speedometer2"></i> Bandwidth Limits (Optional)</h6>
-                    <p class="text-muted small mb-3">Set default bandwidth limits for users in this plan.</p>
+                    <h6 class="mb-3"><i class="bi bi-speedometer2"></i> {{ _('Bandwidth Limits (Optional)') }}</h6>
+                    <p class="text-muted small mb-3">{{ _('Set default bandwidth limits for users in this plan.') }}</p>
                     
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             {{ form.upload_speed.label(class="form-label") }}
-                            {{ form.upload_speed(class="form-control" + (" is-invalid" if form.upload_speed.errors else ""), placeholder="e.g., 10M, 100M, 1G") }}
+                            {{ form.upload_speed(class="form-control" + (" is-invalid" if form.upload_speed.errors else ""), placeholder=_('e.g., 10M, 100M, 1G')) }}
                             {% if form.upload_speed.errors %}
                                 <div class="invalid-feedback">
                                     {% for error in form.upload_speed.errors %}{{ error }}{% endfor %}
@@ -62,7 +62,7 @@
                         
                         <div class="col-md-6 mb-3">
                             {{ form.download_speed.label(class="form-label") }}
-                            {{ form.download_speed(class="form-control" + (" is-invalid" if form.download_speed.errors else ""), placeholder="e.g., 10M, 100M, 1G") }}
+                            {{ form.download_speed(class="form-control" + (" is-invalid" if form.download_speed.errors else ""), placeholder=_('e.g., 10M, 100M, 1G')) }}
                             {% if form.download_speed.errors %}
                                 <div class="invalid-feedback">
                                     {% for error in form.download_speed.errors %}{{ error }}{% endfor %}
@@ -75,7 +75,7 @@
                     <div class="row">
                         <div class="col-md-8 mb-3">
                             {{ form.data_cap.label(class="form-label") }}
-                            {{ form.data_cap(class="form-control" + (" is-invalid" if form.data_cap.errors else ""), placeholder="Data limit in GB") }}
+                            {{ form.data_cap(class="form-control" + (" is-invalid" if form.data_cap.errors else ""), placeholder=_('Data limit in GB')) }}
                             {% if form.data_cap.errors %}
                                 <div class="invalid-feedback">
                                     {% for error in form.data_cap.errors %}{{ error }}{% endfor %}
@@ -98,18 +98,18 @@
                     {% if plan.data_cap %}
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle"></i> 
-                        <strong>Data Cap Status:</strong> 
+                        <strong>{{ _('Data Cap Status:') }}</strong> 
                         {% if plan.last_reset %}
-                            Last reset: {{ plan.last_reset.strftime('%Y-%m-%d %H:%M:%S') }}
+                            {{ _('Last reset: {date}', date=plan.last_reset.strftime('%Y-%m-%d %H:%M:%S')) }}
                         {% else %}
-                            Not yet reset
+                            {{ _('Not yet reset') }}
                         {% endif %}
                         <br>
-                        <small>Period: <strong>{{ plan.data_cap_period|title if plan.data_cap_period else 'Monthly' }}</strong></small>
+                        <small>{{ _('Period:') }} <strong>{{ plan.data_cap_period|title if plan.data_cap_period else _('Monthly') }}</strong></small>
                         <form method="POST" action="{{ url_for('reset_plan_data_cap', plan_id=plan.id) }}" style="display: inline; margin-top: 0.5rem;">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="btn btn-sm btn-warning" onclick="return confirm('Reset data cap counter for this plan and all users?');">
-                                <i class="bi bi-arrow-clockwise"></i> Reset Data Cap Counter
+                            <button type="submit" class="btn btn-sm btn-warning" onclick="return confirm({{ _('Reset data cap counter for this plan and all users?')|tojson|forceescape }});">
+                                <i class="bi bi-arrow-clockwise"></i> {{ _('Reset Data Cap Counter') }}
                             </button>
                         </form>
                     </div>
@@ -122,10 +122,10 @@
                     
                     <div class="d-flex justify-content-between">
                         <a href="{{ url_for('plans') }}" class="btn btn-secondary">
-                            <i class="bi bi-arrow-left"></i> Back
+                            <i class="bi bi-arrow-left"></i> {{ _('Back') }}
                         </a>
                         <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-check-circle"></i> Update Plan
+                            <i class="bi bi-check-circle"></i> {{ _('Update Plan') }}
                         </button>
                     </div>
                 </form>
@@ -136,9 +136,9 @@
     <div class="col-md-6">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-list-ul"></i> RADIUS Attributes</span>
+                <span><i class="bi bi-list-ul"></i> {{ _('RADIUS Attributes') }}</span>
                 <a href="{{ url_for('add_plan_attribute', plan_id=plan.id) }}" class="btn btn-sm btn-success">
-                    <i class="bi bi-plus"></i> Add Attribute
+                    <i class="bi bi-plus"></i> {{ _('Add Attribute') }}
                 </a>
             </div>
             <div class="card-body">
@@ -147,11 +147,11 @@
                     <table class="table table-sm">
                         <thead>
                             <tr>
-                                <th>Attribute</th>
+                                <th>{{ _('Attribute') }}</th>
                                 <th>Op</th>
-                                <th>Value</th>
-                                <th>Vendor</th>
-                                <th>Actions</th>
+                                <th>{{ _('Value') }}</th>
+                                <th>{{ _('Vendor') }}</th>
+                                <th>{{ _('Actions') }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -164,11 +164,11 @@
                                     {% if attr.vendor %}
                                         <span class="badge vendor-badge bg-warning">{{ attr.vendor }}</span>
                                     {% else %}
-                                        <span class="badge vendor-badge bg-secondary">Standard</span>
+                                        <span class="badge vendor-badge bg-secondary">{{ _('Standard') }}</span>
                                     {% endif %}
                                 </td>
                                 <td>
-                                    <form method="POST" action="{{ url_for('delete_plan_attribute', plan_id=plan.id, attr_id=attr.id) }}" style="display: inline;" onsubmit="return confirm('Delete this attribute?');">
+                                    <form method="POST" action="{{ url_for('delete_plan_attribute', plan_id=plan.id, attr_id=attr.id) }}" style="display: inline;" onsubmit="return confirm({{ _('Delete this attribute?')|tojson|forceescape }});">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn btn-sm btn-outline-danger">
                                             <i class="bi bi-trash"></i>
@@ -183,8 +183,8 @@
                 {% else %}
                 <div class="text-center py-4 text-muted">
                     <i class="bi bi-inbox"></i>
-                    <p class="mt-2 mb-0">No attributes defined</p>
-                    <small>Add RADIUS attributes to control user access</small>
+                    <p class="mt-2 mb-0">{{ _('No attributes defined') }}</p>
+                    <small>{{ _('Add RADIUS attributes to control user access') }}</small>
                 </div>
                 {% endif %}
             </div>
@@ -192,11 +192,11 @@
         
         <div class="card mt-3">
             <div class="card-header">
-                <i class="bi bi-info-circle"></i> Common Attributes
+                <i class="bi bi-info-circle"></i> {{ _('Common Attributes') }}
             </div>
             <div class="card-body">
                 <small class="text-muted">
-                    <strong>Standard:</strong> Session-Timeout, Idle-Timeout, Filter-Id<br>
+                    <strong>{{ _('Standard') }}:</strong> Session-Timeout, Idle-Timeout, Filter-Id<br>
                     <strong>Cisco:</strong> Cisco-AVPair<br>
                     <strong>MikroTik:</strong> Mikrotik-Rate-Limit<br>
                     <strong>Ubiquiti:</strong> Ubiquiti-Data-Limit-Down/Up

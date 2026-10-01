@@ -1,30 +1,30 @@
 {% extends "base.html" %}
 
-{% block title %}Sites - {{ app_name }}{% endblock %}
-{% block page_title %}Sites{% endblock %}
+{% block title %}{{ _('Sites') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Sites') }}{% endblock %}
 
 {% block content %}
 <div class="row">
     <div class="col-xl-8">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-geo-alt"></i> Your sites</span>
-                <small class="text-muted">{{ rows|length }}{% if limit is not none %} of {{ limit }}{% endif %} on your plan</small>
+                <span><i class="bi bi-geo-alt"></i> {{ _('Your sites') }}</span>
+                <small class="text-muted">{% if limit is not none %}{{ _('{n} of {limit} on your plan', n=rows|length, limit=limit) }}{% else %}{{ _('{n} on your plan', n=rows|length) }}{% endif %}</small>
             </div>
             <div class="card-body">
-                <p class="text-muted small">A site is a place where you sell internet: a shop, hostel, café or branch. Each site has its own gateways and routers, can sell its own packages, and has its own earnings on the dashboard. Pick a site in the top bar to see only that site.</p>
+                <p class="text-muted small">{{ _('A site is a place where you sell internet: a shop, hostel, café or branch. Each site has its own gateways and routers, can sell its own packages, and has its own earnings on the dashboard. Pick a site in the top bar to see only that site.') }}</p>
                 <div class="table-responsive">
                     <table class="table align-middle">
-                        <thead><tr><th>Site</th><th>Devices</th><th>Own packages</th><th>Online now</th><th>Today</th><th>This month</th><th></th></tr></thead>
+                        <thead><tr><th>{{ _('Site') }}</th><th>{{ _('Devices') }}</th><th>{{ _('Own packages') }}</th><th>{{ _('Online now') }}</th><th>{{ _('Today') }}</th><th>{{ _('This month') }}</th><th></th></tr></thead>
                         <tbody>
                         {% for r in rows %}
                         {% set s = r.site %}
                         <tr>
-                            <td><strong>{{ s.name }}</strong>{% if loop.first %} <span class="badge bg-light text-dark border">Main</span>{% endif %}
-                                {% if s.omada_ready %}<span class="badge {{ 'bg-danger' if s.omada_error else 'bg-success' }}" title="{{ s.omada_error or 'TP-Link Omada connected' }}">Omada</span>{% endif %}
+                            <td><strong>{{ s.name }}</strong>{% if loop.first %} <span class="badge bg-light text-dark border">{{ _('Main') }}</span>{% endif %}
+                                {% if s.omada_ready %}<span class="badge {{ 'bg-danger' if s.omada_error else 'bg-success' }}" title="{{ s.omada_error or _('TP-Link Omada connected') }}">Omada</span>{% endif %}
                                 {% if s.wifidog_enabled %}<span class="badge bg-success">Ruijie</span>{% endif %}
                                 {% if s.location %}<small class="d-block text-muted">{{ s.location }}</small>{% endif %}</td>
-                            <td>{{ r.gateways }} gateway{{ '' if r.gateways == 1 else 's' }} · {{ r.routers }} router{{ '' if r.routers == 1 else 's' }}</td>
+                            <td>{{ _('{n} gateway', n=r.gateways) if r.gateways == 1 else _('{n} gateways', n=r.gateways) }} · {{ _('{n} router', n=r.routers) if r.routers == 1 else _('{n} routers', n=r.routers) }}</td>
                             <td>{{ r.packages }}</td>
                             <td>{{ r.online }}</td>
                             <td>{{ currency }} {{ '{:,.0f}'.format(r.today.total) }}</td>
@@ -34,14 +34,14 @@
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <input type="hidden" name="site_id" value="{{ s.id }}">
                                     <input type="hidden" name="to" value="dashboard">
-                                    <button class="btn btn-sm btn-outline-primary" type="submit">View</button>
+                                    <button class="btn btn-sm btn-outline-primary" type="submit">{{ _('View') }}</button>
                                 </form>
                                 {% if current_user.has_role('admin') %}
-                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ s.id }}" title="Rename"><i class="bi bi-pencil"></i></button>
-                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#omada-{{ s.id }}" title="TP-Link Omada access points"><i class="bi bi-wifi"></i> Omada</button>
-                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#wifidog-{{ s.id }}" title="Ruijie RG-AP and other WiFiDog access points"><i class="bi bi-broadcast-pin"></i> Ruijie</button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ s.id }}" title="{{ _('Rename') }}"><i class="bi bi-pencil"></i></button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#omada-{{ s.id }}" title="{{ _('TP-Link Omada access points') }}"><i class="bi bi-wifi"></i> Omada</button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#wifidog-{{ s.id }}" title="{{ _('Ruijie RG-AP and other WiFiDog access points') }}"><i class="bi bi-broadcast-pin"></i> Ruijie</button>
                                 {% if rows|length > 1 %}
-                                <form method="POST" action="{{ url_for('delete_site', site_id=s.id) }}" style="display:inline;" onsubmit="return confirm('Delete {{ s.name }}? Its devices, packages and sales move to {{ (rows[1] if loop.first else rows[0]).site.name }}.');">
+                                <form method="POST" action="{{ url_for('delete_site', site_id=s.id) }}" style="display:inline;" onsubmit="return confirm('{{ _('Delete {site}? Its devices, packages and sales move to {other}.', site=s.name, other=(rows[1] if loop.first else rows[0]).site.name) }}');">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-trash"></i></button>
                                 </form>
@@ -54,42 +54,42 @@
                             <form method="POST" action="{{ url_for('edit_site', site_id=s.id) }}" class="row g-2">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <div class="col-md-5"><input name="name" class="form-control" value="{{ s.name }}" maxlength="64" required></div>
-                                <div class="col-md-5"><input name="location" class="form-control" value="{{ s.location or '' }}" maxlength="128" placeholder="Location, e.g. Mwenge, Dar es Salaam"></div>
-                                <div class="col-md-2 d-grid"><button class="btn btn-primary" type="submit">Save</button></div>
+                                <div class="col-md-5"><input name="location" class="form-control" value="{{ s.location or '' }}" maxlength="128" placeholder="{{ _('Location, e.g. Mwenge, Dar es Salaam') }}"></div>
+                                <div class="col-md-2 d-grid"><button class="btn btn-primary" type="submit">{{ _('Save') }}</button></div>
                             </form>
                         </td></tr>
                         <tr class="collapse" id="omada-{{ s.id }}"><td colspan="7" class="bg-light">
                             <div class="p-2">
-                                <h6 class="mb-1"><i class="bi bi-wifi"></i> TP-Link Omada access points at {{ s.name }}</h6>
-                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='omada') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> Step-by-step guide</a> · For Omada access points (EAP225 and others). Guests get SafeNet's login page with your packages and mobile money; SafeNet then lets them online through the Omada Controller. No gateway box needed.</p>
+                                <h6 class="mb-1"><i class="bi bi-wifi"></i> {{ _('TP-Link Omada access points at {site}', site=s.name) }}</h6>
+                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='omada') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Step-by-step guide') }}</a> · {{ _("For Omada access points (EAP225 and others). Guests get SafeNet's login page with your packages and mobile money; SafeNet then lets them online through the Omada Controller. No gateway box needed.") }}</p>
                                 {% if omada_openapi %}
-                                <a href="{{ url_for('site_wifi', site_id=s.id) }}" class="btn btn-primary btn-sm mb-3"><i class="bi bi-wifi"></i> {{ 'Manage Wi-Fi access points' if s.omada_site_id else 'Set up Wi-Fi access points' }}</a>
-                                <span class="small text-muted ms-2">Everything happens here in SafeNet: no Omada account needed.</span>
+                                <a href="{{ url_for('site_wifi', site_id=s.id) }}" class="btn btn-primary btn-sm mb-3"><i class="bi bi-wifi"></i> {{ _('Manage Wi-Fi access points') if s.omada_site_id else _('Set up Wi-Fi access points') }}</a>
+                                <span class="small text-muted ms-2">{{ _('Everything happens here in SafeNet: no Omada account needed.') }}</span>
                                 {% endif %}
                                 {% set portal_url = url_for('omada_portal', token=s.portal_token, _external=True) if s.portal_token else '' %}
                                 {% if s.omada_hosted %}
                                 <div class="d-flex flex-wrap gap-3 align-items-center mb-2">
-                                    <span><i class="bi bi-cloud-check text-success"></i> Using <strong>SafeNet's Omada Controller</strong></span>
+                                    <span><i class="bi bi-cloud-check text-success"></i> {{ _('Using') }} <strong>{{ _("SafeNet's Omada Controller") }}</strong></span>
                                     {% if s.omada_error %}<span class="small text-danger"><i class="bi bi-x-circle"></i> {{ s.omada_error }}</span>{% endif %}
-                                    <form method="POST" action="{{ url_for('site_omada', site_id=s.id) }}" class="m-0" onsubmit="return confirm('Stop using Omada at {{ s.name }}?')">
+                                    <form method="POST" action="{{ url_for('site_omada', site_id=s.id) }}" class="m-0" onsubmit="return confirm('{{ _('Stop using Omada at {site}?', site=s.name) }}')">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                        <button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="remove">Remove</button>
+                                        <button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="remove">{{ _('Remove') }}</button>
                                     </form>
                                 </div>
                                 <div class="small">
-                                    <strong>Connect your access points</strong>
+                                    <strong>{{ _('Connect your access points') }}</strong>
                                     <ol class="mb-2 mt-1">
-                                        <li>Plug each EAP into the site's internet router (it needs internet, nothing else).</li>
-                                        <li>Open the EAP's own page (or TP-Link's <em>Omada Discovery Utility</em>) and set the controller address to <code class="user-select-all">{{ omada_host }}</code>.</li>
-                                        <li>Tell SafeNet support the EAP's MAC address (on its label). We adopt it into your site and switch on your login page.</li>
+                                        <li>{{ _("Plug each EAP into the site's internet router (it needs internet, nothing else).") }}</li>
+                                        <li>{{ _("Open the EAP's own page (or TP-Link's") }} <em>Omada Discovery Utility</em>{{ _(') and set the controller address to') }} <code class="user-select-all">{{ omada_host }}</code>.</li>
+                                        <li>{{ _("Tell SafeNet support the EAP's MAC address (on its label). We adopt it into your site and switch on your login page.") }}</li>
                                     </ol>
                                     {% if current_user.is_superadmin or impersonating %}
                                     <div class="border rounded p-2 bg-white">
-                                        <strong>Platform admin, in SafeNet's Omada Controller:</strong>
+                                        <strong>{{ _("Platform admin, in SafeNet's Omada Controller:") }}</strong>
                                         <ol class="mb-0 mt-1">
-                                            <li>Create a site for this customer (SafeNet gets access to it within 5 minutes).</li>
-                                            <li>Adopt the customer's EAPs into that site.</li>
-                                            <li>Authentication → Portal → Create: their guest SSID, type <strong>External Portal Server</strong>, URL <code class="user-select-all">{{ portal_url }}</code>, and allow <code>{{ request.host }}</code> in Pre-Authentication Access.</li>
+                                            <li>{{ _('Create a site for this customer (SafeNet gets access to it within 5 minutes).') }}</li>
+                                            <li>{{ _("Adopt the customer's EAPs into that site.") }}</li>
+                                            <li>{{ _('Authentication → Portal → Create: their guest SSID, type') }} <strong>External Portal Server</strong>, {{ _('URL') }} <code class="user-select-all">{{ portal_url }}</code>, {{ _('and allow') }} <code>{{ request.host }}</code> {{ _('in Pre-Authentication Access.') }}</li>
                                         </ol>
                                     </div>
                                     {% endif %}
@@ -98,37 +98,37 @@
                                 {% if omada_hosted %}
                                 <form method="POST" action="{{ url_for('site_omada', site_id=s.id) }}" class="mb-3">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button class="btn btn-primary btn-sm" type="submit" name="action" value="hosted"><i class="bi bi-cloud"></i> Use SafeNet's controller (recommended)</button>
-                                    <span class="small text-muted ms-2">Nothing to install at the site: your access points connect to SafeNet over the internet.</span>
+                                    <button class="btn btn-primary btn-sm" type="submit" name="action" value="hosted"><i class="bi bi-cloud"></i> {{ _("Use SafeNet's controller (recommended)") }}</button>
+                                    <span class="small text-muted ms-2">{{ _('Nothing to install at the site: your access points connect to SafeNet over the internet.') }}</span>
                                 </form>
                                 {% endif %}
                                 <details {{ 'open' if s.omada_url or not omada_hosted }}>
-                                <summary class="small mb-2">{{ 'Or use your own Omada Controller' if omada_hosted else 'Your Omada Controller' }}</summary>
+                                <summary class="small mb-2">{{ _('Or use your own Omada Controller') if omada_hosted else _('Your Omada Controller') }}</summary>
                                 <form method="POST" action="{{ url_for('site_omada', site_id=s.id) }}" class="row g-2 mb-3">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <div class="col-md-5"><label class="form-label small">Controller address</label>
+                                    <div class="col-md-5"><label class="form-label small">{{ _('Controller address') }}</label>
                                         <input name="omada_url" class="form-control" value="{{ s.omada_url or '' }}" placeholder="https://203.0.113.5:8043" required></div>
-                                    <div class="col-md-3"><label class="form-label small">Hotspot operator</label>
+                                    <div class="col-md-3"><label class="form-label small">{{ _('Hotspot operator') }}</label>
                                         <input name="omada_user" class="form-control" value="{{ s.omada_user or '' }}" autocomplete="off" required></div>
-                                    <div class="col-md-4"><label class="form-label small">Operator password</label>
-                                        <input name="omada_password" type="password" class="form-control" autocomplete="new-password" placeholder="{{ 'Saved: leave empty to keep' if s.omada_password_enc else '' }}"></div>
+                                    <div class="col-md-4"><label class="form-label small">{{ _('Operator password') }}</label>
+                                        <input name="omada_password" type="password" class="form-control" autocomplete="new-password" placeholder="{{ _('Saved: leave empty to keep') if s.omada_password_enc else '' }}"></div>
                                     <div class="col-12 d-flex flex-wrap gap-3 align-items-center">
-                                        <label class="form-check small mb-0"><input type="checkbox" name="omada_verify_tls" value="1" class="form-check-input" {{ 'checked' if s.omada_verify_tls }}> Controller has a trusted certificate</label>
-                                        <button class="btn btn-primary btn-sm" type="submit">Save and test</button>
-                                        {% if s.omada_ready %}<button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="remove" formnovalidate onclick="return confirm('Stop using Omada at {{ s.name }}?')">Remove</button>{% endif %}
-                                        {% if s.omada_checked_at and not s.omada_error %}<span class="small text-success"><i class="bi bi-check-circle"></i> Connected</span>
+                                        <label class="form-check small mb-0"><input type="checkbox" name="omada_verify_tls" value="1" class="form-check-input" {{ 'checked' if s.omada_verify_tls }}> {{ _('Controller has a trusted certificate') }}</label>
+                                        <button class="btn btn-primary btn-sm" type="submit">{{ _('Save and test') }}</button>
+                                        {% if s.omada_ready %}<button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="remove" formnovalidate onclick="return confirm('{{ _('Stop using Omada at {site}?', site=s.name) }}')">{{ _('Remove') }}</button>{% endif %}
+                                        {% if s.omada_checked_at and not s.omada_error %}<span class="small text-success"><i class="bi bi-check-circle"></i> {{ _('Connected') }}</span>
                                         {% elif s.omada_error %}<span class="small text-danger"><i class="bi bi-x-circle"></i> {{ s.omada_error }}</span>{% endif %}
                                     </div>
                                 </form>
                                 {% if s.omada_url and s.portal_token %}
                                 <div class="small">
-                                    <strong>Then in your Omada Controller</strong> (Settings → Authentication → Portal → Create New Portal):
+                                    <strong>{{ _('Then in your Omada Controller') }}</strong> {{ _('(Settings → Authentication → Portal → Create New Portal):') }}
                                     <ol class="mb-0 mt-1">
-                                        <li>SSID: your guest Wi-Fi. Authentication type: <strong>External Portal Server</strong>.</li>
-                                        <li>Custom portal server URL: <code class="user-select-all">{{ portal_url }}</code></li>
-                                        <li>Under <strong>Access Control → Pre-Authentication Access</strong>, allow <code>{{ request.host }}</code> so guests can open the login page before paying.</li>
-                                        <li>Under <strong>Hotspot Manager → Operators</strong>, create the hotspot operator you entered above.</li>
-                                        <li>The controller must be reachable from the internet at the address above (forward port 8043 on the site's router if it is on a local PC or OC200).</li>
+                                        <li>{{ _('SSID: your guest Wi-Fi. Authentication type:') }} <strong>External Portal Server</strong>.</li>
+                                        <li>{{ _('Custom portal server URL:') }} <code class="user-select-all">{{ portal_url }}</code></li>
+                                        <li>{{ _('Under') }} <strong>Access Control → Pre-Authentication Access</strong>, {{ _('allow') }} <code>{{ request.host }}</code> {{ _('so guests can open the login page before paying.') }}</li>
+                                        <li>{{ _('Under') }} <strong>Hotspot Manager → Operators</strong>, {{ _('create the hotspot operator you entered above.') }}</li>
+                                        <li>{{ _("The controller must be reachable from the internet at the address above (forward port 8043 on the site's router if it is on a local PC or OC200).") }}</li>
                                     </ol>
                                 </div>
                                 {% endif %}
@@ -138,30 +138,30 @@
                         </td></tr>
                         <tr class="collapse" id="wifidog-{{ s.id }}"><td colspan="7" class="bg-light">
                             <div class="p-2">
-                                <h6 class="mb-1"><i class="bi bi-broadcast-pin"></i> Ruijie access points at {{ s.name }}</h6>
-                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='ruijie') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> Step-by-step guide</a> · For Ruijie enterprise access points (RG-AP820-L, RG-AP840-L, RG-AP880…) and other devices with WiFiDog web authentication. Just the access point and internet: guests get SafeNet's login page with your packages and mobile money.</p>
+                                <h6 class="mb-1"><i class="bi bi-broadcast-pin"></i> {{ _('Ruijie access points at {site}', site=s.name) }}</h6>
+                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='ruijie') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Step-by-step guide') }}</a> · {{ _("For Ruijie enterprise access points (RG-AP820-L, RG-AP840-L, RG-AP880…) and other devices with WiFiDog web authentication. Just the access point and internet: guests get SafeNet's login page with your packages and mobile money.") }}</p>
                                 <form method="POST" action="{{ url_for('site_wifidog', site_id=s.id) }}" class="mb-3">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     {% if s.wifidog_enabled %}
-                                    <span class="me-2"><i class="bi bi-check-circle text-success"></i> Switched on</span>
-                                    {% if s.wifidog_seen_at %}<span class="small text-muted me-2">Access point last heard {{ ((now - s.wifidog_seen_at).total_seconds() // 60)|int }} min ago{% if s.wifidog_gw_id %} ({{ s.wifidog_gw_id }}){% endif %}</span>
-                                    {% else %}<span class="small text-muted me-2">No access point has contacted SafeNet yet</span>{% endif %}
-                                    <button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="disable">Switch off</button>
+                                    <span class="me-2"><i class="bi bi-check-circle text-success"></i> {{ _('Switched on') }}</span>
+                                    {% if s.wifidog_seen_at %}<span class="small text-muted me-2">{{ _('Access point last heard {n} min ago', n=((now - s.wifidog_seen_at).total_seconds() // 60)|int) }}{% if s.wifidog_gw_id %} ({{ s.wifidog_gw_id }}){% endif %}</span>
+                                    {% else %}<span class="small text-muted me-2">{{ _('No access point has contacted SafeNet yet') }}</span>{% endif %}
+                                    <button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="disable">{{ _('Switch off') }}</button>
                                     {% else %}
-                                    <button class="btn btn-primary btn-sm" type="submit" name="action" value="enable"><i class="bi bi-broadcast-pin"></i> Switch on Ruijie access points</button>
+                                    <button class="btn btn-primary btn-sm" type="submit" name="action" value="enable"><i class="bi bi-broadcast-pin"></i> {{ _('Switch on Ruijie access points') }}</button>
                                     {% endif %}
                                 </form>
                                 {% if s.wifidog_enabled and s.portal_token %}
                                 {% set auth_url = wifidog_base ~ '/wifidog/' ~ s.portal_token ~ '/' %}
                                 <div class="small">
-                                    <strong>Enter these on the access point</strong>
+                                    <strong>{{ _('Enter these on the access point') }}</strong>
                                     <table class="table table-sm table-bordered bg-white mt-1 mb-2" style="max-width: 720px">
-                                        <tr><th style="width: 190px">Authentication server URL</th><td><code class="user-select-all">{{ auth_url }}</code></td></tr>
-                                        <tr><th>Portal server IP</th><td><code class="user-select-all">{{ server_ip or '(the IP of ' ~ request.host ~ ')' }}</code></td></tr>
-                                        <tr><th>Protocol</th><td>WiFiDog</td></tr>
-                                        <tr><th>Wi-Fi security</th><td>Open (no password), web authentication on</td></tr>
+                                        <tr><th style="width: 190px">{{ _('Authentication server URL') }}</th><td><code class="user-select-all">{{ auth_url }}</code></td></tr>
+                                        <tr><th>{{ _('Portal server IP') }}</th><td><code class="user-select-all">{{ server_ip or _('(the IP of {host})', host=request.host) }}</code></td></tr>
+                                        <tr><th>{{ _('Protocol') }}</th><td>WiFiDog</td></tr>
+                                        <tr><th>{{ _('Wi-Fi security') }}</th><td>{{ _('Open (no password), web authentication on') }}</td></tr>
                                     </table>
-                                    <p class="mb-1">Ruijie access point command line (replace <code>1</code> with your Wi-Fi's WLAN ID):</p>
+                                    <p class="mb-1">{{ _('Ruijie access point command line (replace') }} <code>1</code> {{ _("with your Wi-Fi's WLAN ID):") }}</p>
 <pre class="bg-dark text-light p-2 rounded small mb-0">config
 web-auth template safenet
  ip {{ server_ip or 'SAFENET_IP' }}
@@ -187,27 +187,27 @@ write</pre>
     <div class="col-xl-4">
         {% if current_user.has_role('admin') %}
         <div class="card">
-            <div class="card-header"><i class="bi bi-plus-circle"></i> Add a site</div>
+            <div class="card-header"><i class="bi bi-plus-circle"></i> {{ _('Add a site') }}</div>
             <div class="card-body">
                 {% if limit is not none and rows|length >= limit %}
-                <p class="mb-0">Your plan allows {{ limit }} site{{ '' if limit == 1 else 's' }}. <a href="{{ url_for('billing') }}">Upgrade</a> to add more.</p>
+                <p class="mb-0">{{ _('Your plan allows {n} site.', n=limit) if limit == 1 else _('Your plan allows {n} sites.', n=limit) }} <a href="{{ url_for('billing') }}">{{ _('Upgrade') }}</a> {{ _('to add more.') }}</p>
                 {% else %}
                 <form method="POST" action="{{ url_for('add_site') }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-2"><label class="form-label">Name</label><input name="name" class="form-control" maxlength="64" placeholder="e.g. Mwenge shop" required></div>
-                    <div class="mb-3"><label class="form-label">Location</label><input name="location" class="form-control" maxlength="128" placeholder="Optional"></div>
-                    <button class="btn btn-primary w-100" type="submit">Add site</button>
+                    <div class="mb-2"><label class="form-label">{{ _('Name') }}</label><input name="name" class="form-control" maxlength="64" placeholder="{{ _('e.g. Mwenge shop') }}" required></div>
+                    <div class="mb-3"><label class="form-label">{{ _('Location') }}</label><input name="location" class="form-control" maxlength="128" placeholder="{{ _('Optional') }}"></div>
+                    <button class="btn btn-primary w-100" type="submit">{{ _('Add site') }}</button>
                 </form>
                 {% endif %}
             </div>
         </div>
         <div class="card">
             <div class="card-body small text-muted">
-                <strong class="text-dark">How to set up a new site</strong>
+                <strong class="text-dark">{{ _('How to set up a new site') }}</strong>
                 <ol class="ps-3 mb-0 mt-2">
-                    <li>Add the site here. It becomes the selected site.</li>
-                    <li>Add its gateway on <a href="{{ url_for('gateways') }}">Gateways</a> or its MikroTik on <a href="{{ url_for('routers') }}">Routers</a>.</li>
-                    <li>Optionally give it its own prices on <a href="{{ url_for('packages') }}">Packages</a>. Packages set to "All sites" are sold everywhere.</li>
+                    <li>{{ _('Add the site here. It becomes the selected site.') }}</li>
+                    <li>{{ _('Add its gateway on') }} <a href="{{ url_for('gateways') }}">{{ _('Gateways') }}</a> {{ _('or its MikroTik on') }} <a href="{{ url_for('routers') }}">{{ _('Routers') }}</a>.</li>
+                    <li>{{ _('Optionally give it its own prices on') }} <a href="{{ url_for('packages') }}">{{ _('Packages') }}</a>. {{ _('Packages set to "All sites" are sold everywhere.') }}</li>
                 </ol>
             </div>
         </div>

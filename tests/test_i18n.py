@@ -12,9 +12,9 @@ found = {}
 for path in glob.glob('templates/**/*.html', recursive=True):
     for m in re.finditer(r'(?<![\w.])_' + LIT, open(path).read()):
         found.setdefault((m.group(1) if m.group(1) is not None else m.group(2)).replace("\\'", "'").replace('\\"', '"'), path)
-for path in ['app.py', 'tenancy.py'] + glob.glob('i18n_extra/*.py'):
+for path, fn in (('app.py', 'tr'), ('tenancy.py', 'tr'), ('forms.py', 'L')):
     if os.path.exists(path):
-        for m in re.finditer(r'(?<![\w.])tr' + LIT, open(path).read()):
+        for m in re.finditer(r'(?<![\w.])' + fn + LIT, open(path).read()):
             found.setdefault((m.group(1) if m.group(1) is not None else m.group(2)).replace("\\'", "'").replace('\\"', '"'), path)
 missing = sorted(f'{where}: {text}' for text, where in found.items() if text not in i18n.SW)
 assert not missing, f'{len(missing)} without Kiswahili:\n' + '\n'.join(missing[:60])

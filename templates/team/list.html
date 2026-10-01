@@ -1,34 +1,34 @@
 {% extends "base.html" %}
 
-{% block title %}Team - {{ app_name }}{% endblock %}
-{% block page_title %}Team{% endblock %}
+{% block title %}{{ _('Team') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Team') }}{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-person-badge"></i> People who can manage {{ tenant.name }}</span>
-        <a href="{{ url_for('add_team_member') }}" class="btn btn-primary"><i class="bi bi-person-plus"></i> Add member</a>
+        <span><i class="bi bi-person-badge"></i> {{ _('People who can manage {business}', business=tenant.name) }}</span>
+        <a href="{{ url_for('add_team_member') }}" class="btn btn-primary"><i class="bi bi-person-plus"></i> {{ _('Add member') }}</a>
     </div>
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-hover align-middle">
-                <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last login</th><th></th></tr></thead>
+                <thead><tr><th>{{ _('User') }}</th><th>{{ _('Role') }}</th><th>{{ _('Status') }}</th><th>{{ _('Last login') }}</th><th></th></tr></thead>
                 <tbody>
                     {% for m in members %}
                     <tr>
-                        <td><strong>{{ m.username }}</strong>{% if m.id == current_user.id %} <span class="text-muted">(you)</span>{% endif %}<small class="text-muted d-block">{{ m.email }}</small></td>
-                        <td>{% if m.role == 'viewer' %}<span class="badge bg-info text-dark">Partner · view only</span>
-                            <small class="d-block text-muted">{% if m.site_id %}{% for x in sites if x.id == m.site_id %}Only {{ x.name }}{% endfor %}{% else %}Whole business{% endif %}</small>
-                            {% else %}<span class="badge bg-{{ 'dark' if m.role == 'owner' else 'primary' if m.role == 'admin' else 'secondary' }}">{{ m.role|capitalize }}</span>{% endif %}</td>
-                        <td>{% if m.is_active %}<span class="badge bg-success">Active</span>{% else %}<span class="badge bg-danger">Disabled</span>{% endif %}</td>
-                        <td><small>{{ m.last_login.strftime('%Y-%m-%d %H:%M') if m.last_login else 'Never' }}</small></td>
+                        <td><strong>{{ m.username }}</strong>{% if m.id == current_user.id %} <span class="text-muted">({{ _('you') }})</span>{% endif %}<small class="text-muted d-block">{{ m.email }}</small></td>
+                        <td>{% if m.role == 'viewer' %}<span class="badge bg-info text-dark">{{ _('Partner · view only') }}</span>
+                            <small class="d-block text-muted">{% if m.site_id %}{% for x in sites if x.id == m.site_id %}{{ _('Only {site}', site=x.name) }}{% endfor %}{% else %}{{ _('Whole business') }}{% endif %}</small>
+                            {% else %}<span class="badge bg-{{ 'dark' if m.role == 'owner' else 'primary' if m.role == 'admin' else 'secondary' }}">{{ {'owner': _('Owner'), 'admin': _('Admin'), 'staff': _('Staff')}.get(m.role, m.role|capitalize) }}</span>{% endif %}</td>
+                        <td>{% if m.is_active %}<span class="badge bg-success">{{ _('Active') }}</span>{% else %}<span class="badge bg-danger">{{ _('Disabled') }}</span>{% endif %}</td>
+                        <td><small>{{ m.last_login.strftime('%Y-%m-%d %H:%M') if m.last_login else _('Never') }}</small></td>
                         <td class="text-nowrap">
                             {% if manageable(m) %}
                             <form method="POST" action="{{ url_for('toggle_team_member', member_id=m.id) }}" style="display:inline;">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <button class="btn btn-sm btn-outline-warning" type="submit">{{ 'Disable' if m.is_active else 'Enable' }}</button>
+                                <button class="btn btn-sm btn-outline-warning" type="submit">{{ _('Disable') if m.is_active else _('Enable') }}</button>
                             </form>
-                            <form method="POST" action="{{ url_for('delete_team_member', member_id=m.id) }}" style="display:inline;" onsubmit="return confirm('Remove {{ m.username }}?');">
+                            <form method="POST" action="{{ url_for('delete_team_member', member_id=m.id) }}" style="display:inline;" onsubmit="return confirm({{ _('Remove {user}?', user=m.username)|tojson|forceescape }});">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-trash"></i></button>
                             </form>
@@ -39,7 +39,7 @@
                 </tbody>
             </table>
         </div>
-        <p class="text-muted small mb-0"><strong>Staff</strong> manage users and vouchers and see live activity and payments. <strong>Admins</strong> also manage packages, plans, routers, gateways and settings. The <strong>owner</strong> can add admins.</p>
+        <p class="text-muted small mb-0"><strong>{{ _('Staff') }}</strong> {{ _('manage users and vouchers and see live activity and payments.') }} <strong>{{ _('Admins') }}</strong> {{ _('also manage packages, plans, routers, gateways and settings.') }} {{ _('The owner can add admins.') }}</p>
     </div>
 </div>
 {% endblock %}

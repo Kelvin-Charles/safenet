@@ -87,7 +87,7 @@ with app.app_context():
 c = app.test_client(); r = c.get('/login'); c.post('/login', data={'username': 'owner', 'password': 'password1', 'csrf_token': tok(r.text)})
 p = c.get('/sites').text
 assert 'Omada' in p
-assert "Use SafeNet's controller" not in p                       # no hosted controller on this server
+assert "Use SafeNet's controller" not in html.unescape(p)                       # no hosted controller on this server
 r = c.post(f'/sites/{SID}/omada', data={'csrf_token': tok(p), 'omada_url': CTL_URL + '/', 'omada_user': 'op', 'omada_password': 'wrong'}, follow_redirects=True)
 assert 'could not log in' in r.text
 r = c.post(f'/sites/{SID}/omada', data={'csrf_token': tok(p), 'omada_url': CTL_URL, 'omada_user': 'op', 'omada_password': 'op-pass'}, follow_redirects=True)
@@ -207,7 +207,7 @@ assert app.test_client().get(q).status_code == 404
 config.Config.OMADA_HOSTED_URL, config.Config.OMADA_HOSTED_USER, config.Config.OMADA_HOSTED_PASSWORD = CTL_URL, 'op', 'op-pass'
 config.Config.OMADA_HOSTED_HOST = 'radius.example.tz'
 p = c.get('/sites').text
-assert "Use SafeNet's controller" in p
+assert "Use SafeNet's controller" in html.unescape(p)
 r = c.post(f'/sites/{SID}/omada', data={'csrf_token': tok(p), 'action': 'hosted'}, follow_redirects=True)
 assert 'now uses SafeNet' in html.unescape(r.text) and 'radius.example.tz' in r.text, r.text[-2000:]
 with app.app_context():
@@ -232,7 +232,7 @@ assert len(ctl['authorized']) == n
 with app.app_context(): assert Voucher.query.filter_by(code='80801313').one().status == 'unused'
 # hosted controller removed from the server: login fails clearly, page does not offer it
 config.Config.OMADA_HOSTED_URL = ''
-assert "Use SafeNet's controller" not in c.get('/sites').text
+assert "Use SafeNet's controller" not in html.unescape(c.get('/sites').text)
 h2 = app.test_client(); h2.get(q2.replace('00-21', '00-22'))
 with app.app_context():
     db.session.add_all([Voucher(tenant_id=TID, code='71719393', validity_minutes=30, batch='x', status='unused'),

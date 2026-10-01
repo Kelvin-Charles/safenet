@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Wi-Fi access points - {{ app_name }}{% endblock %}
-{% block page_title %}Wi-Fi access points · {{ site.name }}{% endblock %}
+{% block title %}{{ _('Wi-Fi access points') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Wi-Fi access points') }} · {{ site.name }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -14,69 +14,69 @@
 {% block content %}
 <div class="row">
     <div class="col-xl-8">
-        {% if error %}<div class="alert alert-danger"><i class="bi bi-x-circle"></i> SafeNet could not read your access points right now: {{ error }}</div>{% endif %}
+        {% if error %}<div class="alert alert-danger"><i class="bi bi-x-circle"></i> {{ _('SafeNet could not read your access points right now: {error}', error=error) }}</div>{% endif %}
 
         <div class="card">
             <div class="card-body">
-                <div class="step-head"><span class="step-no {{ 'done' if site.omada_ssid }}">{% if site.omada_ssid %}<i class="bi bi-check-lg"></i>{% else %}1{% endif %}</span> Your Wi-Fi name</div>
+                <div class="step-head"><span class="step-no {{ 'done' if site.omada_ssid }}">{% if site.omada_ssid %}<i class="bi bi-check-lg"></i>{% else %}1{% endif %}</span> {{ _('Your Wi-Fi name') }}</div>
                 <form method="POST" action="{{ url_for('site_wifi_setup', site_id=site.id) }}" class="row g-2 align-items-end">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="col-md-8">
-                        <label class="form-label">Name guests will see</label>
-                        <input name="wifi_name" class="form-control" maxlength="32" required value="{{ site.omada_ssid or '' }}" placeholder="e.g. Zulu Connect WiFi">
+                        <label class="form-label">{{ _('Name guests will see') }}</label>
+                        <input name="wifi_name" class="form-control" maxlength="32" required value="{{ site.omada_ssid or '' }}" placeholder="{{ _('e.g. Zulu Connect WiFi') }}">
                     </div>
-                    <div class="col-md-4 d-grid"><button class="btn btn-primary" type="submit">{{ 'Save' if site.omada_ssid else 'Create my Wi-Fi' }}</button></div>
+                    <div class="col-md-4 d-grid"><button class="btn btn-primary" type="submit">{{ _('Save') if site.omada_ssid else _('Create my Wi-Fi') }}</button></div>
                 </form>
-                <p class="small text-muted mb-0 mt-2">An open Wi-Fi with your SafeNet login page: guests buy a package or enter a voucher to get online.</p>
+                <p class="small text-muted mb-0 mt-2">{{ _('An open Wi-Fi with your SafeNet login page: guests buy a package or enter a voucher to get online.') }}</p>
             </div>
         </div>
 
         <div class="card {{ '' if site.omada_ssid else 'opacity-50' }}">
             <div class="card-body">
-                <div class="step-head"><span class="step-no">2</span> Prepare the access point</div>
+                <div class="step-head"><span class="step-no">2</span> {{ _('Prepare the access point') }}</div>
                 <ol class="mb-0">
-                    <li>Plug it into your internet router (PoE adapter: <strong>PoE</strong> → access point, <strong>LAN</strong> → router). Wait 2 minutes.</li>
-                    <li>If it was used before, hold its <strong>Reset</strong> button for 10 seconds.</li>
-                    <li>Open its page from a phone or laptop on the same router (find it in your router's device list, e.g. <code>https://192.168.1.33</code>), log in with <code>admin</code> / <code>admin</code>, choose <strong>AP Mode</strong>, and <strong>skip</strong> any TP-Link cloud sign-in.</li>
-                    <li>In <strong>Controller Settings</strong>, turn on <strong>Cloud-Based Controller Management</strong> and enter <code class="user-select-all">{{ omada_host }}</code>. Save.</li>
+                    <li>{{ _('Plug it into your internet router (PoE adapter:') }} <strong>PoE</strong> → {{ _('access point') }}, <strong>LAN</strong> → {{ _('router') }}). {{ _('Wait 2 minutes.') }}</li>
+                    <li>{{ _('If it was used before, hold its') }} <strong>Reset</strong> {{ _('button for 10 seconds.') }}</li>
+                    <li>{{ _("Open its page from a phone or laptop on the same router (find it in your router's device list, e.g.") }} <code>https://192.168.1.33</code>), {{ _('log in with') }} <code>admin</code> / <code>admin</code>, {{ _('choose') }} <strong>AP Mode</strong>, {{ _('and') }} <strong>{{ _('skip') }}</strong> {{ _('any TP-Link cloud sign-in.') }}</li>
+                    <li>{{ _('In') }} <strong>Controller Settings</strong>, {{ _('turn on') }} <strong>Cloud-Based Controller Management</strong> {{ _('and enter') }} <code class="user-select-all">{{ omada_host }}</code>. {{ _('Save.') }}</li>
                 </ol>
-                <p class="small mt-2 mb-0"><a href="{{ url_for('docs', slug='omada') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> Guide with pictures and help</a></p>
+                <p class="small mt-2 mb-0"><a href="{{ url_for('docs', slug='omada') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Guide with pictures and help') }}</a></p>
             </div>
         </div>
 
         <div class="card {{ '' if site.omada_ssid else 'opacity-50' }}">
             <div class="card-body">
-                <div class="step-head"><span class="step-no">3</span> Add it to SafeNet</div>
+                <div class="step-head"><span class="step-no">3</span> {{ _('Add it to SafeNet') }}</div>
                 <form method="POST" action="{{ url_for('site_wifi_adopt', site_id=site.id) }}" class="row g-2 align-items-end">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="col-md-4">
-                        <label class="form-label">MAC address</label>
+                        <label class="form-label">{{ _('MAC address') }}</label>
                         <input name="mac" class="form-control font-monospace" required placeholder="B8-FB-B3-79-C7-E6" {{ 'disabled' if not site.omada_ssid }}>
-                        <small class="text-muted">On the label on the back.</small>
+                        <small class="text-muted">{{ _('On the label on the back.') }}</small>
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label">Its username</label>
-                        <input name="username" class="form-control" autocomplete="off" placeholder="if you set one" {{ 'disabled' if not site.omada_ssid }}>
+                        <label class="form-label">{{ _('Its username') }}</label>
+                        <input name="username" class="form-control" autocomplete="off" placeholder="{{ _('if you set one') }}" {{ 'disabled' if not site.omada_ssid }}>
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label">Its password</label>
+                        <label class="form-label">{{ _('Its password') }}</label>
                         <input name="password" type="password" class="form-control" autocomplete="new-password" {{ 'disabled' if not site.omada_ssid }}>
                     </div>
-                    <div class="col-md-2 d-grid"><button class="btn btn-primary" type="submit" {{ 'disabled' if not site.omada_ssid }}>Add</button></div>
+                    <div class="col-md-2 d-grid"><button class="btn btn-primary" type="submit" {{ 'disabled' if not site.omada_ssid }}>{{ _('Add') }}</button></div>
                 </form>
             </div>
         </div>
 
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-wifi"></i> Your access points</span>
-                <a href="{{ url_for('site_wifi', site_id=site.id) }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-clockwise"></i> Refresh</a>
+                <span><i class="bi bi-wifi"></i> {{ _('Your access points') }}</span>
+                <a href="{{ url_for('site_wifi', site_id=site.id) }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-clockwise"></i> {{ _('Refresh') }}</a>
             </div>
             <div class="card-body">
                 {% if devices %}
                 <div class="table-responsive">
                     <table class="table align-middle">
-                        <thead><tr><th>Access point</th><th>Model</th><th>Status</th><th>Address</th></tr></thead>
+                        <thead><tr><th>{{ _('Access point') }}</th><th>{{ _('Model') }}</th><th>{{ _('Status') }}</th><th>{{ _('Address') }}</th></tr></thead>
                         <tbody>
                         {% for d in devices %}
                         <tr>
@@ -90,7 +90,7 @@
                     </table>
                 </div>
                 {% else %}
-                <p class="text-muted mb-0">No access points yet. Follow steps 1–3 above.</p>
+                <p class="text-muted mb-0">{{ _('No access points yet. Follow steps 1–3 above.') }}</p>
                 {% endif %}
             </div>
         </div>
@@ -98,10 +98,10 @@
     <div class="col-xl-4">
         <div class="card">
             <div class="card-body small">
-                <strong>How it works</strong>
-                <p class="mt-2">SafeNet runs the Omada Controller for you. Your access points connect to SafeNet over the internet; you don't need an Omada account or any other box.</p>
-                <p class="mb-2">When a guest pays or enters a voucher, SafeNet lets their phone online for the time they bought, and cuts them off when you press <strong>Disconnect</strong> on the Live page.</p>
-                <p class="mb-0">Works with TP-Link Omada access points: EAP225, EAP225-Outdoor, EAP245, EAP610, EAP650 and other EAP models.</p>
+                <strong>{{ _('How it works') }}</strong>
+                <p class="mt-2">{{ _("SafeNet runs the Omada Controller for you. Your access points connect to SafeNet over the internet; you don't need an Omada account or any other box.") }}</p>
+                <p class="mb-2">{{ _('When a guest pays or enters a voucher, SafeNet lets their phone online for the time they bought, and cuts them off when you press') }} <strong>{{ _('Disconnect') }}</strong> {{ _('on the Live page.') }}</p>
+                <p class="mb-0">{{ _('Works with TP-Link Omada access points: EAP225, EAP225-Outdoor, EAP245, EAP610, EAP650 and other EAP models.') }}</p>
             </div>
         </div>
     </div>

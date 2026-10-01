@@ -11,6 +11,7 @@ from flask import abort, flash, redirect, session, url_for
 from flask_login import current_user
 from sqlalchemy import select, union
 
+from i18n import tr
 from models import db, Tenant, RadUser, Voucher, Site
 
 
@@ -91,7 +92,7 @@ def role_required(role):
             if not current_user.is_authenticated:
                 return redirect(url_for('login'))
             if not current_user.has_role(role):
-                flash("You don't have permission to open that page.", 'warning')
+                flash(tr("You don't have permission to open that page."), 'warning')
                 return redirect(url_for('dashboard'))
             return fn(*args, **kwargs)
         return wrapper

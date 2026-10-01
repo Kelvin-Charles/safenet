@@ -22,19 +22,19 @@
                                 {% for error in form.username.errors %}{{ error }}{% endfor %}
                             </div>
                         {% endif %}
-                        <small class="form-text text-muted">Letters, numbers, dots, hyphens, and underscores only</small>
+                        <small class="form-text text-muted">{{ _('Letters, numbers, dots, hyphens, and underscores only') }}</small>
                     </div>
                     
                     <div class="mb-3">
                         {{ form.password.label(class="form-label") }}
-                        {{ form.password(class="form-control" + (" is-invalid" if form.password.errors else ""), placeholder="Enter password" if user else "Enter password") }}
+                        {{ form.password(class="form-control" + (" is-invalid" if form.password.errors else ""), placeholder=_('Enter password')) }}
                         {% if form.password.errors %}
                             <div class="invalid-feedback">
                                 {% for error in form.password.errors %}{{ error }}{% endfor %}
                             </div>
                         {% endif %}
                         {% if user %}
-                        <small class="form-text text-muted">Leave blank to keep current password</small>
+                        <small class="form-text text-muted">{{ _('Leave blank to keep current password') }}</small>
                         {% endif %}
                     </div>
                     
@@ -50,13 +50,13 @@
                     
                     <div class="mb-3">
                         {{ form.expires_at.label(class="form-label") }}
-                        {{ form.expires_at(class="form-control datetime-picker" + (" is-invalid" if form.expires_at.errors else ""), placeholder="Click to pick date and time") }}
+                        {{ form.expires_at(class="form-control datetime-picker" + (" is-invalid" if form.expires_at.errors else ""), placeholder=_('Click to pick date and time')) }}
                         {% if form.expires_at.errors %}
                             <div class="invalid-feedback">
                                 {% for error in form.expires_at.errors %}{{ error }}{% endfor %}
                             </div>
                         {% endif %}
-                        <small class="form-text text-muted">Optional. Click to pick date and time</small>
+                        <small class="form-text text-muted">{{ _('Optional. Click to pick date and time') }}</small>
                     </div>
                     
                     <div class="mb-3">
@@ -70,13 +70,13 @@
                     </div>
                     
                     <hr class="my-4">
-                    <h6 class="mb-3"><i class="bi bi-speedometer2"></i> Bandwidth Limits (Optional)</h6>
-                    <p class="text-muted small mb-3">Override plan limits for this user. Leave empty to use plan defaults.</p>
+                    <h6 class="mb-3"><i class="bi bi-speedometer2"></i> {{ _('Bandwidth Limits (Optional)') }}</h6>
+                    <p class="text-muted small mb-3">{{ _('Override plan limits for this user. Leave empty to use plan defaults.') }}</p>
                     
                     <div class="row">
                         <div class="col-md-6 mb-3">
                             {{ form.upload_speed.label(class="form-label") }}
-                            {{ form.upload_speed(class="form-control" + (" is-invalid" if form.upload_speed.errors else ""), placeholder="e.g., 10M, 100M, 1G") }}
+                            {{ form.upload_speed(class="form-control" + (" is-invalid" if form.upload_speed.errors else ""), placeholder=_('e.g., 10M, 100M, 1G')) }}
                             {% if form.upload_speed.errors %}
                                 <div class="invalid-feedback">
                                     {% for error in form.upload_speed.errors %}{{ error }}{% endfor %}
@@ -87,7 +87,7 @@
                         
                         <div class="col-md-6 mb-3">
                             {{ form.download_speed.label(class="form-label") }}
-                            {{ form.download_speed(class="form-control" + (" is-invalid" if form.download_speed.errors else ""), placeholder="e.g., 10M, 100M, 1G") }}
+                            {{ form.download_speed(class="form-control" + (" is-invalid" if form.download_speed.errors else ""), placeholder=_('e.g., 10M, 100M, 1G')) }}
                             {% if form.download_speed.errors %}
                                 <div class="invalid-feedback">
                                     {% for error in form.download_speed.errors %}{{ error }}{% endfor %}
@@ -100,7 +100,7 @@
                     <div class="row">
                         <div class="col-md-8 mb-3">
                             {{ form.data_cap.label(class="form-label") }}
-                            {{ form.data_cap(class="form-control" + (" is-invalid" if form.data_cap.errors else ""), placeholder="Data limit in GB") }}
+                            {{ form.data_cap(class="form-control" + (" is-invalid" if form.data_cap.errors else ""), placeholder=_('Data limit in GB')) }}
                             {% if form.data_cap.errors %}
                                 <div class="invalid-feedback">
                                     {% for error in form.data_cap.errors %}{{ error }}{% endfor %}
@@ -123,18 +123,19 @@
                     {% if user and user.data_cap %}
                     <div class="alert alert-info">
                         <i class="bi bi-info-circle"></i> 
-                        <strong>Data Cap Status:</strong> 
+                        <strong>{{ _('Data Cap Status:') }}</strong> 
                         {% if user.last_reset %}
-                            Last reset: {{ user.last_reset.strftime('%Y-%m-%d %H:%M:%S') }}
+                            {{ _('Last reset: {date}', date=user.last_reset.strftime('%Y-%m-%d %H:%M:%S')) }}
                         {% else %}
-                            Not yet reset
+                            {{ _('Not yet reset') }}
                         {% endif %}
                         <br>
-                        <small>Period: <strong>{{ user.data_cap_period|title if user.data_cap_period else 'Monthly' }}</strong></small>
+                        <small>{{ _('Period:') }} <strong>{{ user.data_cap_period|title if user.data_cap_period else _('Monthly') }}</strong></small>
                         {% if user %}
                         <form method="POST" action="{{ url_for('reset_user_data_cap', user_id=user.id) }}" style="display: inline; margin-top: 0.5rem;">
-                            <button type="submit" class="btn btn-sm btn-warning" onclick="return confirm('Reset data cap counter for this user?');">
-                                <i class="bi bi-arrow-clockwise"></i> Reset Data Cap Counter
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-warning" onclick="return confirm({{ _('Reset data cap counter for this user?')|tojson|forceescape }});">
+                                <i class="bi bi-arrow-clockwise"></i> {{ _('Reset Data Cap Counter') }}
                             </button>
                         </form>
                         {% endif %}
@@ -148,12 +149,12 @@
                     
                     {% if user %}
                     <hr class="my-4">
-                    <h6 class="mb-3"><i class="bi bi-wifi"></i> Test Connection</h6>
-                    <p class="text-muted small mb-3">Test user authentication against a NAS device before activating.</p>
+                    <h6 class="mb-3"><i class="bi bi-wifi"></i> {{ _('Test Connection') }}</h6>
+                    <p class="text-muted small mb-3">{{ _('Test user authentication against a NAS device before activating.') }}</p>
                     <div class="row">
                         <div class="col-md-8 mb-3">
                             <select id="test-nas-select" class="form-select">
-                                <option value="">-- Select NAS Device --</option>
+                                <option value="">-- {{ _('Select NAS Device') }} --</option>
                                 {% for nas in nas_list %}
                                 <option value="{{ nas.id }}">{{ nas.shortname }} ({{ nas.nasname }})</option>
                                 {% endfor %}
@@ -161,7 +162,7 @@
                         </div>
                         <div class="col-md-4 mb-3">
                             <button type="button" id="test-connection-btn" class="btn btn-info w-100" {% if not nas_list %}disabled{% endif %} data-user-id="{{ user.id }}">
-                                <i class="bi bi-wifi"></i> Test Connection
+                                <i class="bi bi-wifi"></i> {{ _('Test Connection') }}
                             </button>
                         </div>
                     </div>
@@ -170,10 +171,10 @@
                     
                     <div class="d-flex justify-content-between">
                         <a href="{{ url_for('users') }}" class="btn btn-secondary">
-                            <i class="bi bi-arrow-left"></i> Cancel
+                            <i class="bi bi-arrow-left"></i> {{ _('Cancel') }}
                         </a>
                         <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-check-circle"></i> Save User
+                            <i class="bi bi-check-circle"></i> {{ _('Save User') }}
                         </button>
                     </div>
                 </form>
@@ -183,6 +184,7 @@
 </div>
 
 <script>
+const T = {pick: {{ _('Click to pick date and time')|tojson }}, selectNas: {{ _('Please select a NAS device first.')|tojson }}, testing: {{ _('Testing...')|tojson }}, failed: {{ _('Test failed: {error}')|tojson }}, test: {{ _('Test Connection')|tojson }}};
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize date/time picker
     const expiresAtField = document.querySelector('.datetime-picker');
@@ -197,7 +199,7 @@ document.addEventListener('DOMContentLoaded', function() {
             allowInput: false,
             clickOpens: true,
             defaultDate: existingValue || null,
-            placeholder: "Click to pick date and time",
+            placeholder: T.pick,
             // Ensure the value is properly formatted when set
             onReady: function(selectedDates, dateStr, instance) {
                 if (existingValue && existingValue.trim()) {
@@ -218,12 +220,14 @@ document.addEventListener('DOMContentLoaded', function() {
             testBtn.addEventListener('click', function() {
                 const nasId = nasSelect.value;
                 if (!nasId) {
-                    testResult.innerHTML = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> Please select a NAS device first.</div>';
+                    testResult.innerHTML = '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> </div>';
+                    testResult.firstChild.append(T.selectNas);
                     return;
                 }
                 
                 testBtn.disabled = true;
-                testBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Testing...';
+                testBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ';
+                testBtn.append(T.testing);
                 testResult.innerHTML = '';
                 
                 fetch('/users/test-connection/' + userId, {
@@ -256,11 +260,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 })
                 .catch(function(error) {
-                    testResult.textContent = 'Test failed: ' + error.message;
+                    testResult.textContent = T.failed.replace('{error}', error.message);
                 })
                 .finally(function() {
                     testBtn.disabled = false;
-                    testBtn.innerHTML = '<i class="bi bi-wifi"></i> Test Connection';
+                    testBtn.innerHTML = '<i class="bi bi-wifi"></i> ';
+                    testBtn.append(T.test);
                 });
             });
         }

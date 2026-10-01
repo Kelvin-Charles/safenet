@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
-{% block title %}Live - {{ app_name }}{% endblock %}
-{% block page_title %}Live Activity{% endblock %}
+{% block title %}{{ _('Live') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Live Activity') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -23,32 +23,32 @@
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <div><span class="live-dot" id="dot"></span><span id="status" class="text-muted">Connecting…</span></div>
-    <div class="text-muted small">Refreshes every 5 seconds · usage updates every minute from the gateway</div>
+    <div><span class="live-dot" id="dot"></span><span id="status" class="text-muted">{{ _('Connecting…') }}</span></div>
+    <div class="text-muted small">{{ _('Refreshes every 5 seconds · usage updates every minute from the gateway') }}</div>
 </div>
 
 <div class="row mb-2" id="tiles">
-    <div class="col-lg-3 col-6 mb-3"><div class="stat-card"><div class="stat-label">Online now</div><div class="stat-value" id="t-online">–</div><div class="stat-sub" id="t-online-sub">&nbsp;</div></div></div>
-    <div class="col-lg-3 col-6 mb-3"><div class="stat-card"><div class="stat-label">Data today</div><div class="stat-value" id="t-data">–</div><div class="stat-sub" id="t-data-sub">&nbsp;</div></div></div>
-    <div class="col-lg-3 col-6 mb-3"><div class="stat-card"><div class="stat-label">Earned today ({{ currency }})</div><div class="stat-value" id="t-money">–</div><div class="stat-sub" id="t-money-sub">&nbsp;</div></div></div>
-    <div class="col-lg-3 col-6 mb-3"><div class="stat-card"><div class="stat-label">Logins today</div><div class="stat-value" id="t-logins">–</div><div class="stat-sub" id="t-logins-sub">&nbsp;</div></div></div>
+    <div class="col-lg-3 col-6 mb-3"><div class="stat-card"><div class="stat-label">{{ _('Online now') }}</div><div class="stat-value" id="t-online">–</div><div class="stat-sub" id="t-online-sub">&nbsp;</div></div></div>
+    <div class="col-lg-3 col-6 mb-3"><div class="stat-card"><div class="stat-label">{{ _('Data today') }}</div><div class="stat-value" id="t-data">–</div><div class="stat-sub" id="t-data-sub">&nbsp;</div></div></div>
+    <div class="col-lg-3 col-6 mb-3"><div class="stat-card"><div class="stat-label">{{ _('Earned today ({currency})', currency=currency) }}</div><div class="stat-value" id="t-money">–</div><div class="stat-sub" id="t-money-sub">&nbsp;</div></div></div>
+    <div class="col-lg-3 col-6 mb-3"><div class="stat-card"><div class="stat-label">{{ _('Logins today') }}</div><div class="stat-value" id="t-logins">–</div><div class="stat-sub" id="t-logins-sub">&nbsp;</div></div></div>
 </div>
 
 <div class="row">
     <div class="col-xl-8">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-people"></i> Online users</span>
-                <input type="search" id="filter" class="form-control form-control-sm" style="max-width: 220px" placeholder="Filter by code, phone, MAC…">
+                <span><i class="bi bi-people"></i> {{ _('Online users') }}</span>
+                <input type="search" id="filter" class="form-control form-control-sm" style="max-width: 220px" placeholder="{{ _('Filter by code, phone, MAC…') }}">
             </div>
             <div class="card-body">
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
                         <thead>
-                            <tr><th>User</th><th>Device</th><th>Online for</th><th>Download</th><th>Upload</th><th>Time left</th><th></th></tr>
+                            <tr><th>{{ _('User') }}</th><th>{{ _('Device') }}</th><th>{{ _('Online for') }}</th><th>{{ _('Download') }}</th><th>{{ _('Upload') }}</th><th>{{ _('Time left') }}</th><th></th></tr>
                         </thead>
                         <tbody id="online-body">
-                            <tr><td colspan="7" class="text-center text-muted py-4">Loading…</td></tr>
+                            <tr><td colspan="7" class="text-center text-muted py-4">{{ _('Loading…') }}</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -57,8 +57,8 @@
     </div>
     <div class="col-xl-4">
         <div class="card">
-            <div class="card-header"><i class="bi bi-activity"></i> Activity</div>
-            <div class="card-body feed" id="feed"><p class="text-muted">Loading…</p></div>
+            <div class="card-header"><i class="bi bi-activity"></i> {{ _('Activity') }}</div>
+            <div class="card-body feed" id="feed"><p class="text-muted">{{ _('Loading…') }}</p></div>
         </div>
     </div>
 </div>
@@ -68,14 +68,29 @@
 <script>
 (function () {
     const REFRESH_MS = 5000;
+    const T = {
+        login: {{ _('Login')|tojson }}, rejected: {{ _('Rejected')|tojson }}, session: {{ _('Session')|tojson }}, ended: {{ _('Ended')|tojson }},
+        payment: {{ _('Payment')|tojson }}, paid: {{ _('Paid')|tojson }}, failed: {{ _('Failed')|tojson }},
+        justNow: {{ _('just now')|tojson }}, minAgo: {{ _('{n} min ago')|tojson }}, hAgo: {{ _('{n} h ago')|tojson }},
+        waitingPin: {{ _('{n} payment(s) waiting for PIN')|tojson }}, activeSession: {{ _('devices with an active session')|tojson }},
+        downUp: {{ _('{down} down · {up} up')|tojson }}, moneySplit: {{ _('{online} mobile money ({sales}) · {cash} vouchers')|tojson }},
+        loginsSub: {{ _('{rejected} rejected · {activated} vouchers activated')|tojson }},
+        noMatch: {{ _('No match')|tojson }}, nobody: {{ _('Nobody is online right now')|tojson }},
+        voucher: {{ _('Voucher')|tojson }}, user: {{ _('User')|tojson }},
+        noUpdate: {{ _('No usage update for {n} min')|tojson }}, quiet: {{ _('quiet {n}m')|tojson }},
+        disconnectNow: {{ _('Disconnect now')|tojson }}, noActivity: {{ _('No activity yet.')|tojson }},
+        updated: {{ _('Live · updated {time}')|tojson }}, lost: {{ _('Connection lost, retrying… ({error})')|tojson }},
+        confirmKick: {{ _('Disconnect {user} now? They can log in again unless you also disable their voucher.')|tojson }},
+    };
+    const fill = (s, v) => s.replace(/\{(\w+)\}/g, (m, k) => k in v ? v[k] : m);
     const EVENT_STYLE = {
-        login:   { icon: 'bi-box-arrow-in-right', label: 'Login' },
-        reject:  { icon: 'bi-x-octagon',          label: 'Rejected' },
-        start:   { icon: 'bi-wifi',               label: 'Session' },
-        stop:    { icon: 'bi-wifi-off',           label: 'Ended' },
-        payment: { icon: 'bi-phone',              label: 'Payment' },
-        paid:    { icon: 'bi-check2-circle',      label: 'Paid' },
-        failed:  { icon: 'bi-exclamation-triangle', label: 'Failed' },
+        login:   { icon: 'bi-box-arrow-in-right', label: T.login },
+        reject:  { icon: 'bi-x-octagon',          label: T.rejected },
+        start:   { icon: 'bi-wifi',               label: T.session },
+        stop:    { icon: 'bi-wifi-off',           label: T.ended },
+        payment: { icon: 'bi-phone',              label: T.payment },
+        paid:    { icon: 'bi-check2-circle',      label: T.paid },
+        failed:  { icon: 'bi-exclamation-triangle', label: T.failed },
     };
     let last = null, known = new Set(), timer = null;
 
@@ -96,9 +111,9 @@
     };
     const ago = iso => {
         const s = (Date.now() - Date.parse(iso)) / 1000;
-        if (s < 60) return 'just now';
-        if (s < 3600) return Math.floor(s / 60) + ' min ago';
-        if (s < 86400) return Math.floor(s / 3600) + ' h ago';
+        if (s < 60) return T.justNow;
+        if (s < 3600) return fill(T.minAgo, {n: Math.floor(s / 60)});
+        if (s < 86400) return fill(T.hAgo, {n: Math.floor(s / 3600)});
         return new Date(iso).toLocaleDateString();
     };
     const clock = iso => new Date(iso).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
@@ -106,13 +121,13 @@
 
     function renderTiles(s) {
         $('t-online').textContent = s.online;
-        $('t-online-sub').textContent = s.pending_payments ? `${s.pending_payments} payment(s) waiting for PIN` : 'devices with an active session';
+        $('t-online-sub').textContent = s.pending_payments ? fill(T.waitingPin, {n: s.pending_payments}) : T.activeSession;
         $('t-data').textContent = bytes(s.down_today + s.up_today);
-        $('t-data-sub').textContent = `${bytes(s.down_today)} down · ${bytes(s.up_today)} up`;
+        $('t-data-sub').textContent = fill(T.downUp, {down: bytes(s.down_today), up: bytes(s.up_today)});
         $('t-money').textContent = money(s.online_revenue_today + s.cash_revenue_today);
-        $('t-money-sub').textContent = `${money(s.online_revenue_today)} mobile money (${s.online_sales_today}) · ${money(s.cash_revenue_today)} vouchers`;
+        $('t-money-sub').textContent = fill(T.moneySplit, {online: money(s.online_revenue_today), sales: s.online_sales_today, cash: money(s.cash_revenue_today)});
         $('t-logins').textContent = s.logins_today;
-        $('t-logins-sub').textContent = `${s.rejects_today} rejected · ${s.vouchers_activated_today} vouchers activated`;
+        $('t-logins-sub').textContent = fill(T.loginsSub, {rejected: s.rejects_today, activated: s.vouchers_activated_today});
     }
 
     function renderOnline(rows, nowIso, staleMin) {
@@ -120,7 +135,7 @@
         const shown = rows.filter(r => !q || [r.user, r.phone, r.mac, r.ip, r.plan].join(' ').toLowerCase().includes(q));
         const body = $('online-body');
         if (!shown.length) {
-            body.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">${rows.length ? 'No match' : 'Nobody is online right now'}</td></tr>`;
+            body.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">${esc(rows.length ? T.noMatch : T.nobody)}</td></tr>`;
             return;
         }
         const now = Date.parse(nowIso);
@@ -134,25 +149,25 @@
             const left = r.expires ? (Date.parse(r.expires) - now) / 1000 : null;
             return `<tr class="${isNew ? 'flash' : ''}">
                 <td><strong class="font-monospace">${esc(r.user)}</strong>
-                    <small class="text-muted d-block">${esc(r.plan || (r.kind === 'voucher' ? 'Voucher' : 'User'))}${r.phone ? ' · ' + esc(r.phone) : ''}</small></td>
+                    <small class="text-muted d-block">${esc(r.plan || (r.kind === 'voucher' ? T.voucher : T.user))}${r.phone ? ' · ' + esc(r.phone) : ''}</small></td>
                 <td><small class="d-block">${esc(r.mac)}</small><small class="text-muted">${esc(r.ip)} · ${esc(r.router)}</small></td>
-                <td>${duration(online)}${quiet > 3 ? `<small class="d-block stale" title="No usage update for ${Math.floor(quiet)} min"><i class="bi bi-hourglass-split"></i> quiet ${Math.floor(quiet)}m</small>` : ''}</td>
+                <td>${duration(online)}${quiet > 3 ? `<small class="d-block stale" title="${esc(fill(T.noUpdate, {n: Math.floor(quiet)}))}"><i class="bi bi-hourglass-split"></i> ${esc(fill(T.quiet, {n: Math.floor(quiet)}))}</small>` : ''}</td>
                 <td>${bytes(r.down)}</td>
                 <td>${bytes(r.up)}</td>
                 <td>${left === null ? '<span class="text-muted">–</span>' : duration(left)}</td>
-                <td><button class="btn btn-sm btn-outline-danger" data-kick="${esc(r.user)}" title="Disconnect now"><i class="bi bi-x-circle"></i></button></td>
+                <td><button class="btn btn-sm btn-outline-danger" data-kick="${esc(r.user)}" title="${esc(T.disconnectNow)}"><i class="bi bi-x-circle"></i></button></td>
             </tr>`;
         }).join('');
         known = seen;
     }
 
     function renderFeed(events) {
-        if (!events.length) { $('feed').innerHTML = '<p class="text-muted mb-0">No activity yet.</p>'; return; }
+        if (!events.length) { $('feed').innerHTML = '<p class="text-muted mb-0">' + esc(T.noActivity) + '</p>'; return; }
         $('feed').innerHTML = events.map(e => {
             const st = EVENT_STYLE[e.type] || { icon: 'bi-dot', label: e.type };
             return `<div class="feed-item">
                 <div class="feed-icon"><i class="bi ${st.icon}"></i></div>
-                <div><span class="feed-tag">${st.label}</span> ${esc(e.text)}
+                <div><span class="feed-tag">${esc(st.label)}</span> ${esc(e.text)}
                     <time datetime="${e.at}" title="${new Date(e.at).toLocaleString()}">${clock(e.at)} · ${ago(e.at)}</time></div>
             </div>`;
         }).join('');
@@ -169,17 +184,17 @@
             renderFeed(d.events);
             last = d;
             $('dot').classList.remove('off');
-            $('status').textContent = 'Live · updated ' + new Date().toLocaleTimeString();
+            $('status').textContent = fill(T.updated, {time: new Date().toLocaleTimeString()});
         } catch (err) {
             $('dot').classList.add('off');
-            $('status').textContent = 'Connection lost, retrying… (' + err.message + ')';
+            $('status').textContent = fill(T.lost, {error: err.message});
         }
     }
 
     const CSRF = '{{ csrf_token() }}';
     $('online-body').addEventListener('click', async e => {
         const btn = e.target.closest('[data-kick]');
-        if (!btn || !confirm('Disconnect ' + btn.dataset.kick + ' now? They can log in again unless you also disable their voucher.')) return;
+        if (!btn || !confirm(fill(T.confirmKick, {user: btn.dataset.kick}))) return;
         btn.disabled = true;
         const body = new URLSearchParams({ username: btn.dataset.kick, csrf_token: CSRF });
         const r = await fetch('{{ url_for("live_disconnect") }}', { method: 'POST', body, credentials: 'same-origin' });

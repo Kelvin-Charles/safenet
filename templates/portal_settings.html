@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% from "auth/_field.html" import field %}
 
-{% block title %}Captive portal - {{ app_name }}{% endblock %}
-{% block page_title %}Captive Portal{% endblock %}
+{% block title %}{{ _('Captive portal') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Captive Portal') }}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -23,46 +23,46 @@
 <div class="row g-4">
     <div class="col-xl-6">
         <div class="card">
-            <div class="card-header"><i class="bi bi-palette"></i> Look and feel</div>
+            <div class="card-header"><i class="bi bi-palette"></i> {{ _('Look and feel') }}</div>
             <div class="card-body">
                 <form method="POST" enctype="multipart/form-data" novalidate id="portal-form">
                     {{ form.hidden_tag() }}
                     <div class="mb-3">
                         <label class="form-label" for="color">{{ form.color.label.text }}</label>
                         <div class="color-row">
-                            <input type="color" id="color-pick" value="{{ form.color.data }}" aria-label="Pick colour">
+                            <input type="color" id="color-pick" value="{{ form.color.data }}" aria-label="{{ _('Pick colour') }}">
                             {{ form.color(class="form-control" + (" is-invalid" if form.color.errors else ""), style="max-width: 140px", maxlength=7) }}
                         </div>
                         {% if form.color.errors %}<div class="text-danger small mt-1">{{ form.color.errors[0] }}</div>{% endif %}
-                        <div class="swatches" aria-label="Suggested colours">
+                        <div class="swatches" aria-label="{{ _('Suggested colours') }}">
                             {% for c in ['#051D60', '#0F766E', '#15803D', '#B45309', '#B91C1C', '#7C3AED', '#DB2777', '#0F172A'] %}
                             <button type="button" style="background: {{ c }}" data-color="{{ c }}" title="{{ c }}"></button>
                             {% endfor %}
                         </div>
                     </div>
                     {{ field(form.style, "form-select") }}
-                    {{ field(form.title, placeholder="Welcome to " ~ hotspot_name) }}
+                    {{ field(form.title, placeholder=_('Welcome to {name}', name=hotspot_name)) }}
                     {{ field(form.message, rows=2) }}
-                    {{ field(form.language, "form-select", help="Guests can still switch between English and Kiswahili.") }}
+                    {{ field(form.language, "form-select", help=_('Guests can still switch between English and Kiswahili.')) }}
 
-                    <label class="form-label">What guests can do</label>
+                    <label class="form-label">{{ _('What guests can do') }}</label>
                     <div class="form-check">{{ form.show_voucher(class="form-check-input") }} {{ form.show_voucher.label(class="form-check-label") }}</div>
                     <div class="form-check mb-1">{{ form.show_packages(class="form-check-input") }} {{ form.show_packages.label(class="form-check-label") }}</div>
                     {% if form.show_packages.errors %}<div class="text-danger small">{{ form.show_packages.errors[0] }}</div>{% endif %}
-                    <p class="small text-muted mb-3">{% if package_count %}{{ package_count }} package{{ '' if package_count == 1 else 's' }} on sale.{% else %}No packages on sale yet: <a href="{{ url_for('packages') }}">add packages</a> to show the buy tab.{% endif %}
-                        Terms and support number come from <a href="{{ url_for('tenant_settings') }}">Settings</a>.</p>
-                    <p class="small text-muted mb-3"><i class="bi bi-chat-dots"></i> {% if sms_on %}Paying guests get their code by SMS: <strong>TZS {{ sms_price }} per SMS, paid by you</strong>.{% else %}SMS to guests is off: they see their code on screen only, and "Buy for a friend" is hidden.{% endif %}
-                        <a href="{{ url_for('payment_settings') }}">Change</a>.</p>
+                    <p class="small text-muted mb-3">{% if package_count %}{{ _('{n} package on sale.', n=package_count) if package_count == 1 else _('{n} packages on sale.', n=package_count) }}{% else %}{{ _('No packages on sale yet:') }} <a href="{{ url_for('packages') }}">{{ _('add packages') }}</a> {{ _('to show the buy tab.') }}{% endif %}
+                        {{ _('Terms and support number come from') }} <a href="{{ url_for('tenant_settings') }}">{{ _('Settings') }}</a>.</p>
+                    <p class="small text-muted mb-3"><i class="bi bi-chat-dots"></i> {% if sms_on %}{{ _('Paying guests get their code by SMS:') }} <strong>{{ _('TZS {price} per SMS, paid by you', price=sms_price) }}</strong>.{% else %}{{ _('SMS to guests is off: they see their code on screen only, and "Buy for a friend" is hidden.') }}{% endif %}
+                        <a href="{{ url_for('payment_settings') }}">{{ _('Change') }}</a>.</p>
 
-                    <label class="form-label">Logo</label>
+                    <label class="form-label">{{ _('Logo') }}</label>
                     <div class="d-flex align-items-center gap-3 mb-2">
-                        {% if logo_url %}<img src="{{ logo_url }}" class="logo-now" alt="Current logo">{% endif %}
+                        {% if logo_url %}<img src="{{ logo_url }}" class="logo-now" alt="{{ _('Current logo') }}">{% endif %}
                         <div class="flex-grow-1">{{ form.logo(class="form-control", accept="image/png,image/jpeg,image/webp") }}
-                            <small class="text-muted">PNG, JPG or WebP, up to 300 KB. A square logo looks best.</small></div>
+                            <small class="text-muted">{{ _('PNG, JPG or WebP, up to 300 KB. A square logo looks best.') }}</small></div>
                     </div>
                     {% if has_logo %}<div class="form-check mb-3">{{ form.remove_logo(class="form-check-input") }} {{ form.remove_logo.label(class="form-check-label") }}</div>{% endif %}
 
-                    <button type="submit" class="btn btn-primary mt-2"><i class="bi bi-check-circle"></i> Save portal</button>
+                    <button type="submit" class="btn btn-primary mt-2"><i class="bi bi-check-circle"></i> {{ _('Save portal') }}</button>
                 </form>
             </div>
         </div>
@@ -70,34 +70,34 @@
     <div class="col-xl-6">
         <div class="sticky-preview">
             <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-                <strong><i class="bi bi-phone"></i> Live preview</strong>
-                <div class="btn-group preview-tabs flex-wrap" role="group" aria-label="Preview screen">
-                    <button type="button" class="btn btn-outline-primary active" data-view="buy">Buy</button>
-                    <button type="button" class="btn btn-outline-primary" data-view="voucher">Voucher</button>
-                    <button type="button" class="btn btn-outline-primary" data-view="wait">Paying</button>
-                    <button type="button" class="btn btn-outline-primary" data-view="online">Connected</button>
-                    <button type="button" class="btn btn-outline-primary" data-view="gift">For a friend</button>
+                <strong><i class="bi bi-phone"></i> {{ _('Live preview') }}</strong>
+                <div class="btn-group preview-tabs flex-wrap" role="group" aria-label="{{ _('Preview screen') }}">
+                    <button type="button" class="btn btn-outline-primary active" data-view="buy">{{ _('Buy') }}</button>
+                    <button type="button" class="btn btn-outline-primary" data-view="voucher">{{ _('Voucher') }}</button>
+                    <button type="button" class="btn btn-outline-primary" data-view="wait">{{ _('Paying') }}</button>
+                    <button type="button" class="btn btn-outline-primary" data-view="online">{{ _('Connected') }}</button>
+                    <button type="button" class="btn btn-outline-primary" data-view="gift">{{ _('For a friend') }}</button>
                 </div>
             </div>
             <div class="d-flex gap-2 mb-2 flex-wrap align-items-center small">
-                <span class="text-muted">Preview as a guest at</span>
-                <select id="pv-site" class="form-select form-select-sm w-auto{{ ' d-none' if preview_sites|length < 2 }}" aria-label="Site">
+                <span class="text-muted">{{ _('Preview as a guest at') }}</span>
+                <select id="pv-site" class="form-select form-select-sm w-auto{{ ' d-none' if preview_sites|length < 2 }}" aria-label="{{ _('Site') }}">
                     {% for site, kinds in preview_sites %}
                     <option value="{{ site.id }}" data-equip="{{ kinds[0] if kinds else 'gateway' }}"{{ ' selected' if current_site and current_site.id == site.id }}>{{ site.name }}</option>
                     {% endfor %}
                 </select>
                 {% if preview_sites|length < 2 %}<strong>{{ preview_sites[0][0].name }}</strong>{% endif %}
-                <span class="text-muted">using</span>
-                <select id="pv-equip" class="form-select form-select-sm w-auto" aria-label="Equipment">
+                <span class="text-muted">{{ _('using') }}</span>
+                <select id="pv-equip" class="form-select form-select-sm w-auto" aria-label="{{ _('Equipment') }}">
                     {% for key, label in equipment.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
                 </select>
             </div>
             {% if not payments_ready %}
-            <div class="alert alert-warning small py-2 mb-2"><i class="bi bi-exclamation-triangle"></i> Mobile payments aren't set up, so guests don't see the Buy tab right now, and neither does this preview. <a href="{{ url_for('payment_settings') }}">Set up payments</a>.</div>
+            <div class="alert alert-warning small py-2 mb-2"><i class="bi bi-exclamation-triangle"></i> {{ _("Mobile payments aren't set up, so guests don't see the Buy tab right now, and neither does this preview.") }} <a href="{{ url_for('payment_settings') }}">{{ _('Set up payments') }}</a>.</div>
             {% endif %}
             <p class="small text-muted mb-2" id="pv-note"></p>
-            <div class="phone-frame"><iframe id="preview" title="Captive portal preview" src="{{ preview_base }}"></iframe></div>
-            <p class="small text-muted text-center mt-2 mb-0">Try it like a guest: pick a package and pay, buy for a friend, or type a voucher code. Nothing is charged and nobody is connected. It uses your real packages for that site. Changes show here right away; guests see them after you save.</p>
+            <div class="phone-frame"><iframe id="preview" title="{{ _('Captive portal preview') }}" src="{{ preview_base }}"></iframe></div>
+            <p class="small text-muted text-center mt-2 mb-0">{{ _('Try it like a guest: pick a package and pay, buy for a friend, or type a voucher code. Nothing is charged and nobody is connected. It uses your real packages for that site. Changes show here right away; guests see them after you save.') }}</p>
         </div>
     </div>
 </div>
@@ -111,10 +111,10 @@
     const siteSel = document.getElementById('pv-site'), equipSel = document.getElementById('pv-equip'), note = document.getElementById('pv-note');
     const logoInput = f.logo, removeLogo = f.remove_logo;
     const NOTES = {
-        omada: 'Omada guests are sent to this page by the access point. After paying they are let online by the controller.',
-        ruijie: 'Ruijie guests are sent to this page by the access point, which checks back with SafeNet about once a minute.',
-        gateway: 'The SafeNet gateway box shows its own copy of this page. It picks up changes within 5 minutes of saving.',
-        mikrotik: 'MikroTik guests only enter a code here: they cannot buy on this page, and after login they see the router\'s own status page.'
+        omada: {{ _('Omada guests are sent to this page by the access point. After paying they are let online by the controller.')|tojson }},
+        ruijie: {{ _('Ruijie guests are sent to this page by the access point, which checks back with SafeNet about once a minute.')|tojson }},
+        gateway: {{ _('The SafeNet gateway box shows its own copy of this page. It picks up changes within 5 minutes of saving.')|tojson }},
+        mikrotik: {{ _("MikroTik guests only enter a code here: they cannot buy on this page, and after login they see the router's own status page.")|tojson }}
     };
     let view = 'buy', timer = null, logoData = null;
     function url() {
