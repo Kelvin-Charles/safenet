@@ -7,18 +7,45 @@
 <div class="row">
     <div class="col-lg-7">
         <div class="card">
-            <div class="card-header"><i class="bi bi-send"></i> Pay {{ w.tenant.name }} with ClickPesa</div>
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span><i class="bi bi-send"></i> Pay {{ w.tenant.name }} with {{ names[via] }}</span>
+                {% if options|length > 1 %}
+                <div class="btn-group btn-group-sm">
+                    {% for o in options %}<a class="btn btn-outline-secondary {{ 'active' if o == via }}" href="{{ url_for('send_payout', wid=w.id, via=o) }}">{{ names[o] }}</a>{% endfor %}
+                </div>
+                {% endif %}
+            </div>
             <div class="card-body">
                 <dl class="row mb-3">
                     <dt class="col-sm-4">Amount</dt><dd class="col-sm-8">{{ w.tenant.currency }} {{ '{:,.0f}'.format(w.amount) }}</dd>
                     <dt class="col-sm-4">To</dt><dd class="col-sm-8">{{ w.destination }}{% if w.account_name %}<small class="d-block text-muted">Tenant says the name is: {{ w.account_name }}</small>{% endif %}</dd>
+                    {% if via == 'snippe' %}
+                    <dt class="col-sm-4">Name sent</dt><dd class="col-sm-8">{{ name }}</dd>
+                    {% if w.method == 'bank' %}
+                    <dt class="col-sm-4">Bank</dt>
+                    <dd class="col-sm-8">
+                        <form method="GET" class="d-flex gap-2"><input type="hidden" name="via" value="snippe">
+                            <select name="bank" class="form-select form-select-sm" style="max-width: 220px" onchange="this.form.submit()">
+                                <option value="">Choose…</option>
+                                {% for b in banks %}<option value="{{ b }}" {{ 'selected' if b == bank }}>{{ b }}</option>{% endfor %}
+                            </select>
+                        </form>
+                    </dd>
+                    {% endif %}
+                    {% set fee = snippe_info.get('fee') or {} %}
+                    {% set bal = snippe_info.get('balance') or {} %}
+                    <dt class="col-sm-4">Fee</dt><dd class="col-sm-8">{% if fee.get('fee_amount') is not none %}TZS {{ '{:,.0f}'.format(fee.fee_amount|float) }} <small class="text-muted">(total {{ '{:,.0f}'.format((fee.total_amount or 0)|float) }} from SafeNet's balance)</small>{% else %}<span class="text-muted">Snippe shows it after sending</span>{% endif %}</dd>
+                    {% set avail = bal.get('available') or bal.get('available_balance') or bal.get('balance') %}
+                    {% if avail is mapping %}{% set avail = avail.get('value') %}{% endif %}
+                    {% if avail is not none %}<dt class="col-sm-4">Snippe balance</dt><dd class="col-sm-8">TZS {{ '{:,.0f}'.format(avail|float) }}</dd>{% endif %}
+                    {% else %}
                     {% if w.method == 'lipa' %}
                     <dt class="col-sm-4">Provider</dt>
                     <dd class="col-sm-8">
-                        <form method="GET" class="d-flex gap-2">
+                        <form method="GET" class="d-flex gap-2"><input type="hidden" name="via" value="clickpesa">
                             <select name="provider" class="form-select form-select-sm" style="max-width: 260px" onchange="this.form.submit()">
                                 <option value="">Choose…</option>
-                                {% for name, code in providers %}<option value="{{ code }}" {{ 'selected' if code == provider_code }}>{{ name }}</option>{% endfor %}
+                                {% for pname, code in providers %}<option value="{{ code }}" {{ 'selected' if code == provider_code }}>{{ pname }}</option>{% endfor %}
                             </select>
                         </form>
                     </dd>
@@ -28,12 +55,15 @@
                     <dt class="col-sm-4">Fee</dt><dd class="col-sm-8">TZS {{ '{:,.0f}'.format(preview.fee or 0) }} <small class="text-muted">(taken from SafeNet's balance; total {{ '{:,.0f}'.format(preview.amount or 0) }})</small></dd>
                     <dt class="col-sm-4">ClickPesa balance</dt><dd class="col-sm-8">TZS {{ '{:,.0f}'.format(preview.balance or 0) }}</dd>
                     {% endif %}
+                    {% endif %}
                 </dl>
-                {% if preview %}
-                <p class="small text-muted">Check the name matches the tenant before sending. Money sent to the wrong number or till can't be pulled back.</p>
+                {% if via == 'snippe' or preview %}
+                <p class="small text-muted">{% if via == 'snippe' %}Snippe doesn't look up the registered name, so check the number{{ ' and account' if w.method == 'bank' }} with the tenant.{% else %}Check the name matches the tenant before sending.{% endif %} Money sent to the wrong number or account can't be pulled back.</p>
                 <form method="POST">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="via" value="{{ via }}">
                     {% if provider_code %}<input type="hidden" name="provider" value="{{ provider_code }}">{% endif %}
+                    {% if via == 'snippe' and bank %}<input type="hidden" name="bank" value="{{ bank }}">{% endif %}
                     <button type="submit" class="btn btn-primary" onclick="this.disabled=true;this.form.submit();"><i class="bi bi-send"></i> Send {{ w.tenant.currency }} {{ '{:,.0f}'.format(w.amount) }}</button>
                     <a class="btn btn-outline-secondary" href="{{ url_for('platform_payouts') }}">Cancel</a>
                 </form>

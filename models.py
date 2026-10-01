@@ -554,8 +554,10 @@ class Withdrawal(db.Model):
     bank_name = db.Column(db.String(80))
     bank_account = db.Column(db.String(40))
     status = db.Column(db.String(16), nullable=False, default='requested', index=True)  # requested, sending, paid, rejected
-    # Sent through ClickPesa's payout API (status 'sending' until ClickPesa settles it)
-    payout_ref = db.Column(db.String(20))
+    # Sent through ClickPesa's or Snippe's payout API (status 'sending' until the provider settles it)
+    payout_ref = db.Column(db.String(20))                     # our reference (and idempotency key)
+    payout_provider = db.Column(db.String(16))                # clickpesa, snippe
+    payout_id = db.Column(db.String(64))                      # the provider's id (Snippe's reference)
     payout_status = db.Column(db.String(16))
     payout_fee = db.Column(db.Numeric(10, 2))
     payout_receiver = db.Column(db.String(100))               # name ClickPesa found for the number

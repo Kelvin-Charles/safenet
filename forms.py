@@ -1,5 +1,6 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField
+import snippe
 from wtforms import StringField, PasswordField, TextAreaField, SelectField, BooleanField, IntegerField, DateTimeField
 from wtforms.validators import DataRequired, Email, Length, Optional, IPAddress, ValidationError
 from models import Admin, Plan, RadUser, Nas
@@ -335,7 +336,7 @@ class WithdrawalForm(FlaskForm):
                         description='Mobile money is sent here. For Lipa Namba or bank, we SMS this number when it is paid.')
     lipa_namba = StringField('Lipa Namba', validators=[Optional(), Length(max=20)])
     lipa_network = SelectField('Lipa Namba network', choices=[('', 'Choose…')] + [(n, n) for n in LIPA_NETWORKS], default='')
-    bank_name = StringField('Bank', validators=[Optional(), Length(max=80)])
+    bank_name = SelectField('Bank', choices=[('', 'Choose…')] + [(b, b) for b in snippe.BANKS], default='')
     bank_account = StringField('Account number', validators=[Optional(), Length(max=40)])
     account_name = StringField('Account name', validators=[Optional(), Length(max=100)],
                                description='Name registered on the number, till or bank account')

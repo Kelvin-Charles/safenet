@@ -186,7 +186,7 @@ with app.app_context(): assert SubscriptionPayment.query.filter_by(provider_id=S
 assert co.post('/platform/payment-provider', data={'csrf_token': tok(b), 'provider': 'clickpesa'}).status_code == 404
 config.Config.SNIPPE_API_KEY = ''
 pb = cs.get('/platform/billing').text
-assert 'Keys not set on the server' in pb
+assert 'Keys not set' in pb
 cs.post('/platform/payment-provider', data={'csrf_token': tok(pb), 'provider': 'clickpesa'})
 assert 'Add the Snippe keys' in cs.post('/platform/payment-provider', data={'csrf_token': tok(pb), 'provider': 'snippe'}, follow_redirects=True).text
 

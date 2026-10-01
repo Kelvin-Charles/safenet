@@ -105,3 +105,50 @@ def verify_webhook(raw_body, timestamp, signature, signing_key, now=None):
     body = raw_body.decode('utf-8') if isinstance(raw_body, bytes) else raw_body
     expected = hmac.new(signing_key.encode(), f'{timestamp}.{body}'.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature.strip().lower())
+
+
+# Payouts (disbursements) from the account's balance: to a mobile-money wallet or a bank account.
+# POST /v1/payouts/send, GET /v1/payouts/{reference}; status pending -> completed / failed (or reversed).
+PAYOUT_DONE = ('completed',)
+PAYOUT_FAILED = ('failed', 'reversed')
+BANKS = ('ABSA', 'ACCESS', 'AKIBA', 'AMANA', 'AZANIA', 'BANCABC', 'BARODA', 'BOA', 'BOI', 'CANARA', 'CITI', 'CRDB', 'DASHENG',
+         'DCB', 'DTB', 'ECOBANK', 'EQUITY', 'EXIM', 'FNB', 'GT BANK', 'HABIB', 'ICB', 'IMBANK', 'KCB', 'KILIMANJARO',
+         'MAENDELEO', 'MKOMBOZI', 'MWALIMU', 'MWANGA', 'NBC', 'NCBA', 'NMB', 'PBZ', 'SCB', 'SELCOMPESA', 'STANBIC', 'TCB',
+         'UBA', 'UCHUMI', 'YETU')
+
+
+def balance(creds):
+    """The account's balance record as Snippe returns it."""
+    return _request('GET', '/v1/payments/balance', creds) or {}
+
+
+def payout_fee(amount, creds):
+    """{'fee_amount', 'total_amount', ...} for a payout of `amount`, before sending it."""
+    return _request('GET', f'/v1/payouts/fee?amount={int(amount)}', creds) or {}
+
+
+def create_payout(amount, reference, creds, name, phone=None, bank=None, account=None, narration='', webhook_url=None):
+    """Send money to a mobile wallet (phone 255XXXXXXXXX) or a bank account (bank code from BANKS).
+    `reference` (ours, <=30 chars) is the idempotency key, so a retry never pays twice.
+    Returns Snippe's payout: {'reference': <Snippe id>, 'status': 'pending', 'fees': {'value': ..}, ...}."""
+    body = {'amount': int(amount), 'recipient_name': (name or 'SafeNet')[:100],
+            'metadata': {'order_reference': reference}}
+    if bank:
+        body.update(channel='bank', recipient_bank=bank, recipient_account=account)
+    else:
+        body.update(channel='mobile', recipient_phone=phone)
+    if narration:
+        body['narration'] = narration[:100]
+    if webhook_url:
+        body['webhook_url'] = webhook_url[:500]
+    return _request('POST', '/v1/payouts/send', creds, body, idempotency_key=reference, timeout=40) or {}
+
+
+def get_payout(snippe_reference, creds):
+    """Latest state of a Snippe payout, or None if Snippe doesn't know it."""
+    try:
+        return _request('GET', f'/v1/payouts/{snippe_reference}', creds) or None
+    except SnippeError as e:
+        if str(e).startswith('404'):
+            return None
+        raise

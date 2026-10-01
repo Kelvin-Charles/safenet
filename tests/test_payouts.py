@@ -83,7 +83,7 @@ assert _lipa_provider_code(PROVIDERS, 'Other') is None and _lipa_provider_code(P
 
 p = cs.get('/platform/payouts').text
 assert len(re.findall(r'/platform/payouts/\d+/send', p)) == 2                               # not for the bank one
-assert cs.get(f'/platform/payouts/{BANK}/send', follow_redirects=True).text.count('paid by hand') == 1
+assert cs.get(f'/platform/payouts/{BANK}/send', follow_redirects=True).text.count('Pay it by hand') == 1
 
 # Lipa Namba: preview shows the till's registered name, fee and balance, then send
 s = cs.get(f'/platform/payouts/{LIPA}/send').text
@@ -138,4 +138,78 @@ with app.app_context():
     assert tenant_balance(TID)[0] == Decimal(20000)
 # tenants can't send payouts
 assert co.get(f'/platform/payouts/{BANK}/send').status_code == 404
+
+# --- Snippe: the platform admin pastes the key in Platform: Billing; mobile money and banks then go through Snippe
+import hashlib, hmac, json, time, snippe
+from models import PlatformSetting
+GOOD = 'snp_' + 'a' * 40
+snp = {'calls': [], 'status': 'pending'}
+def fake_test(creds):
+    if creds.api_key != GOOD: raise snippe.SnippeError('401: Invalid API key')
+snippe.test_credentials = fake_test
+snippe.payout_fee = lambda amount, creds: {'fee_amount': 1500, 'total_amount': int(amount) + 1500}
+snippe.balance = lambda creds: {'available': {'value': 90000, 'currency': 'TZS'}}
+def snp_create(amount, ref, creds, name, phone=None, bank=None, account=None, narration='', webhook_url=None):
+    snp['calls'].append(dict(ref=ref, key=creds.api_key, name=name, phone=phone, bank=bank, account=account, webhook=webhook_url))
+    return {'reference': f'snp-ref-{len(snp["calls"])}', 'status': 'pending', 'fees': {'value': 1500}}
+snippe.create_payout = snp_create
+snippe.get_payout = lambda ref, creds: {'reference': ref, 'status': snp['status'], 'failure_reason': 'Wallet not found'}
+b = html.unescape(cs.get('/platform/billing').text)
+assert 'Snippe keys for SafeNet Pay' in b and 'No key yet' in b
+assert 'rejected the key' in html.unescape(cs.post('/platform/billing/snippe', data={'csrf_token': tok(b), 'api_key': 'snp_' + 'b' * 40, 'use': '1'},
+                                                   follow_redirects=True).text)
+assert 'look like a Snippe API key' in cs.post('/platform/billing/snippe', data={'csrf_token': tok(b), 'api_key': 'hello'}, follow_redirects=True).text
+r = html.unescape(cs.post('/platform/billing/snippe', data={'csrf_token': tok(b), 'api_key': GOOD, 'webhook_key': 'whk-secret', 'use': '1'},
+                          follow_redirects=True).text)
+assert 'Snippe accepted the key' in r and 'Key saved here' in r and 'Webhook key set' in r
+with app.app_context():
+    row = db.session.get(PlatformSetting, 'snippe_api_key'); assert row.value and GOOD not in row.value     # stored encrypted
+    assert appmod.platform_provider() == 'snippe' and appmod._platform_account().creds.api_key == GOOD
+
+e = co.get('/earnings').text
+for d in (dict(method='mobile', phone='0754000111', account_name='Asha Juma'),
+          dict(method='bank', bank_name='NMB', bank_account='2041000111', account_name='Zulu Connect Ltd'),
+          dict(method='lipa', lipa_namba='55667788', lipa_network='Airtel Money')):
+    assert 'requested' in html.unescape(co.post('/earnings/withdraw', data={'csrf_token': tok(e), 'amount': 5000, **{'phone': '0684000001', **d}},
+                                                follow_redirects=True).text), d
+with app.app_context():
+    SM, SB, SL = [x.id for x in Withdrawal.query.filter_by(status='requested').order_by(Withdrawal.id)]
+p = cs.get('/platform/payouts').text
+assert re.search(rf'payouts/{SM}/send\?via=snippe".*?Send with Snippe.*?payouts/{SM}/send\?via=clickpesa', p, re.S)   # Snippe first
+assert f'payouts/{SL}/send?via=clickpesa' in p and f'payouts/{SL}/send?via=snippe' not in p                    # Lipa Namba: ClickPesa only
+assert f'payouts/{SB}/send?via=snippe' in p and f'payouts/{SB}/send?via=clickpesa' not in p                    # bank: Snippe only
+# mobile money through Snippe
+s = html.unescape(cs.get(f'/platform/payouts/{SM}/send').text)
+assert 'Pay Zulu Connect with Snippe' in s and 'TZS 1,500' in s and '90,000' in s and 'Asha Juma' in s
+cs.post(f'/platform/payouts/{SM}/send', data={'csrf_token': tok(s), 'via': 'snippe'})
+c1 = snp['calls'][-1]
+assert c1['key'] == GOOD and c1['phone'] == '255754000111' and c1['name'] == 'Asha Juma' and c1['bank'] is None
+assert c1['webhook'].endswith('/webhooks/snippe') and re.fullmatch(r'WD\d+X[0-9A-F]{6}', c1['ref'])
+with app.app_context():
+    x = db.session.get(Withdrawal, SM); assert x.status == 'sending' and x.payout_provider == 'snippe' and x.payout_id == 'snp-ref-1' and x.payout_fee == 1500
+# Snippe's webhook (signed) settles it
+snp['status'] = 'completed'
+raw = json.dumps({'type': 'payout.completed', 'data': {'reference': 'snp-ref-1', 'status': 'completed'}})
+ts = str(int(time.time()))
+sig = hmac.new(b'whk-secret', f'{ts}.{raw}'.encode(), hashlib.sha256).hexdigest()
+assert app.test_client().post('/webhooks/snippe', data=raw, content_type='application/json',
+                              headers={'X-Webhook-Timestamp': ts, 'X-Webhook-Signature': 'bad'}).status_code == 401
+app.test_client().post('/webhooks/snippe', data=raw, content_type='application/json', headers={'X-Webhook-Timestamp': ts, 'X-Webhook-Signature': sig})
+with app.app_context():
+    x = db.session.get(Withdrawal, SM); assert x.status == 'paid' and x.reference == 'snp-ref-1'
+# bank through Snippe; it fails and goes back to the queue with Snippe's reason
+snp['status'] = 'pending'
+s = html.unescape(cs.get(f'/platform/payouts/{SB}/send').text)
+assert 'value="NMB" selected' in s and 'Zulu Connect Ltd' in s
+cs.post(f'/platform/payouts/{SB}/send', data={'csrf_token': tok(s), 'via': 'snippe', 'bank': 'NMB'})
+assert snp['calls'][-1]['bank'] == 'NMB' and snp['calls'][-1]['account'] == '2041000111' and snp['calls'][-1]['phone'] is None
+snp['status'] = 'failed'
+r = html.unescape(cs.post(f'/platform/payouts/{SB}/check', data={'csrf_token': tok(s)}, follow_redirects=True).text)
+assert 'did not go through' in r and 'Snippe: payout Wallet not found' in r
+with app.app_context():
+    x = db.session.get(Withdrawal, SB); assert x.status == 'requested' and x.payout_id is None and x.payout_ref is None
+# Lipa Namba can't go through Snippe
+assert 'Pay it by hand' in cs.get(f'/platform/payouts/{SL}/send?via=snippe', follow_redirects=True).text or \
+       'No payout service' in cs.get(f'/platform/payouts/{SL}/send?via=snippe', follow_redirects=True).text
+assert 'Pay Zulu Connect with ClickPesa' in html.unescape(cs.get(f'/platform/payouts/{SL}/send').text)
 print('PAYOUTS OK')

@@ -21,11 +21,39 @@
                 <input type="radio" name="provider" value="{{ key }}" class="form-check-input mt-0" {{ 'checked' if key == provider }} {{ 'disabled' if not provider_ready[key] }}>
                 <strong>{{ label }}</strong>
                 {% if key == provider %}<span class="badge bg-success">In use</span>{% endif %}
-                {% if not provider_ready[key] %}<span class="badge bg-light text-dark border">Keys not set on the server</span>{% endif %}
+                {% if not provider_ready[key] %}<span class="badge bg-light text-dark border">Keys not set</span>{% endif %}
                 {% if key == 'snippe' and provider_ready[key] and not snippe_webhook_ready %}<span class="badge bg-warning text-dark" title="Set SNIPPE_WEBHOOK_KEY so payments confirm instantly">No webhook key</span>{% endif %}
             </label>
             {% endfor %}
             <button type="submit" class="btn btn-primary">Save</button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><i class="bi bi-key"></i> Snippe keys for SafeNet Pay</div>
+    <div class="card-body">
+        <p class="small text-muted">Snippe collects guests' and tenants' payments and sends payouts to mobile money and bank accounts.
+            ClickPesa stays in use for Lipa Namba payouts (Snippe can't pay a Lipa Namba).
+            {% if snippe_saved %}<span class="badge bg-success">Key saved here</span>{% elif snippe_env %}<span class="badge bg-secondary">Key from the server's .env</span>{% else %}<span class="badge bg-light text-dark border">No key yet</span>{% endif %}
+            {% if snippe_webhook_ready %}<span class="badge bg-success">Webhook key set</span>{% endif %}</p>
+        <form method="POST" action="{{ url_for('platform_snippe_keys') }}" autocomplete="off" class="row g-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-lg-6">
+                <label class="form-label small mb-1">API key (needs the collection and disbursement scopes)</label>
+                <input type="password" name="api_key" class="form-control" placeholder="{{ '•••••••• saved (paste to replace)' if snippe_saved else 'snp_…' }}" autocomplete="new-password">
+            </div>
+            <div class="col-lg-6">
+                <label class="form-label small mb-1">Webhook signing key (optional: payments confirm instantly)</label>
+                <input type="password" name="webhook_key" class="form-control" placeholder="{{ '•••••••• set' if snippe_webhook_ready else 'From Snippe: Settings → Webhook Secret' }}" autocomplete="new-password">
+            </div>
+            <div class="col-12">
+                <div class="form-check"><input class="form-check-input" type="checkbox" name="use" value="1" id="snippe-use" checked>
+                    <label class="form-check-label small" for="snippe-use">Use Snippe for SafeNet Pay (collections and payouts)</label></div>
+                <p class="small text-muted mb-2">Snippe sends payment notices to <code>{{ snippe_webhook_url }}</code>. The key is checked with Snippe before it's saved, and stored encrypted.</p>
+                <button type="submit" class="btn btn-primary">Check and save</button>
+                {% if snippe_saved %}<button type="submit" name="action" value="remove" class="btn btn-outline-danger" onclick="return confirm('Remove the saved Snippe keys?');">Remove saved keys</button>{% endif %}
+            </div>
         </form>
     </div>
 </div>

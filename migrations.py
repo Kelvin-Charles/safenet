@@ -133,6 +133,7 @@ def run():
     _add_column('withdrawals', 'method', "VARCHAR(8) NOT NULL DEFAULT 'mobile'")
     for col, kind in (('lipa_namba', 'VARCHAR(20)'), ('lipa_network', 'VARCHAR(40)'), ('bank_name', 'VARCHAR(80)'),
                       ('bank_account', 'VARCHAR(40)'), ('payout_ref', 'VARCHAR(20)'), ('payout_status', 'VARCHAR(16)'),
+                      ('payout_provider', 'VARCHAR(16)'), ('payout_id', 'VARCHAR(64)'),
                       ('payout_fee', 'NUMERIC(10, 2) NULL'), ('payout_receiver', 'VARCHAR(100)'), ('payout_error', 'VARCHAR(255)')):
         _add_column('withdrawals', col, kind)
 

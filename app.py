@@ -2680,8 +2680,20 @@ def platform_provider():
     return value if value in paylib.PROVIDERS else 'clickpesa'
 
 
+def _setting_secret(key):
+    row = db.session.get(PlatformSetting, key)
+    return secretbox.decrypt(row.value) if row and row.value else ''
+
+
+def _platform_snippe_creds():
+    """SafeNet's Snippe keys: saved in Platform: Billing (encrypted), else from .env."""
+    return snippe.Credentials(_setting_secret('snippe_api_key') or Config.SNIPPE_API_KEY,
+                              _setting_secret('snippe_webhook_key') or Config.SNIPPE_WEBHOOK_KEY)
+
+
 def _platform_account(provider=None):
-    return paylib.platform_account(provider or platform_provider())
+    provider = provider or platform_provider()
+    return paylib.platform_account(provider, _platform_snippe_creds() if provider == 'snippe' else None)
 
 
 def _own_account(tenant):
@@ -4125,8 +4137,19 @@ def test_payment_settings():
     return redirect(url_for('payment_settings'))
 
 
-def _payouts_ready():
-    return clickpesa.is_configured(clickpesa.platform_credentials())
+def _payouts_ready(provider=None):
+    """Can SafeNet send payouts itself through this provider (or through any)?"""
+    ready = {'clickpesa': clickpesa.is_configured(clickpesa.platform_credentials()),
+             'snippe': snippe.is_configured(_platform_snippe_creds())}
+    return ready.get(provider, False) if provider else ready
+
+
+def _payout_options(w):
+    """Providers that can pay this withdrawal, the default first: Snippe for mobile money and banks,
+    ClickPesa for Lipa Namba (Snippe can't) and as the other choice for mobile money."""
+    ready = _payouts_ready()
+    wanted = {'lipa': ['clickpesa'], 'bank': ['snippe'], 'mobile': ['snippe', 'clickpesa']}.get(w.method, [])
+    return [p for p in wanted if ready[p]]
 
 
 def _finish_withdrawal(w, status, reference=None, note=None):
@@ -4155,25 +4178,37 @@ def _finish_withdrawal(w, status, reference=None, note=None):
 
 
 def _refresh_withdrawal(w):
-    """Ask ClickPesa how a payout that is being sent is doing. Caller commits."""
+    """Ask the provider how a payout that is being sent is doing. Caller commits."""
     if w.status != 'sending' or not w.payout_ref:
         return
     try:
-        data = clickpesa.query_payout(w.payout_ref)
-    except clickpesa.ClickPesaError as e:
+        if w.payout_provider == 'snippe':
+            data = snippe.get_payout(w.payout_id, _platform_snippe_creds()) if w.payout_id else None
+            status = str((data or {}).get('status') or '').lower()
+            done, failed = status in snippe.PAYOUT_DONE, status in snippe.PAYOUT_FAILED
+            reason = (data or {}).get('failure_reason') or status
+            settled_ref = w.payout_id
+        else:
+            data = clickpesa.query_payout(w.payout_ref)
+            status = str((data or {}).get('status') or '')
+            done, failed = status in clickpesa.PAYOUT_DONE, status in clickpesa.PAYOUT_FAILED
+            reason = status.lower()
+            settled_ref = str((data or {}).get('id') or w.payout_ref)
+    except (clickpesa.ClickPesaError, snippe.SnippeError) as e:
         log.warning('payout %s check failed: %s', w.payout_ref, e)
         return
     if data is None:
         return
-    w.payout_status = str(data.get('status') or '')[:16]
-    if w.payout_status in clickpesa.PAYOUT_DONE:
-        _finish_withdrawal(w, 'paid', reference=str(data.get('id') or w.payout_ref)[:64], note=w.note)
+    name = paylib.PROVIDERS.get(w.payout_provider or 'clickpesa')
+    w.payout_status = status.upper()[:16]
+    if done:
+        _finish_withdrawal(w, 'paid', reference=settled_ref[:64], note=w.note)
         log.info('payout %s settled', w.payout_ref)
-    elif w.payout_status in clickpesa.PAYOUT_FAILED:
+    elif failed:
         # back in the queue: the platform admin can retry or pay by hand
-        log.warning('payout %s %s', w.payout_ref, w.payout_status)
-        w.status, w.payout_error = 'requested', f'ClickPesa: payout {w.payout_status.lower()}'
-        w.payout_ref = None
+        log.warning('payout %s %s', w.payout_ref, status)
+        w.status, w.payout_error = 'requested', f'{name}: payout {reason}'[:255]
+        w.payout_ref = w.payout_id = None
 
 
 def _lipa_provider_code(providers, network, chosen=None):
@@ -4207,67 +4242,100 @@ def platform_payouts():
         Payment.status == 'paid', Payment.provider_account == 'platform').scalar()
     owed = {t.id: tenant_balance(t.id)[0] for t in Tenant.query.all()}
     return render_template('platform/payouts.html', withdrawals=items, status=status, fees=fees,
-                           owed=owed, tenants=Tenant.query.all(), payouts_ready=_payouts_ready())
+                           owed=owed, tenants=Tenant.query.all(), payouts_ready=any(_payouts_ready().values()),
+                           options={w.id: _payout_options(w) for w in items if w.status == 'requested'},
+                           provider_names=paylib.PROVIDERS)
 
 
 @app.route('/platform/payouts/<int:wid>/send', methods=['GET', 'POST'])
 @login_required
 @superadmin_required
 def send_payout(wid):
-    """Pay a withdrawal through SafeNet's ClickPesa account: preview (receiver name, fee, balance), then send."""
+    """Pay a withdrawal from SafeNet's Snippe or ClickPesa balance: check first (receiver, fee, balance), then send."""
     w = Withdrawal.query.filter_by(id=wid).with_for_update().first_or_404()
     back = redirect(url_for('platform_payouts'))
     if w.status != 'requested':
         db.session.rollback()
         flash('This withdrawal was already processed.', 'warning')
         return back
-    if w.method == 'bank':
+    options = _payout_options(w)
+    via = request.values.get('via') or (options[0] if options else None)
+    if via not in options:
         db.session.rollback()
-        flash('Bank payouts are paid by hand: send it, then mark it paid with the reference.', 'warning')
+        flash('No payout service that can send this is set up. Pay it by hand, then mark it paid with the reference.', 'warning')
         return back
-    if not _payouts_ready():
-        db.session.rollback()
-        flash('Add SafeNet\'s ClickPesa keys (CLICKPESA_CLIENT_ID / CLICKPESA_API_KEY) to send payouts automatically.', 'danger')
-        return back
-    providers, provider_code = [], None
+    if not w.payout_ref:
+        w.payout_ref = f'WD{w.id}X{secrets.token_hex(3).upper()}'
     try:
-        if w.method == 'lipa':
-            providers = clickpesa.lipa_namba_providers()
-            provider_code = _lipa_provider_code(providers, w.lipa_network, request.values.get('provider'))
-        if not w.payout_ref:
-            w.payout_ref = f'WD{w.id}X{secrets.token_hex(3).upper()}'
-        target = dict(phone=w.phone) if w.method == 'mobile' else dict(lipa_namba=w.lipa_namba, provider_code=provider_code)
-        if request.method == 'GET':
-            db.session.commit()
-            preview = clickpesa.preview_payout(w.amount, w.payout_ref, **target) if (w.method == 'mobile' or provider_code) else None
-            return render_template('platform/payout_send.html', w=w, preview=preview, providers=providers,
-                                   provider_code=provider_code)
-        _check_csrf()
-        if w.method == 'lipa' and not provider_code:
-            db.session.rollback()
-            flash('Choose the Lipa Namba provider.', 'danger')
-            return redirect(url_for('send_payout', wid=w.id))
-        tx = clickpesa.create_payout(w.amount, w.payout_ref, **target)
-    except clickpesa.ClickPesaError as e:
+        if via == 'snippe':
+            creds = _platform_snippe_creds()
+            bank = request.values.get('bank') or (w.bank_name if w.bank_name in snippe.BANKS else '')
+            name = w.account_name or w.tenant.name
+            target = dict(bank=bank, account=w.bank_account) if w.method == 'bank' else dict(phone=w.phone)
+            if request.method == 'GET':
+                db.session.commit()
+                info = {}
+                for key, call in (('fee', lambda: snippe.payout_fee(w.amount, creds)), ('balance', lambda: snippe.balance(creds))):
+                    try:
+                        info[key] = call()
+                    except snippe.SnippeError as e:
+                        log.info('snippe %s for payout %s: %s', key, wid, e)
+                return render_template('platform/payout_send.html', w=w, via=via, options=options, names=paylib.PROVIDERS,
+                                       snippe_info=info, name=name, bank=bank, banks=snippe.BANKS, preview=None, providers=[])
+            _check_csrf()
+            if w.method == 'bank' and bank not in snippe.BANKS:
+                db.session.rollback()
+                flash('Choose the bank.', 'danger')
+                return redirect(url_for('send_payout', wid=w.id, via=via))
+            tx = snippe.create_payout(w.amount, w.payout_ref, creds, name, narration=f'SafeNet earnings {w.tenant.name}',
+                                      webhook_url=_link('snippe_webhook') if creds.webhook_key else None, **target)
+            w.payout_id = str(tx.get('reference') or '')[:64] or None
+            w.payout_status = str(tx.get('status') or 'pending').upper()[:16]
+            w.payout_fee = Decimal(str(((tx.get('fees') or {}).get('value')) or 0))
+            w.payout_receiver = name[:100]
+            done = w.payout_status.lower() in snippe.PAYOUT_DONE
+            settled_ref = w.payout_id or w.payout_ref
+        else:
+            providers, provider_code = [], None
+            if w.method == 'lipa':
+                providers = clickpesa.lipa_namba_providers()
+                provider_code = _lipa_provider_code(providers, w.lipa_network, request.values.get('provider'))
+            target = dict(phone=w.phone) if w.method == 'mobile' else dict(lipa_namba=w.lipa_namba, provider_code=provider_code)
+            if request.method == 'GET':
+                db.session.commit()
+                preview = clickpesa.preview_payout(w.amount, w.payout_ref, **target) if (w.method == 'mobile' or provider_code) else None
+                return render_template('platform/payout_send.html', w=w, via=via, options=options, names=paylib.PROVIDERS,
+                                       preview=preview, providers=providers, provider_code=provider_code)
+            _check_csrf()
+            if w.method == 'lipa' and not provider_code:
+                db.session.rollback()
+                flash('Choose the Lipa Namba provider.', 'danger')
+                return redirect(url_for('send_payout', wid=w.id, via=via))
+            tx = clickpesa.create_payout(w.amount, w.payout_ref, **target)
+            w.payout_status = str(tx.get('status') or 'AUTHORIZED')[:16]
+            w.payout_fee = Decimal(str(tx.get('fee') or 0))
+            w.payout_receiver = str((tx.get('beneficiary') or {}).get('accountName') or '')[:100] or None
+            done = w.payout_status in clickpesa.PAYOUT_DONE
+            settled_ref = str(tx.get('id') or w.payout_ref)
+    except (clickpesa.ClickPesaError, snippe.SnippeError) as e:
         db.session.rollback()
-        msg = str(e)
+        msg = f'{paylib.PROVIDERS[via]}: {e}'
         log.warning('payout for withdrawal %s: %s', wid, msg)
-        if 'already used' in msg:                 # a fresh reference next time
-            Withdrawal.query.filter_by(id=wid).update({'payout_ref': None})
-        Withdrawal.query.filter_by(id=wid).update({'payout_error': f'ClickPesa: {msg}'[:255]})
+        changes = {'payout_error': msg[:255]}
+        if 'already used' in str(e):                 # a fresh reference next time
+            changes['payout_ref'] = None
+        Withdrawal.query.filter_by(id=wid).update(changes)
         db.session.commit()
-        flash(f'ClickPesa: {msg}', 'danger')
+        flash(msg, 'danger')
         return back
-    w.status, w.payout_error = 'sending', None
-    w.payout_status = str(tx.get('status') or 'AUTHORIZED')[:16]
-    w.payout_fee = Decimal(str(tx.get('fee') or 0))
-    w.payout_receiver = str((tx.get('beneficiary') or {}).get('accountName') or '')[:100] or None
+    w.status, w.payout_error, w.payout_provider = 'sending', None, via
     w.processed_by_id = current_user.id
-    if w.payout_status in clickpesa.PAYOUT_DONE:
-        _finish_withdrawal(w, 'paid', reference=str(tx.get('id') or w.payout_ref)[:64])
+    if done:
+        _finish_withdrawal(w, 'paid', reference=settled_ref[:64])
     db.session.commit()
     flash(f'{w.tenant.currency} {w.amount:,.0f} sent to {w.destination}.' if w.status == 'paid' else
-          f'Payout to {w.destination} accepted by ClickPesa. It shows as paid once ClickPesa confirms it.', 'success')
+          f'Payout to {w.destination} accepted by {paylib.PROVIDERS[via]}. It shows as paid once {paylib.PROVIDERS[via]} confirms it.',
+          'success')
     return back
 
 
@@ -4720,7 +4788,9 @@ def platform_billing():
                            revenue_all=total(paid), payments_ready=paylib.is_ready(_platform_account()),
                            provider=platform_provider(), providers=paylib.PROVIDERS,
                            provider_ready={p: paylib.is_ready(_platform_account(p)) for p in paylib.PROVIDERS},
-                           snippe_webhook_ready=bool(Config.SNIPPE_WEBHOOK_KEY), fee_percent=Config.PLATFORM_FEE_PERCENT)
+                           snippe_webhook_ready=bool(_platform_snippe_creds().webhook_key), fee_percent=Config.PLATFORM_FEE_PERCENT,
+                           snippe_saved=bool(_setting_secret('snippe_api_key')), snippe_env=bool(Config.SNIPPE_API_KEY),
+                           snippe_webhook_url=_link('snippe_webhook'))
 
 
 @app.route('/platform/payment-provider', methods=['POST'])
@@ -4744,6 +4814,49 @@ def platform_payment_provider():
     return redirect(url_for('platform_billing'))
 
 
+@app.route('/platform/billing/snippe', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_snippe_keys():
+    """Save SafeNet's Snippe keys (encrypted) after Snippe accepts them, and use Snippe for SafeNet Pay."""
+    _check_csrf()
+    if request.form.get('action') == 'remove':
+        for key in ('snippe_api_key', 'snippe_webhook_key'):
+            row = db.session.get(PlatformSetting, key)
+            if row:
+                db.session.delete(row)
+        db.session.commit()
+        flash('Saved Snippe keys removed.', 'success')
+        return redirect(url_for('platform_billing'))
+    api_key = (request.form.get('api_key') or '').strip()
+    webhook_key = (request.form.get('webhook_key') or '').strip()
+    if api_key and not re.fullmatch(r'snp_[A-Za-z0-9]{16,200}', api_key):
+        flash('That does not look like a Snippe API key (it starts with snp_).', 'danger')
+        return redirect(url_for('platform_billing'))
+    creds = snippe.Credentials(api_key or _platform_snippe_creds().api_key, webhook_key or _platform_snippe_creds().webhook_key)
+    if not creds.api_key:
+        flash('Paste the Snippe API key.', 'danger')
+        return redirect(url_for('platform_billing'))
+    try:
+        snippe.test_credentials(creds)
+    except snippe.SnippeError as e:
+        flash(f'Snippe rejected the key: {e}', 'danger')
+        return redirect(url_for('platform_billing'))
+    for key, value in (('snippe_api_key', api_key), ('snippe_webhook_key', webhook_key)):
+        if value:
+            row = db.session.get(PlatformSetting, key) or PlatformSetting(key=key)
+            row.value = secretbox.encrypt(value)
+            db.session.add(row)
+    if request.form.get('use') == '1':
+        row = db.session.get(PlatformSetting, 'payment_provider') or PlatformSetting(key='payment_provider')
+        row.value = 'snippe'
+        db.session.add(row)
+    db.session.commit()
+    flash('Snippe accepted the key. ' + ('SafeNet Pay now collects with Snippe, and payouts to mobile money and banks '
+                                        'go through Snippe.' if request.form.get('use') == '1' else 'Key saved.'), 'success')
+    return redirect(url_for('platform_billing'))
+
+
 @app.route('/webhooks/snippe', methods=['POST'])
 def snippe_webhook():
     """Snippe payment.completed / payment.failed / ... The signature is checked with the key of the
@@ -4758,7 +4871,8 @@ def snippe_webhook():
         return jsonify(received=True)
     payment = Payment.query.filter_by(provider='snippe', provider_id=ref).first()
     sub = None if payment else SubscriptionPayment.query.filter_by(method='snippe', provider_id=ref).first()
-    if payment is None and sub is None:
+    payout = None if payment or sub else Withdrawal.query.filter_by(payout_provider='snippe', payout_id=ref).first()
+    if payment is None and sub is None and payout is None:
         return jsonify(received=True)
     account = _payment_account(payment) if payment else _platform_account('snippe')
     if not snippe.verify_webhook(raw, request.headers.get('X-Webhook-Timestamp'), request.headers.get('X-Webhook-Signature'),
@@ -4768,8 +4882,12 @@ def snippe_webhook():
     try:
         if payment:
             _refresh_payment(payment.reference, force=True)
-        else:
+        elif sub:
             _refresh_subscription(sub.reference, force=True)
+        else:
+            w = Withdrawal.query.filter_by(id=payout.id).with_for_update().first()
+            _refresh_withdrawal(w)
+            db.session.commit()
     except Exception:
         db.session.rollback()
         log.exception('snippe webhook refresh %s failed', ref)

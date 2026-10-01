@@ -24,8 +24,9 @@ class PaymentError(Exception):
         self.detail = (detail or message)[:255]
 
 
-def platform_account(provider):
-    creds = snippe.platform_credentials() if provider == 'snippe' else clickpesa.platform_credentials()
+def platform_account(provider, creds=None):
+    """SafeNet Pay's account at a provider. `creds` overrides the .env keys (keys saved in Platform settings)."""
+    creds = creds or (snippe.platform_credentials() if provider == 'snippe' else clickpesa.platform_credentials())
     return Account(provider if provider in PROVIDERS else 'clickpesa', creds, 'platform')
 
 
