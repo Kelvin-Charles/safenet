@@ -97,6 +97,8 @@ def run():
     _add_column('tenants', 'clickpesa_checksum_key_enc', 'TEXT NULL')
     _add_column('tenants', 'fee_percent', 'NUMERIC(5, 2) NULL')
     _add_column('tenants', 'own_provider', "VARCHAR(16) NOT NULL DEFAULT 'clickpesa'")
+    _add_column('tenants', 'sms_to_guests', 'BOOLEAN NOT NULL DEFAULT 1')
+    _add_column('subscription_payments', 'sms_amount', 'NUMERIC(10, 2) NOT NULL DEFAULT 0')
     _add_column('admins', 'site_id', 'INTEGER NULL')
     _add_column('tenants', 'snippe_api_key_enc', 'TEXT NULL')
     _add_column('tenants', 'snippe_webhook_key_enc', 'TEXT NULL')

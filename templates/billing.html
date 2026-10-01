@@ -62,6 +62,7 @@
                         </div>
                     </div>
                     <button type="submit" class="btn btn-primary mt-3 w-100"><i class="bi bi-send"></i> Send payment request</button>
+                    {% if sms_due[0] %}<div class="alert alert-info small py-2 mt-2 mb-0"><i class="bi bi-chat-dots"></i> {{ sms_due[0] }} voucher SMS sent to your guests ({{ state.plan.currency if state.plan else 'TZS' }} {{ sms_price }} each) will be added: <strong>{{ '{:,.0f}'.format(sms_due[1]) }}</strong> on top of the plan.</div>{% endif %}
                     <p class="small text-muted mt-2 mb-0">You'll get a PIN prompt on your phone. Paying early adds time after your current period, so you never lose days.</p>
                 </form>
                 {% endif %}
@@ -82,7 +83,7 @@
                             <tr>
                                 <td><small>{{ p.created_at.strftime('%Y-%m-%d') }}</small><small class="d-block text-muted font-monospace">{{ p.reference }}</small></td>
                                 <td>{{ p.plan_name or '-' }} <small class="text-muted">× {{ p.months }}</small></td>
-                                <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}</td>
+                                <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}{% if p.sms_amount %}<small class="d-block text-muted">incl. {{ '{:,.0f}'.format(p.sms_amount) }} SMS</small>{% endif %}</td>
                                 <td><small>{% if p.period_end %}{{ p.period_start.strftime('%d %b') }} – {{ p.period_end.strftime('%d %b %Y') }}{% else %}-{% endif %}</small></td>
                                 <td>
                                     {% if p.status == 'paid' %}<span class="badge bg-success">Paid</span>{% if p.method == 'manual' %}<small class="d-block text-muted">added by SafeNet</small>{% endif %}

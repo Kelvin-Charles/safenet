@@ -250,7 +250,7 @@ def refresh_branding():
     branding.update(name=data.get('hotspot_name') or branding['name'],
                     support=data.get('support') or '', terms=data.get('terms') or branding['terms'],
                     **{k: portal.get(k) for k in ('color', 'style', 'title', 'message', 'language',
-                                                   'show_voucher', 'show_packages') if k in portal})
+                                                   'show_voucher', 'show_packages', 'sms') if k in portal})
     version = portal.get('logo_version')
     if not version:
         branding.pop('logo_url', None)

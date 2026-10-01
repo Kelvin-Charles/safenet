@@ -329,7 +329,7 @@
                         <tr><th scope="row">Mobile-money packages</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
                         <tr><th scope="row">Branded login page</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
                         <tr><th scope="row">Live dashboard and reports</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
-                        <tr><th scope="row">SMS code for paying guests</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
+                        <tr><th scope="row">SMS code for paying guests ({{ sms_price }} TZS per SMS)</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ yes() }}</td>{% endfor %}</tr>
                         <tr><th scope="row">Staff accounts</th>{% for p in plans %}<td class="{{ 'hl' if loop.index0 == hl }}">{{ 'Unlimited' if p.max_staff is none else p.max_staff }}</td>{% endfor %}</tr>
                     </tbody>
                     <tfoot>
@@ -370,7 +370,7 @@
             </details>
             <details>
                 <summary>How do my customers pay?</summary>
-                <p>They buy a voucher code from you in cash, or choose a package on the login page and pay with {{ networks|join(', ') if networks else 'mobile money' }}. They get a PIN prompt, and once it's paid they are online and receive the code by SMS.</p>
+                <p>They buy a voucher code from you in cash, or choose a package on the login page and pay with {{ networks|join(', ') if networks else 'mobile money' }}. They get a PIN prompt, and once it's paid they are online and receive the code by SMS. Each SMS costs you TZS {{ sms_price }}; you can switch SMS off and guests see the code on screen instead.</p>
             </details>
             <details>
                 <summary>When do I receive the money?</summary>
@@ -394,7 +394,7 @@
             </details>
             <details>
                 <summary>Can a guest pay for someone else?</summary>
-                <p>Yes. On the login page they tick "Buy for a friend" and enter the friend's number. They pay with their own phone, and the code is sent to the friend by SMS.</p>
+                <p>Yes. On the login page they tick "Buy for a friend" and enter the friend's number. They pay with their own phone, and the code is sent to the friend by SMS (2 SMS: the friend's code and a receipt for the payer).</p>
             </details>
             <p id="faq-none" style="display:none; color: var(--muted)">No matching question. Try another word.</p>
         </div>

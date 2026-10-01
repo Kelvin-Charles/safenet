@@ -20,6 +20,7 @@ from tenancy import tenant_sites
 from gateway import portal_ui
 sms = []
 appmod.send_sms_async = lambda to, text, ref=None: sms.append((to, text))
+appmod.sms_is_configured = lambda: True
 app.config.update(TESTING=True)
 tok = lambda h: re.search(r'name="csrf_token"[^>]*value="([^"]+)"', h).group(1)
 now = datetime.utcnow()

@@ -29,6 +29,7 @@ class Tenant(db.Model):
     clickpesa_api_key_enc = db.Column(db.Text)        # secretbox-encrypted
     clickpesa_checksum_key_enc = db.Column(db.Text)   # secretbox-encrypted
     own_provider = db.Column(db.String(16), nullable=False, default='clickpesa', server_default='clickpesa')  # with payment_mode 'own'
+    sms_to_guests = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())  # voucher code by SMS (charged per SMS)
     snippe_api_key_enc = db.Column(db.Text)           # secretbox-encrypted
     snippe_webhook_key_enc = db.Column(db.Text)       # secretbox-encrypted
     fee_percent = db.Column(db.Numeric(5, 2))         # platform fee; NULL = PLATFORM_FEE_PERCENT
@@ -721,8 +722,31 @@ class SubscriptionPayment(db.Model):
     checked_at = db.Column(db.DateTime)
     paid_at = db.Column(db.DateTime)
 
+    sms_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0, server_default='0')   # guest SMS included in amount
+
     tenant = db.relationship('Tenant')
     billing_plan = db.relationship('BillingPlan')
 
     def __repr__(self):
         return f'<SubscriptionPayment {self.reference} {self.status}>'
+
+
+class SmsCharge(db.Model):
+    """An SMS sent to a tenant's guest (voucher code), charged to the tenant: taken from its SafeNet Pay
+    balance ('balance'), or added to its next SafeNet bill ('bill') when guests pay into its own account."""
+    __tablename__ = 'sms_charges'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'), index=True)
+    payment_id = db.Column(db.Integer, db.ForeignKey('payments.id', ondelete='SET NULL'))
+    phone = db.Column(db.String(16), nullable=False)
+    kind = db.Column(db.String(16), nullable=False)            # voucher, gift (to the friend), receipt (to a gift's payer)
+    parts = db.Column(db.Integer, nullable=False, default=1)   # a long message is billed as several SMS
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    method = db.Column(db.String(8), nullable=False)           # balance, bill
+    subscription_payment_id = db.Column(db.Integer, db.ForeignKey('subscription_payments.id', ondelete='SET NULL'), index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def __repr__(self):
+        return f'<SmsCharge {self.tenant_id} {self.amount}>'

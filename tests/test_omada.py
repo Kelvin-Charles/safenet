@@ -11,6 +11,9 @@ clickpesa.preview_ussd_push = lambda a, p, r, c=None: ['AIRTEL-MONEY']
 clickpesa.initiate_ussd_push = lambda a, p, r, c=None: {'id': 'TX', 'status': 'PROCESSING'}
 pay_state = {'status': 'PROCESSING'}
 clickpesa.query_payment = lambda r, c=None: {'status': pay_state['status'], 'collectedAmount': '1000'}
+import app as appmod
+appmod.sms_is_configured = lambda: True            # SMS set up (sending itself is faked)
+appmod.send_sms_async = lambda *a, **k: None
 from app import app, db
 import migrations, omada
 from models import Admin, Tenant, Site, Package, Payment, Voucher, RadCheck, RadAcct

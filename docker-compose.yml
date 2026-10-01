@@ -119,6 +119,7 @@ services:
       SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}
       TRIAL_DAYS: ${TRIAL_DAYS:-14}
       PLATFORM_FEE_PERCENT: ${PLATFORM_FEE_PERCENT:-3}
+      SMS_PRICE: ${SMS_PRICE:-30}
       MIN_WITHDRAWAL: ${MIN_WITHDRAWAL:-5000}
     depends_on:
       db:

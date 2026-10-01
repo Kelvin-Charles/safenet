@@ -29,6 +29,15 @@
                             {{ field(form.snippe_webhook_key, placeholder=("•••••••• saved" if has_snippe_webhook else "")) }}
                         </div>
                     </div>
+                    <div class="border rounded p-3 mb-3">
+                        <div class="form-check mb-1">{{ form.sms_to_guests(class="form-check-input") }} {{ form.sms_to_guests.label(class="form-check-label fw-semibold") }}</div>
+                        <p class="small text-muted mb-1"><strong>Each SMS costs TZS {{ sms_price }}</strong>, paid by you:
+                            taken from your balance with SafeNet Pay, or added to your monthly SafeNet bill with your own account.
+                            A paying guest gets 1 SMS; "Buy for a friend" sends 2 (the friend's code and a receipt to the payer).</p>
+                        <p class="small text-muted mb-0">Turned off, guests see their code on screen after paying (they should write it down) and "Buy for a friend" is not offered.
+                            This month: {{ sms_month[0] }} SMS, TZS {{ '{:,.0f}'.format(sms_month[1]) }}.</p>
+                        {% if not sms_ready %}<p class="small text-warning mb-0 mt-1">SMS sending isn't set up on SafeNet yet, so no SMS are sent or charged.</p>{% endif %}
+                    </div>
                     <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> Save</button>
                 </form>
                 <form method="POST" action="{{ url_for('test_payment_settings') }}" class="mt-2">

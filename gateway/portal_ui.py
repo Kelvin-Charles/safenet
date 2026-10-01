@@ -80,6 +80,7 @@ T = {
         'buy_title': 'Choose a package', 'buy_lead': 'Pick a package, then your mobile-money network.',
         'network': 'Your mobile-money network', 'min_from': 'From {amount}', 'choose_network': 'Choose your network first',
         'phone': 'Mobile money number', 'pay': 'Pay {price}', 'pay_hint': "You'll get a PIN prompt on your phone. Once paid, you're connected automatically and the code is sent to you by SMS.",
+        'pay_hint_nosms': "You'll get a PIN prompt on your phone. Once paid, you're connected automatically and your code is shown here: write it down.",
         'no_packages': 'No packages are on sale right now. Ask at the counter for a voucher.',
         'check_phone': 'Check your phone', 'wait_lead': 'Enter your mobile-money PIN to pay {amount} for {package}.',
         'wait_step1': 'Unlock your phone and open the payment prompt', 'wait_step2': 'Enter your PIN to approve {amount}',
@@ -117,6 +118,7 @@ T = {
         'buy_title': 'Chagua kifurushi', 'buy_lead': 'Chagua kifurushi, kisha mtandao wako wa malipo.',
         'network': 'Mtandao wako wa malipo', 'min_from': 'Kuanzia {amount}', 'choose_network': 'Chagua mtandao kwanza',
         'phone': 'Namba ya simu ya malipo', 'pay': 'Lipa {price}', 'pay_hint': 'Utapokea ujumbe wa kuweka PIN kwenye simu yako. Ukishalipa utaunganishwa moja kwa moja na namba ya vocha itatumwa kwa SMS.',
+        'pay_hint_nosms': 'Utapokea ujumbe wa kuweka PIN kwenye simu yako. Ukishalipa utaunganishwa moja kwa moja na namba ya vocha itaonyeshwa hapa: iandike.',
         'no_packages': 'Hakuna vifurushi vinavyouzwa kwa sasa. Uliza vocha kaunta.',
         'check_phone': 'Angalia simu yako', 'wait_lead': 'Weka PIN yako kulipia {amount} kwa {package}.',
         'wait_step1': 'Fungua simu yako na ufungue ujumbe wa malipo', 'wait_step2': 'Weka PIN kuidhinisha {amount}',
@@ -269,6 +271,7 @@ def theme(cfg=None):
         'logo_url': cfg.get('logo_url') or '',
         'show_voucher': cfg.get('show_voucher', True) is not False,
         'show_packages': cfg.get('show_packages', True) is not False,
+        'sms': cfg.get('sms', True) is not False,          # codes are sent by SMS (off: shown on screen only)
         'ssid': (cfg.get('ssid') or '').strip(),
     }
 
@@ -501,6 +504,17 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
                     f'<span>{e(info["name"])}</span>{note}<span class="tick">{icon("check", 13, 3)}</span></label>')
             net_tiles = (f'<div class="field"><label>{t(lang, "network")}</label>'
                          f'<div class="nets" style="--n:{min(len(tiles), 4)}">{"".join(tiles)}</div></div>')
+        # buying for a friend needs SMS (the code goes to the friend's phone)
+        gift = f'''
+        <label class="check" for="gift" style="margin:4px 0 10px"><input type="checkbox" id="gift" name="gift" value="1"
+          onchange="var b=document.getElementById('gift-box'),i=document.getElementById('gift_phone');b.hidden=!this.checked;i.required=this.checked;if(this.checked)i.focus();">
+          <span>{t(lang, 'gift')}</span></label>
+        <div class="field" id="gift-box" hidden>
+          <label for="gift_phone">{t(lang, 'gift_phone')}</label>
+          <div class="phone"><span>+255</span><input class="input" type="tel" id="gift_phone" name="gift_phone" inputmode="tel"
+            autocomplete="off" placeholder="7XX XXX XXX"></div>
+          <p class="hint" style="margin-top:6px">{t(lang, 'gift_hint')}</p>
+        </div>''' if th['sms'] else ''
         buy = f"""
       <h2>{t(lang, 'buy_title')}</h2>
       <p class="lead">{t(lang, 'buy_lead')}</p>
@@ -514,18 +528,10 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
           <div class="phone"><span>+255</span><input class="input" type="tel" id="phone" name="phone" inputmode="tel" autocomplete="tel"
             placeholder="7XX XXX XXX" required></div>
         </div>
-        <label class="check" for="gift" style="margin:4px 0 10px"><input type="checkbox" id="gift" name="gift" value="1"
-          onchange="var b=document.getElementById('gift-box'),i=document.getElementById('gift_phone');b.hidden=!this.checked;i.required=this.checked;if(this.checked)i.focus();">
-          <span>{t(lang, 'gift')}</span></label>
-        <div class="field" id="gift-box" hidden>
-          <label for="gift_phone">{t(lang, 'gift_phone')}</label>
-          <div class="phone"><span>+255</span><input class="input" type="tel" id="gift_phone" name="gift_phone" inputmode="tel"
-            autocomplete="off" placeholder="7XX XXX XXX"></div>
-          <p class="hint" style="margin-top:6px">{t(lang, 'gift_hint')}</p>
-        </div>
+        {gift}
         {_terms_check(th, lang, 'agree-b')}
         <button class="btn" type="{submit_type}" id="paybtn">{e(t(lang, 'pay', price=first_price))}</button>
-        <p class="hint">{t(lang, 'pay_hint')}</p>
+        <p class="hint">{t(lang, 'pay_hint' if th['sms'] else 'pay_hint_nosms')}</p>
       </form>"""
 
     if show_voucher and show_buy:

@@ -60,6 +60,7 @@ class Config:
 
     # Platform-collected payments: default fee kept by the platform, minimum payout
     PLATFORM_FEE_PERCENT = float(os.getenv('PLATFORM_FEE_PERCENT', '3'))   # SafeNet Pay fee on tenants' sales
+    SMS_PRICE = int(os.getenv('SMS_PRICE', '30'))      # TZS per SMS sent to a tenant's guest, charged to the tenant
     # Tenant subscriptions: days of service after a trial/paid period ends
     BILLING_GRACE_DAYS = int(os.getenv('BILLING_GRACE_DAYS', '3'))
     BILLING_REMINDERS = os.getenv('BILLING_REMINDERS', 'true').lower() == 'true'

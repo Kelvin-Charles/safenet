@@ -51,6 +51,8 @@
                     {% if form.show_packages.errors %}<div class="text-danger small">{{ form.show_packages.errors[0] }}</div>{% endif %}
                     <p class="small text-muted mb-3">{% if package_count %}{{ package_count }} package{{ '' if package_count == 1 else 's' }} on sale.{% else %}No packages on sale yet: <a href="{{ url_for('packages') }}">add packages</a> to show the buy tab.{% endif %}
                         Terms and support number come from <a href="{{ url_for('tenant_settings') }}">Settings</a>.</p>
+                    <p class="small text-muted mb-3"><i class="bi bi-chat-dots"></i> {% if sms_on %}Paying guests get their code by SMS: <strong>TZS {{ sms_price }} per SMS, paid by you</strong>.{% else %}SMS to guests is off: they see their code on screen only, and "Buy for a friend" is hidden.{% endif %}
+                        <a href="{{ url_for('payment_settings') }}">Change</a>.</p>
 
                     <label class="form-label">Logo</label>
                     <div class="d-flex align-items-center gap-3 mb-2">

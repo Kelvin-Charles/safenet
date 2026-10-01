@@ -5,6 +5,9 @@ from decimal import Decimal
 os.environ.update(DB_PASSWORD='x', SECRET_KEY='k' * 40, CLICKPESA_CLIENT_ID='p', CLICKPESA_API_KEY='k', PAYMENT_NETWORKS='airtel')
 sys.path.insert(0, os.getcwd())
 import config; config.Config.SQLALCHEMY_DATABASE_URI = 'sqlite://'
+import app as appmod
+appmod.sms_is_configured = lambda: True            # SMS set up (sending itself is faked)
+appmod.send_sms_async = lambda *a, **k: None
 from app import app, db, _hash_key
 import migrations
 from models import Admin, Tenant, Site, Package, Gateway, Nas

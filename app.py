@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting
+from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -11,7 +11,7 @@ import clickpesa
 import payments as paylib   # (app has a route called payments)
 import snippe
 from gateway import portal_ui
-from sms import send_sms_async
+from sms import send_sms_async, is_configured as sms_is_configured
 from models import format_minutes
 import radclient
 import threading
@@ -189,7 +189,7 @@ def landing():
                            support_phone=(home.support_phone if home else None) or Config.HOTSPOT_SUPPORT,
                            contact_email=Config.MAIL_USERNAME or Config.ADMIN_EMAIL,
                            signup_enabled=Config.SIGNUP_ENABLED, year=datetime.utcnow().year,
-                           fee_percent='{:g}'.format(float(Config.PLATFORM_FEE_PERCENT)))
+                           fee_percent='{:g}'.format(float(Config.PLATFORM_FEE_PERCENT)), sms_price=Config.SMS_PRICE)
 
 
 def _site_filters(tid, site):
@@ -282,7 +282,7 @@ def docs(slug='start'):
     i = index[slug]
     home = Tenant.query.filter_by(slug=migrations.DEFAULT_TENANT_SLUG).first()
     public = Config.PUBLIC_URL or request.host_url.rstrip('/')
-    return render_template(f'docs/{slug}.html', pages=DOC_PAGES, page=DOC_PAGES[i], wifidog_base=Config.WIFIDOG_BASE,
+    return render_template(f'docs/{slug}.html', pages=DOC_PAGES, page=DOC_PAGES[i], wifidog_base=Config.WIFIDOG_BASE, sms_price=Config.SMS_PRICE,
                            server_ip=_server_ip(),
                            prev=DOC_PAGES[i - 1] if i > 0 else None,
                            next=DOC_PAGES[i + 1] if i + 1 < len(DOC_PAGES) else None,
@@ -1512,6 +1512,7 @@ def portal_config(tenant):
         cfg.update(color=tenant.portal_color, style=tenant.portal_style, title=tenant.portal_title,
                    message=tenant.portal_message, language=tenant.portal_language,
                    show_voucher=tenant.portal_show_voucher, show_packages=tenant.portal_show_packages,
+                   sms=_sms_on(tenant),
                    logo_version=int(tenant.portal_logo_at.timestamp()) if tenant.portal_logo_at else None)
     return cfg
 
@@ -2577,6 +2578,7 @@ def portal_settings():
                            preview_sites=[(site, _site_equipment(site, main.id)) for main in [tenant_sites(tenant.id)[0]]
                                           for site in tenant_sites(tenant.id)],
                            equipment=EQUIPMENT, payments_ready=paylib.is_ready(_tenant_account(tenant)), current_site=current_site(),
+                           sms_on=_sms_on(tenant), sms_price=Config.SMS_PRICE,
                            package_count=scoped(Package).filter_by(is_active=True, show_on_portal=True).count(),
                            hotspot_name=_hotspot_settings(tenant)['name'])
 
@@ -2754,14 +2756,53 @@ def _fee_percent(tenant):
     return Decimal(str(tenant.fee_percent if tenant.fee_percent is not None else Config.PLATFORM_FEE_PERCENT))
 
 
+def sms_parts(text):
+    """How many SMS a message is billed as: 160 plain characters (153 each when split), 70 with other characters."""
+    gsm = all(ord(ch) < 128 for ch in text)
+    single, part = (160, 153) if gsm else (70, 67)
+    return 1 if len(text) <= single else -(-len(text) // part)
+
+
+def _sms_on(tenant):
+    """Voucher codes go to paying guests by SMS (the tenant pays per SMS)."""
+    return bool(tenant is not None and tenant.sms_to_guests and sms_is_configured())
+
+
+def _guest_sms(payment, to, text, kind):
+    """Send an SMS to a tenant's guest and charge the tenant for it. Caller commits."""
+    if not to or not sms_is_configured():
+        return
+    parts = sms_parts(text)
+    db.session.add(SmsCharge(tenant_id=payment.tenant_id, site_id=payment.site_id, payment_id=payment.id, phone=to, kind=kind,
+                             parts=parts, amount=Decimal(parts * Config.SMS_PRICE),
+                             method='balance' if payment.provider_account == 'platform' else 'bill'))
+    send_sms_async(to, text, payment.reference)
+
+
+def _month_start():
+    now = datetime.utcnow()
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def sms_totals(tid, since=None):
+    """(SMS count, amount) charged to a tenant, optionally since a date."""
+    q = db.session.query(func.coalesce(func.sum(SmsCharge.parts), 0), func.coalesce(func.sum(SmsCharge.amount), 0)).filter(
+        SmsCharge.tenant_id == tid, *([SmsCharge.created_at >= since] if since else []))
+    count, amount = q.one()
+    return int(count), Decimal(str(amount))
+
+
 def tenant_balance(tid):
-    """(balance, earned, withdrawn) of platform-collected sales for a tenant."""
+    """(balance, earned, withdrawn) of platform-collected sales for a tenant. SMS sent to its guests while
+    SafeNet collects for it are taken from the balance."""
     earned = db.session.query(func.coalesce(func.sum(Payment.net_amount), 0)).filter(
         Payment.tenant_id == tid, Payment.status == 'paid', Payment.provider_account == 'platform').scalar()
     withdrawn = db.session.query(func.coalesce(func.sum(Withdrawal.amount), 0)).filter(
         Withdrawal.tenant_id == tid, Withdrawal.status.in_(('requested', 'sending', 'paid'))).scalar()
     earned, withdrawn = Decimal(str(earned)), Decimal(str(withdrawn))
-    return earned - withdrawn, earned, withdrawn
+    sms = db.session.query(func.coalesce(func.sum(SmsCharge.amount), 0)).filter(
+        SmsCharge.tenant_id == tid, SmsCharge.method == 'balance').scalar()
+    return earned - withdrawn - Decimal(str(sms)), earned, withdrawn
 
 
 def _fulfil_payment(payment):
@@ -2775,20 +2816,21 @@ def _fulfil_payment(payment):
     payment.status = 'paid'
     payment.paid_at = datetime.utcnow()
     log.info('payment %s paid: voucher %s', payment.reference, voucher.code)
+    if not _sms_on(payment.tenant):
+        return                       # the guest sees the code on screen; no SMS, no charge
     brand = _hotspot_settings(payment.tenant)
     help_line = f' Help: {brand["support"]}' if brand['support'] else ''
     valid = format_minutes(payment.validity_minutes)
+    # Kept short: each SMS costs the tenant, and over 160 characters one message counts as two
     if payment.gift_phone:
-        send_sms_async(payment.gift_phone, f'{brand["name"]}: 0{payment.phone[3:]} bought you {payment.package_name} of WiFi. '
-                                           f'Connect to {brand["name"]} WiFi and enter code {voucher.code}. Valid {valid} '
-                                           f'from first login.' + help_line, payment.reference)
-        send_sms_async(payment.phone, f'{brand["name"]}: payment of {payment.currency} {payment.amount:,.0f} received. '
-                                      f'We sent WiFi code {voucher.code} ({payment.package_name}) to 0{payment.gift_phone[3:]}.'
-                                      + help_line, payment.reference)
+        _guest_sms(payment, payment.gift_phone, f'{brand["name"]}: 0{payment.phone[3:]} bought you {payment.package_name} WiFi. '
+                                                f'Code {voucher.code}, valid {valid} from first login.' + help_line, 'gift')
+        _guest_sms(payment, payment.phone, f'{brand["name"]}: {payment.currency} {payment.amount:,.0f} received. '
+                                           f'Code {voucher.code} sent to 0{payment.gift_phone[3:]}.', 'receipt')
         return
-    send_sms_async(payment.phone, f'{brand["name"]}: payment of {payment.currency} {payment.amount:,.0f} received. '
-                                  f'Your WiFi code is {voucher.code}, valid {valid} '
-                                  f'from first login. Keep it to reconnect.' + help_line, payment.reference)
+    _guest_sms(payment, payment.phone, f'{brand["name"]}: {payment.currency} {payment.amount:,.0f} received. '
+                                       f'WiFi code {voucher.code}, valid {valid} from first login. '
+                                       f'Keep it to reconnect.' + help_line, 'voucher')
 
 
 def _refresh_payment(reference, force=False):
@@ -2963,6 +3005,8 @@ def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=
     phone = _normalize_tz_phone(str(phone or ''))
     if not phone:
         return None, 'Enter a valid mobile number, e.g. 0712 345 678.', 400
+    if gift_phone is not None and not _sms_on(tenant):
+        return None, "Buying for a friend isn't available here.", 400
     if gift_phone is not None:          # '' = "for a friend" ticked without a number
         gift_phone = _normalize_tz_phone(str(gift_phone))
         if not gift_phone:
@@ -3112,7 +3156,7 @@ def api_gateway_config():
                    block_tethering=t.block_tethering,
                    gateway=g.api_gateway.name if g.api_gateway else None,
                    portal={k: cfg.get(k) for k in ('color', 'style', 'title', 'message', 'language',
-                                                   'show_voucher', 'show_packages', 'logo_version')})
+                                                   'show_voucher', 'show_packages', 'logo_version', 'sms')})
 
 
 @app.route('/api/gateway/logo')
@@ -3952,13 +3996,16 @@ def earnings():
         'platform_gross': total(Payment.amount, platform_paid),
         'fees': total(Payment.fee_amount, platform_paid),
         'earned': earned, 'withdrawn': withdrawn, 'balance': balance,
+        'sms_count': sms_totals(tid)[0], 'sms_balance': Decimal(str(db.session.query(func.coalesce(func.sum(SmsCharge.amount), 0))
+                                                                    .filter(SmsCharge.tenant_id == tid, SmsCharge.method == 'balance').scalar())),
+        'sms_month': sms_totals(tid, _month_start()),
         'cash': Decimal(str(scoped(Voucher).filter(Voucher.first_used_at.isnot(None), Voucher.batch != 'online-payments')
                             .with_entities(func.coalesce(func.sum(Voucher.price), 0)).scalar())),
     }
     withdrawals = scoped(Withdrawal).order_by(Withdrawal.created_at.desc()).limit(50).all()
     form = WithdrawalForm(phone=tenant.phone or '')
     return render_template('earnings.html', stats=stats, withdrawals=withdrawals, form=form,
-                           fee_percent=_fee_percent(tenant), min_withdrawal=Config.MIN_WITHDRAWAL,
+                           fee_percent=_fee_percent(tenant), min_withdrawal=Config.MIN_WITHDRAWAL, sms_price=Config.SMS_PRICE,
                            can_withdraw=current_user.has_role('owner'))
 
 
@@ -4021,7 +4068,7 @@ def request_withdrawal():
 def payment_settings():
     tenant = current_tenant()
     form = PaymentSettingsForm(payment_mode=tenant.payment_mode, client_id=tenant.clickpesa_client_id,
-                               own_provider=tenant.own_provider or 'clickpesa')
+                               own_provider=tenant.own_provider or 'clickpesa', sms_to_guests=tenant.sms_to_guests)
     if form.validate_on_submit():
         mode = form.payment_mode.data
         tenant.own_provider = form.own_provider.data if form.own_provider.data in paylib.PROVIDERS else 'clickpesa'
@@ -4046,6 +4093,7 @@ def payment_settings():
         if mode == 'own' and own.provider == 'snippe' and not own.creds.webhook_key:
             flash('Saved. Add your Snippe webhook signing key too, so payments are confirmed the moment they arrive.', 'warning')
         tenant.payment_mode = mode
+        tenant.sms_to_guests = bool(form.sms_to_guests.data)
         db.session.commit()
         flash('Payment settings saved.', 'success')
         return redirect(url_for('payment_settings'))
@@ -4054,7 +4102,9 @@ def payment_settings():
                            has_checksum=bool(tenant.clickpesa_checksum_key_enc), fee_percent=_fee_percent(tenant),
                            has_snippe_key=bool(tenant.snippe_api_key_enc), has_snippe_webhook=bool(tenant.snippe_webhook_key_enc),
                            webhook_url=_link('clickpesa_webhook'), snippe_webhook_url=_link('snippe_webhook'),
-                           platform_ready=paylib.is_ready(platform), platform_name=paylib.name(platform))
+                           platform_ready=paylib.is_ready(platform), platform_name=paylib.name(platform),
+                           sms_price=Config.SMS_PRICE, sms_month=sms_totals(tenant.id, _month_start()),
+                           sms_ready=sms_is_configured())
 
 
 @app.route('/settings/payments/test', methods=['POST'])
@@ -4444,6 +4494,18 @@ def _plan_limit_reached(tenant, kind):
     return query.count() >= limit
 
 
+def _unbilled_sms(tid):
+    """(SMS count, amount, charge ids) of guest SMS waiting for the tenant's next SafeNet bill (own-account tenants)."""
+    rows = SmsCharge.query.filter(SmsCharge.tenant_id == tid, SmsCharge.method == 'bill',
+                                  SmsCharge.subscription_payment_id.is_(None)).all()
+    return sum(r.parts for r in rows), sum((r.amount for r in rows), Decimal(0)), [r.id for r in rows]
+
+
+def _release_sms(sp):
+    """A bill that wasn't paid gives its SMS back to the next one."""
+    SmsCharge.query.filter_by(subscription_payment_id=sp.id).update({'subscription_payment_id': None}, synchronize_session=False)
+
+
 def _fulfil_subscription(sp):
     if sp.status == 'paid':
         return
@@ -4484,6 +4546,7 @@ def _refresh_subscription(reference, force=False):
                     _fulfil_subscription(sp)
             elif result['state'] == 'failed':
                 sp.status = 'failed'
+                _release_sms(sp)
     db.session.commit()
     return sp
 
@@ -4492,12 +4555,13 @@ def _refresh_subscription(reference, force=False):
 @login_required
 def billing():
     tenant = current_tenant()
+    sms_due = _unbilled_sms(tenant.id)
     plans = BillingPlan.query.filter_by(is_active=True).order_by(BillingPlan.sort_order, BillingPlan.price).all()
     history = SubscriptionPayment.query.filter_by(tenant_id=tenant.id).order_by(SubscriptionPayment.id.desc()).limit(24).all()
     return render_template('billing.html', plans=plans, history=history, months=BILLING_MONTHS,
                            can_pay=current_user.has_role('owner'), grace=Config.BILLING_GRACE_DAYS,
                            payments_ready=paylib.is_ready(_platform_account()), state=billing_state(tenant),
-                           default_phone=tenant.phone or '')
+                           default_phone=tenant.phone or '', sms_due=sms_due, sms_price=Config.SMS_PRICE)
 
 
 @app.route('/billing/pay', methods=['POST'])
@@ -4516,7 +4580,9 @@ def billing_pay():
         flash('Enter a valid mobile money number, e.g. 0712 345 678.', 'danger')
         return redirect(url_for('billing'))
     account = _platform_account()
-    problem = check_network(phone, None, plan.amount_for(months), networks=paylib.networks(account))
+    sms_count, sms_amount, sms_ids = _unbilled_sms(tenant.id)
+    total = plan.amount_for(months) + sms_amount
+    problem = check_network(phone, None, total, networks=paylib.networks(account))
     if problem:
         flash(problem, 'danger')
         return redirect(url_for('billing'))
@@ -4524,9 +4590,12 @@ def billing_pay():
         flash('Online payment is not available right now. Please contact SafeNet.', 'danger')
         return redirect(url_for('billing'))
     sp = SubscriptionPayment(tenant_id=tenant.id, billing_plan_id=plan.id, plan_name=plan.name, months=months,
-                             amount=plan.amount_for(months), currency=plan.currency, phone=phone, method=account.provider,
+                             amount=total, sms_amount=sms_amount, currency=plan.currency, phone=phone, method=account.provider,
                              reference='SB' + secrets.token_hex(6).upper(), created_by_id=current_user.id)
     db.session.add(sp)
+    db.session.flush()
+    if sms_ids:                  # these SMS are on this bill (released again if it isn't paid)
+        SmsCharge.query.filter(SmsCharge.id.in_(sms_ids)).update({'subscription_payment_id': sp.id}, synchronize_session=False)
     db.session.commit()
     try:
         tx = paylib.start(account, sp.amount, phone, sp.reference,
@@ -4534,6 +4603,7 @@ def billing_pay():
         sp.provider_id, sp.channel, sp.provider_status = tx['provider_id'], tx['channel'], tx['provider_status']
     except paylib.PaymentError as e:
         sp.status, sp.message = 'failed', e.detail
+        _release_sms(sp)
     db.session.commit()
     if sp.status == 'failed':
         flash(f"We couldn't send the payment request: {sp.message or 'try again'}.", 'danger')
