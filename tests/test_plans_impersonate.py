@@ -69,8 +69,10 @@ assert 'Back to your platform account' in r and c.get('/platform/tenants').statu
 
 # Owners cannot use the stop route to become anyone else
 o = login('mama', 'secret-pw-1')
-r = o.post('/platform/impersonate/stop', data={}, follow_redirects=True)
+assert o.post('/platform/impersonate/stop', data={}).status_code == 400   # no CSRF token: refused
+r = o.post('/platform/impersonate/stop', data={'csrf_token': tok(o.get('/billing').text)}, follow_redirects=True)
 assert o.get('/dashboard').status_code == 302                              # just logged out
+assert app.test_client().get('/platform/impersonate/stop').status_code == 405   # never by a link
 # Non-admins cannot impersonate
 o = login('mama', 'secret-pw-1')
 assert o.post(f'/platform/impersonate/{TID}', data={'csrf_token': tok(o.get('/billing').text)}).status_code == 404

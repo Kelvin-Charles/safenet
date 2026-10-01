@@ -45,8 +45,10 @@ assert 'lang="en"' in p.get('/portal?t=salma').text                     # rememb
 r = p.get(f'/portal/logo/salma?v={version}'); assert r.status_code == 200 and r.data == PNG and r.mimetype == 'image/png' and r.headers['X-Content-Type-Options'] == 'nosniff'
 assert p.get('/portal/logo/b').status_code == 404
 # preview with unsaved overrides and every screen
+# strangers can't put their own text on the business's preview page
+assert '#B91C1C' not in p.get('/portal?t=salma&preview=1&view=buy&color=%23B91C1C&title=Pay+here+first').text
 for view in ('voucher', 'buy', 'wait', 'online'):
-    r = p.get(f'/portal?t=salma&preview=1&view={view}&color=%23B91C1C&style=solid')
+    r = c.get(f'/portal?t=salma&preview=1&view={view}&color=%23B91C1C&style=solid')
     assert r.status_code == 200 and '--brand:#B91C1C' in r.text and 'style-solid' in r.text, view
 assert '#B91C1C' not in p.get('/portal?t=salma&color=%23B91C1C').text  # overrides only in preview
 # gateway API gets its own tenant's portal

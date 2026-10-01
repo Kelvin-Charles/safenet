@@ -102,7 +102,8 @@ assert cj.get(f'/nas/edit/{nas_a}').status_code == 404
 assert cj.get('/accounting/1').status_code == 404
 t = tok(cj.get('/vouchers').text)
 assert cj.post(f'/vouchers/{vid}/delete', data={'csrf_token': t}).status_code == 404
-assert cj.post(f'/users/delete/{uid}').status_code == 404
+assert cj.post(f'/users/delete/{uid}').status_code == 400                  # no CSRF token
+assert cj.post(f'/users/delete/{uid}', data={'csrf_token': t}).status_code == 404
 d = cj.get('/api/live').get_json(); assert d['online'] == [] and d['stats']['logins_today'] == 0
 cj.post('/vouchers/delete-unused', data={'csrf_token': t, 'batch': 'a1'})
 with app.app_context(): assert Voucher.query.filter_by(tenant_id=A).count() == 3   # untouched

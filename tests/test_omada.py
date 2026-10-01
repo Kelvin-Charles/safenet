@@ -51,6 +51,12 @@ class Fake(BaseHTTPRequestHandler):
         self.send_error(404)
 srv = ThreadingHTTPServer(('127.0.0.1', 0), Fake); threading.Thread(target=srv.serve_forever, daemon=True).start()
 CTL_URL = f'http://127.0.0.1:{srv.server_address[1]}'
+# tenants' controllers must be on the internet; this test's fake one is the only local address allowed
+real_problem = omada.public_address_problem
+for bad in ('http://127.0.0.1:8081', 'https://10.0.0.5:8043', 'http://192.168.1.20', 'http://169.254.169.254/latest', 'http://[::1]:3302'):
+    assert real_problem(bad), bad
+assert real_problem('ftp://example.com') and real_problem('https://no-such-host.invalid:8043')
+omada.public_address_problem = lambda url: None if (url or '').startswith(CTL_URL) else real_problem(url)
 
 # the client module on its own
 c0 = omada.Controller(CTL_URL, 'op', 'op-pass')
@@ -207,6 +213,7 @@ assert 'now uses SafeNet' in html.unescape(r.text) and 'radius.example.tz' in r.
 with app.app_context():
     s = db.session.get(Site, SID); assert s.omada_hosted and s.omada_ready and not s.omada_url and s.portal_token
     TOKEN = s.portal_token
+    s.omada_site_id = 'hostedSite'; db.session.commit()      # the controller site SafeNet made for it
 q2 = f'/omada/{TOKEN}?clientMac=AA-BB-CC-00-00-21&apMac=11-22-33-44-55-66&ssidName=Kili+Guest&radioId=0&site=hostedSite&redirectUrl=http%3A%2F%2Fexample.com%2F'
 with app.app_context():
     db.session.add_all([Voucher(tenant_id=TID, code='12123434', validity_minutes=30, batch='x', status='unused'),
@@ -214,13 +221,22 @@ with app.app_context():
 h = app.test_client(); h.get(q2)
 assert "You're online" in h.post(f'/omada/{TOKEN}/login', data={'code': '12123434', 'agree': '1'}).text
 assert ctl['authorized'][-1]['clientMac'] == 'AA-BB-CC-00-00-21' and ctl['authorized'][-1]['site'] == 'hostedSite'
+# a code from this business can't let someone online at another business's site on the shared controller
+with app.app_context():
+    db.session.add_all([Voucher(tenant_id=TID, code='80801313', validity_minutes=30, batch='x', status='unused'),
+                        RadCheck(username='80801313', attribute='Cleartext-Password', op=':=', value='80801313')]); db.session.commit()
+n = len(ctl['authorized'])
+x = app.test_client(); x.get(q2.replace('site=hostedSite', 'site=otherBusinessSite').replace('00-00-21', '00-00-22'))
+assert 'belongs to another Wi-Fi network' in html.unescape(x.post(f'/omada/{TOKEN}/login', data={'code': '80801313', 'agree': '1'}).text)
+assert len(ctl['authorized']) == n
+with app.app_context(): assert Voucher.query.filter_by(code='80801313').one().status == 'unused'
 # hosted controller removed from the server: login fails clearly, page does not offer it
 config.Config.OMADA_HOSTED_URL = ''
 assert "Use SafeNet's controller" not in c.get('/sites').text
 h2 = app.test_client(); h2.get(q2.replace('00-21', '00-22'))
 with app.app_context():
-    db.session.add_all([Voucher(tenant_id=TID, code='56567878', validity_minutes=30, batch='x', status='unused'),
-                        RadCheck(username='56567878', attribute='Cleartext-Password', op=':=', value='56567878')]); db.session.commit()
-assert "didn't accept the login" in html.unescape(h2.post(f'/omada/{TOKEN}/login', data={'code': '56567878', 'agree': '1'}).text)
+    db.session.add_all([Voucher(tenant_id=TID, code='71719393', validity_minutes=30, batch='x', status='unused'),
+                        RadCheck(username='71719393', attribute='Cleartext-Password', op=':=', value='71719393')]); db.session.commit()
+assert "didn't accept the login" in html.unescape(h2.post(f'/omada/{TOKEN}/login', data={'code': '71719393', 'agree': '1'}).text)
 srv.shutdown()
 print('OMADA OK')

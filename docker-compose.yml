@@ -1,11 +1,12 @@
 services:
-  # MariaDB — host network (bind 3302 on the host directly)
+  # MariaDB — host network, port 3302 on 127.0.0.1 only (web, FreeRADIUS and phpMyAdmin all connect locally;
+  # it must never be reachable from the internet)
   db:
     image: mariadb:10.11
     container_name: safenet-db
     restart: unless-stopped
     network_mode: host
-    command: ["mariadbd", "--port=3302", "--bind-address=0.0.0.0"]
+    command: ["mariadbd", "--port=3302", "--bind-address=127.0.0.1"]
     environment:
       # Required: MariaDB refuses uninitialized root; never use empty passwords.
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD in .env}
@@ -25,7 +26,7 @@ services:
       start_period: 180s
 
   # phpMyAdmin — host network; login form (no PMA_USER/PMA_PASSWORD).
-  # Listens on host :8081 (avoids clashing with anything already on :80).
+  # Listens on 127.0.0.1:8081 only. Open it through SSH:  ssh -L 8081:127.0.0.1:8081 <server>  then http://localhost:8081
   phpmyadmin:
     image: phpmyadmin/phpmyadmin:latest
     container_name: safenet-phpmyadmin
@@ -46,8 +47,8 @@ services:
       - /bin/bash
       - -c
       - |
-        sed -i 's/Listen 80/Listen 8081/g' /etc/apache2/ports.conf
-        sed -i 's/:80/:8081/g' /etc/apache2/sites-enabled/*.conf 2>/dev/null || true
+        sed -i 's/^Listen .*80$/Listen 127.0.0.1:8081/' /etc/apache2/ports.conf
+        sed -i 's/:80>/:8081>/g' /etc/apache2/sites-enabled/*.conf 2>/dev/null || true
         exec /docker-entrypoint.sh apache2-foreground
 
   # Flask Web Application — host network (DNS + SMTP use the host resolver)

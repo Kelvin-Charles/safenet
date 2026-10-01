@@ -230,6 +230,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content,
                     },
                     body: JSON.stringify({ nas_id: parseInt(nasId) })
                 })
@@ -237,8 +238,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     return response.json();
                 })
                 .then(function(data) {
+                    function show(kind, icon, text) {
+                        const box = document.createElement('div'), i = document.createElement('i');
+                        box.className = 'alert alert-' + kind; i.className = 'bi bi-' + icon;
+                        box.append(i, ' ' + text); testResult.replaceChildren(box);
+                    }
                     if (data.success) {
-                        testResult.innerHTML = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + data.message + '</div>';
+                        show('success', 'check-circle', data.message);
                         if (data.activated) {
                             // Reload page to show updated status
                             setTimeout(function() {
@@ -246,11 +252,11 @@ document.addEventListener('DOMContentLoaded', function() {
                             }, 2000);
                         }
                     } else {
-                        testResult.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + data.message + '</div>';
+                        show('danger', 'x-circle', data.message);
                     }
                 })
                 .catch(function(error) {
-                    testResult.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> Test failed: ' + error.message + '</div>';
+                    testResult.textContent = 'Test failed: ' + error.message;
                 })
                 .finally(function() {
                     testBtn.disabled = false;

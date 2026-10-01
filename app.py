@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge
+from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -123,6 +123,19 @@ def partners_are_read_only():
 
 
 # Error handlers
+@app.after_request
+def security_headers(resp):
+    """Admin pages can't be framed by other sites (the portal preview frames our own page), browsers don't guess
+    content types, and HTTPS is remembered."""
+    resp.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    resp.headers.setdefault('Content-Security-Policy', "frame-ancestors 'self'")
+    resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    resp.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    if request.headers.get('X-Forwarded-Proto', request.scheme) == 'https':
+        resp.headers.setdefault('Strict-Transport-Security', 'max-age=31536000')
+    return resp
+
+
 @app.errorhandler(404)
 def not_found_error(error):
     return render_template('errors/404.html'), 404
@@ -134,6 +147,36 @@ def internal_error(error):
     return render_template('errors/500.html'), 500
 
 
+def _client_ip():
+    """The visitor's address. Through the proxy (a private address), it's the last X-Forwarded-For entry,
+    which the proxy itself adds; a direct visitor's own header is ignored."""
+    remote = request.remote_addr or ''
+    try:
+        behind_proxy = not ipaddress.ip_address(remote).is_global
+    except ValueError:
+        behind_proxy = False
+    forwarded = [p.strip() for p in (request.headers.get('X-Forwarded-For') or '').split(',') if p.strip()]
+    return (forwarded[-1] if behind_proxy and forwarded else remote)[:64]
+
+
+def _rate_limited(kind, key, limit, minutes):
+    """True if `key` already had `limit` attempts of this kind in the last `minutes`."""
+    since = datetime.utcnow() - timedelta(minutes=minutes)
+    return RateEvent.query.filter(RateEvent.kind == kind, RateEvent.key == key[:128], RateEvent.created_at >= since).count() >= limit
+
+
+def _rate_hit(kind, *keys):
+    """Count an attempt (and now and then forget old ones). Commits."""
+    for key in keys:
+        db.session.add(RateEvent(kind=kind, key=key[:128]))
+    if secrets.randbelow(50) == 0:
+        RateEvent.query.filter(RateEvent.created_at < datetime.utcnow() - timedelta(days=1)).delete(synchronize_session=False)
+    db.session.commit()
+
+
+LOGIN_LIMITS = (('user', 10), ('ip', 30))      # failed logins per 15 minutes, per account and per address
+
+
 # Authentication routes
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -142,6 +185,10 @@ def login():
     
     form = LoginForm()
     if form.validate_on_submit():
+        user_key, ip_key = f'user:{form.username.data.strip().lower()}', f'ip:{_client_ip()}'
+        if _rate_limited('login', user_key, LOGIN_LIMITS[0][1], 15) or _rate_limited('login', ip_key, LOGIN_LIMITS[1][1], 15):
+            flash('Too many failed attempts. Please wait 15 minutes, or reset your password.', 'danger')
+            return render_template('auth/login.html', form=form), 429
         admin = Admin.query.filter_by(username=form.username.data).first()
         if admin and admin.check_password(form.password.data):
             if not admin.is_active:
@@ -162,6 +209,7 @@ def login():
                 next_page = url_for('dashboard')
             return redirect(next_page)
         else:
+            _rate_hit('login', user_key, ip_key)
             flash('Invalid username or password.', 'danger')
     
     return render_template('auth/login.html', form=form)
@@ -171,7 +219,7 @@ def login():
 @login_required
 def logout():
     if session.get('impersonator_id'):
-        return redirect(url_for('stop_impersonating'))
+        return _end_impersonation()
     session.pop('tenant_id', None); session.pop('site_id', None)
     logout_user()
     flash('You have been logged out.', 'info')
@@ -573,6 +621,7 @@ def edit_user(user_id):
 @login_required
 def test_user_connection(user_id):
     """Test user RADIUS authentication against a NAS device"""
+    _check_csrf()
     user = owned_or_404(RadUser, user_id)
     nas_id = request.json.get('nas_id') if request.is_json else request.form.get('nas_id', type=int)
     
@@ -663,7 +712,7 @@ def test_user_connection(user_id):
             return jsonify({
                 'success': False,
                 'message': error_msg,
-                'manual_test': f'docker exec safenet-radius radtest {user.username} <password> {nas.nasname} 0 {nas.secret}'
+                'manual_test': f'docker exec safenet-radius radtest {user.username} <password> {nas.nasname} 0 <NAS secret>'
             }), 500
         flash(error_msg, 'warning')
         return redirect(url_for('edit_user', user_id=user_id))
@@ -681,6 +730,7 @@ def test_user_connection(user_id):
 @app.route('/users/delete/<int:user_id>', methods=['POST'])
 @login_required
 def delete_user(user_id):
+    _check_csrf()
     user = owned_or_404(RadUser, user_id)
     username = user.username
     disconnect_subscriber(user.tenant_id, username)
@@ -828,6 +878,7 @@ def add_plan_attribute(plan_id):
 @role_required('admin')
 def reset_plan_data_cap(plan_id):
     """Reset data cap counter for all users in a plan"""
+    _check_csrf()
     plan = owned_or_404(Plan, plan_id)
     plan.last_reset = datetime.utcnow()
     
@@ -846,6 +897,7 @@ def reset_plan_data_cap(plan_id):
 @login_required
 @role_required('admin')
 def delete_plan_attribute(plan_id, attr_id):
+    _check_csrf()
     plan = owned_or_404(Plan, plan_id)
     attribute = PlanAttribute.query.filter_by(id=attr_id, plan_id=plan.id).first_or_404()
     
@@ -866,6 +918,7 @@ def delete_plan_attribute(plan_id, attr_id):
 @login_required
 @role_required('admin')
 def delete_plan(plan_id):
+    _check_csrf()
     plan = owned_or_404(Plan, plan_id)
     plan_name = plan.name
     
@@ -961,6 +1014,7 @@ def edit_nas(nas_id):
 @role_required('admin')
 def test_nas_connection(nas_id):
     """Test RADIUS connection to a NAS device"""
+    _check_csrf()
     nas = owned_or_404(Nas, nas_id)
     
     try:
@@ -1012,6 +1066,7 @@ def test_nas_connection(nas_id):
 @login_required
 @role_required('admin')
 def delete_nas(nas_id):
+    _check_csrf()
     nas = owned_or_404(Nas, nas_id)
     shortname = nas.shortname
     
@@ -1203,7 +1258,7 @@ VOUCHER_CODE_LENGTH = 8
 
 def _check_csrf():
     try:
-        validate_csrf(request.form.get('csrf_token'))
+        validate_csrf(request.form.get('csrf_token') or request.headers.get('X-CSRFToken'))
     except ValidationError:
         abort(400)
 
@@ -1571,7 +1626,9 @@ def portal():
     preview = request.args.get('preview') == '1'
     if request.method == 'POST' and not preview:          # only the preview's simulated forms post here
         abort(405)
-    if preview:
+    own_team = (current_user.is_authenticated and tenant is not None and
+                (current_user.tenant_id == tenant.id or current_user.is_superadmin))
+    if preview and own_team:            # unsaved settings: only the business's own team can try them out
         for key in PREVIEW_FIELDS:
             if key in request.args:
                 value = request.args[key][:300]
@@ -1777,7 +1834,7 @@ def _omada_controller(site):
             raise omada.OmadaError("SafeNet's Omada Controller is not set up on this server")
         return omada.Controller(Config.OMADA_HOSTED_URL, Config.OMADA_HOSTED_USER, Config.OMADA_HOSTED_PASSWORD)
     return omada.Controller(site.omada_url, site.omada_user, secretbox.decrypt(site.omada_password_enc),
-                            verify_tls=site.omada_verify_tls)
+                            verify_tls=site.omada_verify_tls, public_only=True)
 
 
 def _omada_guest(token):
@@ -1828,9 +1885,41 @@ def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, **ext
     return resp
 
 
+_omada_site_names = {}   # controller site name/id a guest brought -> verified controller site id (hosted controller)
+
+
+def _omada_site_matches(site, tenant, value):
+    """On SafeNet's shared controller, the controller site in the guest's link must be this SafeNet site's:
+    otherwise a code from one business could let someone online at another business's access points."""
+    if not site.omada_hosted:
+        return True                    # the tenant's own controller only has the tenant's sites
+    value = (value or '').strip()
+    if not value:
+        return False
+    if not site.omada_site_id:          # set up before SafeNet created controller sites: find ours by its name
+        try:
+            site.omada_site_id = _openapi().find_site(_omada_site_name(site, tenant)) or None
+        except omada.OmadaError as e:
+            log.warning('omada: could not find the controller site for site %s: %s', site.id, e)
+        if not site.omada_site_id:
+            return False
+    if value == site.omada_site_id or value.lower() == _omada_site_name(site, tenant).lower():
+        return True
+    if value not in _omada_site_names:
+        try:
+            _omada_site_names[value] = _openapi().find_site(value) or ''
+        except omada.OmadaError as e:
+            log.warning('omada: could not check site %r: %s', value[:64], e)
+            return False
+    return _omada_site_names[value] == site.omada_site_id
+
+
 def _omada_let_in(site, tenant, guest, username, password):
     """Check the code, then ask the controller to let the guest online. Returns (info, error)."""
     mac = guest.get('clientMac', '')
+    if not _omada_site_matches(site, tenant, guest.get('site')):
+        log.warning('omada: site %s got a guest from controller site %r', site.id, (guest.get('site') or '')[:64])
+        return None, "This login page belongs to another Wi-Fi network. Reconnect to the Wi-Fi and try again."
     ok, message, info = _gateway_authenticate(tenant, username, password, mac)
     _log_auth(username, ok)
     if not ok:
@@ -1888,7 +1977,7 @@ def omada_login(token):
     if not request.form.get('agree'):
         return err('Please accept the terms of use to continue.')
     # Wrong codes: a few per phone, more per site (every guest there shares one public IP)
-    key, site_key = f"{site.id}:{guest['clientMac']}", f'{site.id}:{request.remote_addr}'
+    key, site_key = f"{site.id}:{guest['clientMac']}", f'{site.id}:{_client_ip()}'
     if _omada_too_many(key, 6) or _omada_too_many(site_key, 60):
         return err('Too many wrong attempts. Please wait a few minutes and try again.')
     username = (request.form.get('username') or '').strip()[:64]
@@ -2374,7 +2463,7 @@ def wifidog_login(token):
         return err('Please connect to the Wi-Fi again and open any website to get here.')
     if not request.form.get('agree'):
         return err('Please accept the terms of use to continue.')
-    key, site_key = f"wd:{site.id}:{guest.get('mac')}", f'wd:{site.id}:{request.remote_addr}'
+    key, site_key = f"wd:{site.id}:{guest.get('mac')}", f'wd:{site.id}:{_client_ip()}'
     if _omada_too_many(key, 6) or _omada_too_many(site_key, 60):
         return err('Too many wrong attempts. Please wait a few minutes and try again.')
     username = (request.form.get('username') or '').strip()[:64]
@@ -2505,6 +2594,10 @@ def site_omada(site_id):
     parsed = urlparse(url)
     if parsed.scheme not in ('http', 'https') or not parsed.hostname or not user or not (password or site.omada_password_enc):
         flash('Enter the controller address (e.g. https://203.0.113.5:8043), the hotspot operator name and password.', 'danger')
+        return redirect(url_for('sites_page'))
+    problem = omada.public_address_problem(url)
+    if problem:
+        flash(f'Controller address not accepted: {problem}.', 'danger')
         return redirect(url_for('sites_page'))
     site.omada_url, site.omada_user, site.omada_hosted = url, user, False
     if password:
@@ -2954,7 +3047,7 @@ def portal_api(fn):
                 tenant = gw.tenant
                 now = datetime.utcnow()
                 if not gw.last_seen_at or (now - gw.last_seen_at).total_seconds() > 60:
-                    gw.last_seen_at, gw.last_ip = now, request.remote_addr
+                    gw.last_seen_at, gw.last_ip = now, _client_ip()
                     db.session.commit()
             elif Config.PORTAL_API_KEY and hmac.compare_digest(key.encode(), Config.PORTAL_API_KEY.encode()):
                 tenant = migrations.default_tenant()
@@ -3487,11 +3580,14 @@ def signup():
     form = SignupForm()
     if form.validate_on_submit():
         email = form.email.data.strip().lower()
-        if Admin.query.filter_by(username=form.username.data).first():
+        if _rate_limited('signup', f'ip:{_client_ip()}', 5, 60):
+            flash('Too many new accounts from this connection. Please try again in an hour.', 'danger')
+        elif Admin.query.filter_by(username=form.username.data).first():
             form.username.errors.append('That username is taken.')
         elif Admin.query.filter(func.lower(Admin.email) == email).first():
             form.email.errors.append('An account with this email already exists. Log in or reset your password.')
         else:
+            _rate_hit('signup', f'ip:{_client_ip()}')
             tenant = Tenant(name=form.business_name.data.strip(), slug=_unique_slug(form.business_name.data),
                             status='trial', phone=(form.phone.data or '').strip() or None,
                             trial_ends_at=datetime.utcnow() + timedelta(days=Config.TRIAL_DAYS))
@@ -3530,9 +3626,12 @@ def verify_email(token):
 def resend_verification():
     form = EmailForm()
     if form.validate_on_submit():
-        admin = Admin.query.filter(func.lower(Admin.email) == form.email.data.strip().lower()).first()
-        if admin and not admin.email_verified_at:
-            _send_verification(admin)
+        email = form.email.data.strip().lower()
+        if not (_rate_limited('mail', f'ip:{_client_ip()}', 5, 60) or _rate_limited('mail', f'to:{email}', 3, 60)):
+            _rate_hit('mail', f'ip:{_client_ip()}', f'to:{email}')
+            admin = Admin.query.filter(func.lower(Admin.email) == email).first()
+            if admin and not admin.email_verified_at:
+                _send_verification(admin)
     flash('If that account is waiting for confirmation, we sent a new link.', 'info')
     return redirect(url_for('login'))
 
@@ -3541,15 +3640,24 @@ def resend_verification():
 def forgot_password():
     form = EmailForm()
     if form.validate_on_submit():
-        admin = Admin.query.filter(func.lower(Admin.email) == form.email.data.strip().lower()).first()
+        email = form.email.data.strip().lower()
+        admin = None
+        if not (_rate_limited('mail', f'ip:{_client_ip()}', 5, 60) or _rate_limited('mail', f'to:{email}', 3, 60)):
+            _rate_hit('mail', f'ip:{_client_ip()}', f'to:{email}')
+            admin = Admin.query.filter(func.lower(Admin.email) == email).first()
         if admin and admin.is_active:
-            token = _tokens('reset-password').dumps({'id': admin.id, 'h': admin.password_hash[-16:]})
+            token = _tokens('reset-password').dumps({'id': admin.id, 'h': _reset_fingerprint(admin)})
             send_mail(admin.email, 'Reset your SafeNet password',
                       f'Hi {admin.username},\n\nReset your password here (valid for 1 hour):\n'
                       f'{_link("reset_password", token=token)}\n\nIf you did not ask for this, ignore this email.\n')
         flash('If an account uses that email, we sent a reset link.', 'info')
         return redirect(url_for('login'))
     return render_template('auth/forgot.html', form=form)
+
+
+def _reset_fingerprint(admin):
+    """Changes when the password changes; reveals nothing about the hash (unlike a piece of it)."""
+    return hashlib.sha256(f'reset:{admin.password_hash}'.encode()).hexdigest()[:24]
 
 
 @app.route('/reset/<token>', methods=['GET', 'POST'])
@@ -3560,8 +3668,8 @@ def reset_password(token):
         flash('That reset link is invalid or has expired.', 'warning')
         return redirect(url_for('forgot_password'))
     admin = db.session.get(Admin, data.get('id'))
-    # The token embeds part of the old hash, so it stops working once used
-    if not admin or admin.password_hash[-16:] != data.get('h'):
+    # The token carries a fingerprint of the old password, so it stops working once used
+    if not admin or not hmac.compare_digest(_reset_fingerprint(admin), str(data.get('h') or '')):
         flash('That reset link has already been used.', 'warning')
         return redirect(url_for('forgot_password'))
     form = ResetPasswordForm()
@@ -3972,9 +4080,14 @@ def impersonate(tid):
     return redirect(url_for('dashboard'))
 
 
-@app.route('/platform/impersonate/stop', methods=['GET', 'POST'])
+@app.route('/platform/impersonate/stop', methods=['POST'])
 @login_required
 def stop_impersonating():
+    _check_csrf()
+    return _end_impersonation()
+
+
+def _end_impersonation():
     admin = db.session.get(Admin, session.pop('impersonator_id', 0) or 0)
     if not admin or not admin.is_superadmin or not admin.is_active:
         logout_user()
@@ -5098,5 +5211,6 @@ def seed_users(path, update_password, plan, tenant_slug):
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Development only (production runs gunicorn); the debugger never listens on other machines
+    app.run(host='127.0.0.1', port=5000, debug=os.getenv('FLASK_DEBUG') == '1')
 

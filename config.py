@@ -102,6 +102,14 @@ class Config:
 
     # Public address of this app, used in emailed links (verification, password reset)
     PUBLIC_URL = os.getenv('PUBLIC_URL', 'https://radius.safezonetz.com').rstrip('/')
+    # Cookies only over HTTPS (the app is also reachable over plain HTTP on :5001 for access points),
+    # not sent with cross-site posts, and not readable by scripts
+    SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', '1' if PUBLIC_URL.startswith('https') else '0') == '1'
+    REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
+    SESSION_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    REMEMBER_COOKIE_SAMESITE = 'Lax'
 
     # Self-service signup
     SIGNUP_ENABLED = os.getenv('SIGNUP_ENABLED', 'true').lower() == 'true'

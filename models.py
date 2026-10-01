@@ -658,6 +658,17 @@ class PlatformSetting(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class RateEvent(db.Model):
+    """One attempt (e.g. a failed login) counted against a limit; shared by all web workers."""
+    __tablename__ = 'rate_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(16), nullable=False)
+    key = db.Column(db.String(128), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (db.Index('ix_rate_events_kind_key_created', 'kind', 'key', 'created_at'),)
+
+
 class SessionKick(db.Model):
     """Admin asked to disconnect a user now; gateways pick it up on their next check."""
     __tablename__ = 'session_kicks'

@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.." || exit 1
 names=("$@")
 [ ${#names[@]} -eq 0 ] && names=($(cd tests && ls test_*.py | sed 's/\.py$//'))
 fail=0
+export SESSION_COOKIE_SECURE=0     # the test client talks plain HTTP
 for n in "${names[@]}"; do
     n="${n%.py}"
     state=$(mktemp -d)

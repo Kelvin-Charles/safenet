@@ -15,6 +15,8 @@ Written against the Omada SDN Controller v5 External Portal API:
 Controllers usually have a self-signed certificate, so TLS checking is optional.
 """
 import http.cookiejar
+import ipaddress
+import socket
 import json
 import re
 import ssl
@@ -30,9 +32,34 @@ AUTH_TYPE_EXTERNAL_PORTAL = '4'
 MAX_SECONDS = 30 * 86400
 
 
+def public_address_problem(url):
+    """Why SafeNet must not connect to this address (a tenant's controller has to be on the internet), or None.
+    Stops a tenant from using SafeNet to reach the server itself or private networks."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url or '')
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+        return 'Enter the controller address, e.g. https://203.0.113.5:8043'
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == 'https' else 80), proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, UnicodeError, ValueError):
+        return f"can't find the address {parsed.hostname}"
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_global or ip.is_multicast:
+            return 'the controller must have a public internet address (not a local or private one)'
+    return None
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, 'redirects are not followed', headers, fp)
+
+
 class Controller:
-    def __init__(self, url, username, password, verify_tls=False, timeout=10):
+    def __init__(self, url, username, password, verify_tls=False, timeout=10, public_only=False):
+        """public_only: a tenant's own controller (must be on the internet); SafeNet's hosted one is internal."""
         self.base = (url or '').rstrip('/')
+        self.public_only = public_only
         self.username = username or ''
         self.password = password or ''
         self.timeout = timeout
@@ -40,12 +67,18 @@ class Controller:
         if not verify_tls:
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
-        self.opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context),
-                                                  urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        handlers = [urllib.request.HTTPSHandler(context=context), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())]
+        if public_only:
+            handlers.append(_NoRedirect())
+        self.opener = urllib.request.build_opener(*handlers)
         self._cid = None
         self._token = None
 
     def _request(self, method, path, body=None, token=None):
+        if self.public_only:
+            problem = public_address_problem(self.base)      # checked every time (DNS can change)
+            if problem:
+                raise OmadaError(problem)
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(self.base + path, data=data, method=method)
         req.add_header('Accept', 'application/json')
