@@ -30,7 +30,7 @@ with app.app_context():
     db.create_all(); migrations.run()
     now = datetime.utcnow()
     pa = Tenant(name='Zulu', slug='zulu', status='active', paid_until=now + timedelta(days=20))      # SafeNet Pay
-    ob = Tenant(name='Own', slug='own', status='active', payment_mode='own', clickpesa_client_id='own-id',
+    ob = Tenant(name='Own', slug='own', status='active', payment_mode='own', own_provider='clickpesa', clickpesa_client_id='own-id',
                 clickpesa_api_key_enc=secretbox.encrypt('own-key'), paid_until=now + timedelta(days=3))
     db.session.add_all([pa, ob]); db.session.flush()
     for t, key in ((pa, 'sgw_zulu'), (ob, 'sgw_own')):

@@ -53,12 +53,12 @@ with app.app_context():
 
 # --- B: switch to own ClickPesa
 cb = login('ownerb')
-r = cb.get('/settings/payments'); r = cb.post('/settings/payments', data={'csrf_token': tok(r.text), 'payment_mode': 'own', 'client_id': ''}, follow_redirects=True)
+r = cb.get('/settings/payments'); r = cb.post('/settings/payments', data={'csrf_token': tok(r.text), 'payment_mode': 'own', 'own_provider': 'clickpesa', 'client_id': ''}, follow_redirects=True)
 assert 'Enter your ClickPesa Client ID' in r.text
-r = cb.get('/settings/payments'); cb.post('/settings/payments', data={'csrf_token': tok(r.text), 'payment_mode': 'own', 'client_id': 'b-client', 'api_key': 'wrong'})
+r = cb.get('/settings/payments'); cb.post('/settings/payments', data={'csrf_token': tok(r.text), 'payment_mode': 'own', 'own_provider': 'clickpesa', 'client_id': 'b-client', 'api_key': 'wrong'})
 r = cb.get('/settings/payments'); assert 'saved' in r.text
 r = cb.post('/settings/payments/test', data={'csrf_token': tok(r.text)}, follow_redirects=True); assert 'rejected the keys' in r.text
-r = cb.get('/settings/payments'); cb.post('/settings/payments', data={'csrf_token': tok(r.text), 'payment_mode': 'own', 'client_id': 'b-client', 'api_key': 'b-secret-key'})
+r = cb.get('/settings/payments'); cb.post('/settings/payments', data={'csrf_token': tok(r.text), 'payment_mode': 'own', 'own_provider': 'clickpesa', 'client_id': 'b-client', 'api_key': 'b-secret-key'})
 r = cb.get('/settings/payments'); r = cb.post('/settings/payments/test', data={'csrf_token': tok(r.text)}, follow_redirects=True); assert 'ClickPesa accepted your keys' in r.text
 with app.app_context():
     t = db.session.get(Tenant, B); assert t.payment_mode == 'own' and t.clickpesa_api_key_enc and 'b-secret-key' not in t.clickpesa_api_key_enc

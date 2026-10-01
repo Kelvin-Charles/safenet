@@ -3,7 +3,7 @@ import hashlib, hmac, json, os, re, sys, threading, time
 from datetime import datetime, timedelta
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-os.environ.update(DB_PASSWORD='x', SECRET_KEY='k' * 40, CLICKPESA_CLIENT_ID='cp', CLICKPESA_API_KEY='cpk',
+os.environ.update(DB_PASSWORD='x', SECRET_KEY='k' * 40, PAYMENT_PROVIDER='clickpesa', CLICKPESA_CLIENT_ID='cp', CLICKPESA_API_KEY='cpk',
                   SNIPPE_API_KEY='snp_platform', SNIPPE_WEBHOOK_KEY='whsec_platform', PLATFORM_FEE_PERCENT='3',
                   PUBLIC_URL='https://radius.example.tz')
 sys.path.insert(0, os.getcwd())
@@ -88,7 +88,7 @@ def webhook(snippe_ref, key, event='payment.completed', ts=None, tamper=False):
     return api.post('/webhooks/snippe', data=body, content_type='application/json',
                     headers={'X-Webhook-Timestamp': ts, 'X-Webhook-Signature': sig, 'X-Webhook-Event': event})
 
-# 1. default provider is ClickPesa: M-Pesa not offered (ClickPesa networks), fee 3%
+# 1. provider set to ClickPesa (PAYMENT_PROVIDER): M-Pesa not offered (ClickPesa networks), fee 3%
 nets = [n['id'] for n in api.get('/api/portal/packages', headers=H).get_json()['networks']]
 assert 'mpesa' not in nets and 'airtel' in nets, nets
 r = buy('0684000111', 'airtel'); assert r.status_code == 200, r.get_json()

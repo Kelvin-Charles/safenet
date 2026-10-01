@@ -28,7 +28,7 @@ class Tenant(db.Model):
     clickpesa_client_id = db.Column(db.String(64))
     clickpesa_api_key_enc = db.Column(db.Text)        # secretbox-encrypted
     clickpesa_checksum_key_enc = db.Column(db.Text)   # secretbox-encrypted
-    own_provider = db.Column(db.String(16), nullable=False, default='clickpesa', server_default='clickpesa')  # with payment_mode 'own'
+    own_provider = db.Column(db.String(16), nullable=False, default='snippe', server_default='clickpesa')  # with payment_mode 'own'
     sms_to_guests = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())  # voucher code by SMS (charged per SMS)
     snippe_api_key_enc = db.Column(db.Text)           # secretbox-encrypted
     snippe_webhook_key_enc = db.Column(db.Text)       # secretbox-encrypted

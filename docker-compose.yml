@@ -107,7 +107,7 @@ services:
       SNIPPE_API_KEY: ${SNIPPE_API_KEY:-}
       SNIPPE_WEBHOOK_KEY: ${SNIPPE_WEBHOOK_KEY:-}
       SNIPPE_NETWORKS: ${SNIPPE_NETWORKS:-mpesa,mixx,airtel,halopesa}
-      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-clickpesa}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-snippe}
       # Omada Controller hosted by SafeNet (hotspot operator it logs in as)
       OMADA_HOSTED_URL: ${OMADA_HOSTED_URL:-}
       OMADA_HOSTED_USER: ${OMADA_HOSTED_USER:-}

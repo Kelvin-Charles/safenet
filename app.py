@@ -2676,8 +2676,15 @@ log = logging.getLogger('safenet')
 def platform_provider():
     """Provider SafeNet Pay uses now (the platform admin switches it in Platform: Billing)."""
     row = db.session.get(PlatformSetting, 'payment_provider')
-    value = row.value if row and row.value else Config.PAYMENT_PROVIDER
-    return value if value in paylib.PROVIDERS else 'clickpesa'
+    if row and row.value in paylib.PROVIDERS:
+        return row.value
+    # Default: Snippe (PAYMENT_PROVIDER); until its key is set, the other provider if that one is ready
+    wanted = Config.PAYMENT_PROVIDER if Config.PAYMENT_PROVIDER in paylib.PROVIDERS else 'snippe'
+    other = 'clickpesa' if wanted == 'snippe' else 'snippe'
+    if not paylib.is_ready(paylib.platform_account(wanted, _platform_snippe_creds() if wanted == 'snippe' else None)) and \
+            paylib.is_ready(paylib.platform_account(other, _platform_snippe_creds() if other == 'snippe' else None)):
+        return other
+    return wanted
 
 
 def _setting_secret(key):
@@ -4080,7 +4087,7 @@ def request_withdrawal():
 def payment_settings():
     tenant = current_tenant()
     form = PaymentSettingsForm(payment_mode=tenant.payment_mode, client_id=tenant.clickpesa_client_id,
-                               own_provider=tenant.own_provider or 'clickpesa', sms_to_guests=tenant.sms_to_guests)
+                               own_provider=tenant.own_provider or 'snippe', sms_to_guests=tenant.sms_to_guests)
     if form.validate_on_submit():
         mode = form.payment_mode.data
         tenant.own_provider = form.own_provider.data if form.own_provider.data in paylib.PROVIDERS else 'clickpesa'

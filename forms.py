@@ -311,7 +311,7 @@ class PaymentSettingsForm(FlaskForm):
         ('platform', 'SafeNet Pay collects for me, I withdraw my balance'),
         ('own', 'Straight into my own ClickPesa or Snippe account'),
     ])
-    own_provider = SelectField('My payment account', choices=[('clickpesa', 'ClickPesa'), ('snippe', 'Snippe')])
+    own_provider = SelectField('My payment account', choices=[('snippe', 'Snippe'), ('clickpesa', 'ClickPesa')])
     sms_to_guests = BooleanField('Send the voucher code to paying guests by SMS')
     snippe_api_key = PasswordField('Snippe API key', validators=[Optional(), Length(max=200)],
                                    description='Starts with snp_. Leave empty to keep the saved key.')

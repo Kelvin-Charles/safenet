@@ -95,7 +95,7 @@ class Config:
     SNIPPE_NETWORKS = os.getenv('SNIPPE_NETWORKS', 'mpesa,mixx,airtel,halopesa')
     SNIPPE_CUSTOMER_EMAIL = os.getenv('SNIPPE_CUSTOMER_EMAIL', 'wifi@safezonetz.com')   # Snippe requires one
     # Which provider SafeNet Pay uses until the platform admin picks one in Platform: Billing
-    PAYMENT_PROVIDER = os.getenv('PAYMENT_PROVIDER', 'clickpesa')
+    PAYMENT_PROVIDER = os.getenv('PAYMENT_PROVIDER', 'snippe')     # SafeNet Pay's provider until the platform admin picks one
 
     # Shared key captive-portal gateways send in X-SafeNet-Key (empty = API disabled)
     PORTAL_API_KEY = os.getenv('PORTAL_API_KEY', '')
