@@ -30,6 +30,7 @@ class Tenant(db.Model):
     clickpesa_checksum_key_enc = db.Column(db.Text)   # secretbox-encrypted
     own_provider = db.Column(db.String(16), nullable=False, default='snippe', server_default='clickpesa')  # with payment_mode 'own'
     sms_to_guests = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())  # voucher code by SMS (charged per SMS)
+    sms_changed_at = db.Column(db.DateTime)              # when the owner last switched SMS on or off
     snippe_api_key_enc = db.Column(db.Text)           # secretbox-encrypted
     snippe_webhook_key_enc = db.Column(db.Text)       # secretbox-encrypted
     fee_percent = db.Column(db.Numeric(5, 2))         # platform fee; NULL = PLATFORM_FEE_PERCENT
@@ -94,6 +95,7 @@ class Site(db.Model):
     wifidog_seen_at = db.Column(db.DateTime)            # last ping or request from an access point
     wifidog_gw_id = db.Column(db.String(64))            # last access point id seen
     omada_checked_at = db.Column(db.DateTime)          # last successful connection
+    omada_synced_at = db.Column(db.DateTime)           # guests' data usage last read from SafeNet's controller
     omada_error = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -656,6 +658,16 @@ class PlatformSetting(db.Model):
     key = db.Column(db.String(64), primary_key=True)
     value = db.Column(db.String(255))
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class OmadaCounter(db.Model):
+    """Last traffic counters the controller reported for an Omada guest session (radacct row), so usage is added up
+    correctly even when the controller's counters restart (the phone reconnected)."""
+    __tablename__ = 'omada_counters'
+
+    radacct_id = db.Column(db.BigInteger, primary_key=True, autoincrement=False)
+    down = db.Column(db.BigInteger, nullable=False, default=0)
+    up = db.Column(db.BigInteger, nullable=False, default=0)
 
 
 class RateEvent(db.Model):

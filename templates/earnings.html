@@ -92,6 +92,35 @@
                 {% endif %}
             </div>
         </div>
+        <div class="card" id="sms-history">
+            <div class="card-header"><i class="bi bi-chat-dots"></i> SMS sent to your guests <small class="text-muted">({{ cur }} {{ sms_price }} each)</small></div>
+            <div class="card-body">
+                <p class="small text-muted">Voucher SMS is <strong>{{ 'on' if tenant.sms_to_guests else 'off' }}</strong>{% if tenant.sms_changed_at %} since {{ tenant.sms_changed_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}.
+                    Only these SMS are charged. Payment receipts from M-Pesa, Airtel Money and the other networks are free and not from SafeNet.
+                    {% if current_user.has_role('owner') %}<a href="{{ url_for('payment_settings') }}#sms">Change</a>{% endif %}</p>
+                {% if sms_history %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead><tr><th>Sent</th><th>To</th><th>What</th><th>SMS</th><th>Cost</th><th>Paid from</th></tr></thead>
+                        <tbody>
+                            {% for c in sms_history %}
+                            <tr>
+                                <td><small>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</small></td>
+                                <td><small>{{ c.phone }}</small></td>
+                                <td><small>{{ {'voucher': 'Voucher code', 'gift': 'Code for a friend', 'receipt': 'Receipt to the payer'}.get(c.kind, c.kind) }}</small></td>
+                                <td>{{ c.parts }}</td>
+                                <td>{{ cur }} {{ '{:,.0f}'.format(c.amount) }}</td>
+                                <td><small>{{ 'Balance' if c.method == 'balance' else 'SafeNet bill' }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No SMS charged yet.</p>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

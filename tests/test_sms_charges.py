@@ -69,12 +69,20 @@ co = login('owner_zulu')
 e = html.unescape(co.get('/earnings').text)
 assert 'Voucher SMS cost TZS 30 each' in e and 'taken from your balance' in e and 'This month: 3 SMS, TZS 90' in e and 'less TZS 90 for SMS' in e
 s = html.unescape(co.get('/settings/payments').text)
-assert 'Each SMS costs TZS 30' in s and 'checked' in s[s.find('id="sms_to_guests"') - 200:s.find('id="sms_to_guests"') + 100]
+assert 'Each SMS costs TZS 30' in s and 'text-success">ON<' in s and 'Turn SMS off' in s
+# every SMS charged is listed, with when and to whom
+assert 'SMS sent to your guests' in e and '255684000001' in e and 'Code for a friend' in e and 'Receipt to the payer' in e
 assert 'TZS 30 per SMS, paid by you' in html.unescape(co.get('/settings/portal').text)
 
 # --- switched off: no SMS, no charge, no "buy for a friend"
-co.post('/settings/payments', data={'csrf_token': tok(s), 'payment_mode': 'platform', 'own_provider': 'clickpesa'})
-with app.app_context(): assert db.session.get(Tenant, PA).sms_to_guests is False
+# saving the payment form never changes SMS (before, a failed save there also lost the SMS switch)
+co.post('/settings/payments', data={'csrf_token': tok(s), 'payment_mode': 'own', 'own_provider': 'snippe'})   # fails: no keys
+with app.app_context(): assert db.session.get(Tenant, PA).sms_to_guests is True
+assert co.post('/settings/sms', data={'sms': 'off'}).status_code == 400                                       # CSRF
+r = html.unescape(co.post('/settings/sms', data={'csrf_token': tok(s), 'sms': 'off'}, follow_redirects=True).text)
+assert 'OFF: no SMS are sent or charged' in r and 'text-danger">OFF<' in r and 'Turn SMS on' in r and '(since ' in r
+with app.app_context():
+    t = db.session.get(Tenant, PA); assert t.sms_to_guests is False and t.sms_changed_at and t.payment_mode == 'platform'
 n = len(sent)
 assert buy('sgw_zulu', PA, '0684000003')['status'] == 'paid'
 assert len(sent) == n

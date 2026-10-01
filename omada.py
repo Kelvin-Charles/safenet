@@ -226,6 +226,11 @@ class OpenApi:
         result = self._call('GET', f'{path}{"&" if "?" in path else "?"}page=1&pageSize=1000') or {}
         return result.get(key, []) if isinstance(result, dict) else result
 
+    # -- clients ---------------------------------------------------------
+    def clients(self, site_id):
+        """Phones the site's access points see now: mac, ip, trafficDown/trafficUp (bytes), uptime (s), active."""
+        return self._pages(f'/sites/{site_id}/clients')
+
     # -- sites -----------------------------------------------------------
     def find_site(self, name):
         for s in self._pages('/sites?searchKey=' + urllib.request.quote(name)):

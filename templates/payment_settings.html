@@ -29,20 +29,34 @@
                             {{ field(form.snippe_webhook_key, placeholder=("•••••••• saved" if has_snippe_webhook else "")) }}
                         </div>
                     </div>
-                    <div class="border rounded p-3 mb-3">
-                        <div class="form-check mb-1">{{ form.sms_to_guests(class="form-check-input") }} {{ form.sms_to_guests.label(class="form-check-label fw-semibold") }}</div>
-                        <p class="small text-muted mb-1"><strong>Each SMS costs TZS {{ sms_price }}</strong>, paid by you:
-                            taken from your balance with SafeNet Pay, or added to your monthly SafeNet bill with your own account.
-                            A paying guest gets 1 SMS; "Buy for a friend" sends 2 (the friend's code and a receipt to the payer).</p>
-                        <p class="small text-muted mb-0">Turned off, guests see their code on screen after paying (they should write it down) and "Buy for a friend" is not offered.
-                            This month: {{ sms_month[0] }} SMS, TZS {{ '{:,.0f}'.format(sms_month[1]) }}.</p>
-                        {% if not sms_ready %}<p class="small text-warning mb-0 mt-1">SMS sending isn't set up on SafeNet yet, so no SMS are sent or charged.</p>{% endif %}
-                    </div>
                     <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> Save</button>
                 </form>
                 <form method="POST" action="{{ url_for('test_payment_settings') }}" class="mt-2">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-plug"></i> Test my keys</button>
+                </form>
+            </div>
+        </div>
+        <div class="card" id="sms">
+            <div class="card-header"><i class="bi bi-chat-dots"></i> Voucher code by SMS</div>
+            <div class="card-body">
+                <p class="mb-2">SMS to paying guests is <strong class="{{ 'text-success' if tenant.sms_to_guests else 'text-danger' }}">{{ 'ON' if tenant.sms_to_guests else 'OFF' }}</strong>{% if tenant.sms_changed_at %}
+                    <span class="small text-muted">(since {{ tenant.sms_changed_at.strftime('%d %b %Y %H:%M') }})</span>{% endif %}.</p>
+                <p class="small text-muted mb-1"><strong>Each SMS costs TZS {{ sms_price }}</strong>, paid by you:
+                    taken from your balance with SafeNet Pay, or added to your monthly SafeNet bill with your own account.
+                    A paying guest gets 1 SMS; "Buy for a friend" sends 2 (the friend's code and a receipt to the payer).</p>
+                <p class="small text-muted mb-2">Turned off, SafeNet sends no SMS and charges nothing: guests see their code on screen after paying
+                    (they should write it down) and "Buy for a friend" is not offered. Guests still get the payment receipt that
+                    M-Pesa, Airtel Money and the other networks send themselves: that SMS is free and not from SafeNet.</p>
+                <p class="small text-muted mb-2">This month: {{ sms_month[0] }} SMS, TZS {{ '{:,.0f}'.format(sms_month[1]) }}. <a href="{{ url_for('earnings') }}#sms-history">See each SMS</a>.</p>
+                {% if not sms_ready %}<p class="small text-warning mb-2">SMS sending isn't set up on SafeNet yet, so no SMS are sent or charged.</p>{% endif %}
+                <form method="POST" action="{{ url_for('sms_setting') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    {% if tenant.sms_to_guests %}
+                    <button type="submit" name="sms" value="off" class="btn btn-outline-danger"><i class="bi bi-chat-square-x"></i> Turn SMS off</button>
+                    {% else %}
+                    <button type="submit" name="sms" value="on" class="btn btn-outline-success"><i class="bi bi-chat-square-text"></i> Turn SMS on</button>
+                    {% endif %}
                 </form>
             </div>
         </div>

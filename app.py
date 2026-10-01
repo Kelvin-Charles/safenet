@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent
+from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -2080,6 +2080,83 @@ def _openapi():
     return _openapi_clients[key]
 
 
+OMADA_SYNC_SECONDS = 60      # how often guests' data usage is read from SafeNet's controller
+
+
+def _omada_sync_site(site, api=None, now=None):
+    """Copy each Omada guest's data usage from SafeNet's controller into their session, keep it 'online' while the
+    phone is connected, and close it when the phone has gone. Commits."""
+    now = now or datetime.utcnow()
+    rows = RadAcct.query.filter(RadAcct.calledstationid == f'omada-{site.id}', RadAcct.acctstoptime.is_(None)).all()
+    if not rows or not site.omada_site_id:
+        return 0
+    seen = {}
+    for c in (api or _openapi()).clients(site.omada_site_id):
+        mac = str(c.get('mac') or '').upper().replace(':', '-')
+        if mac:
+            seen[mac] = c
+    counters = {c.radacct_id: c for c in OmadaCounter.query.filter(OmadaCounter.radacct_id.in_([r.radacctid for r in rows]))}
+    for row in rows:
+        c = seen.get((row.callingstationid or '').upper())
+        if c is None or c.get('active') is False:
+            # gone: close it (a phone that has only just logged in may not be listed yet)
+            if (now - (row.acctstarttime or now)).total_seconds() > 120:
+                row.acctstoptime = row.acctupdatetime or now
+                row.acctterminatecause = 'Lost-Carrier'
+            continue
+        down, up = int(c.get('trafficDown') or 0), int(c.get('trafficUp') or 0)
+        last = counters.get(row.radacctid)
+        if last is None:
+            last = OmadaCounter(radacct_id=row.radacctid, down=0, up=0)
+            db.session.add(last)
+        # the controller's counters restart when the phone reconnects: then all of the new count is new usage
+        row.acctoutputoctets = (row.acctoutputoctets or 0) + (down - last.down if down >= last.down else down)
+        row.acctinputoctets = (row.acctinputoctets or 0) + (up - last.up if up >= last.up else up)
+        last.down, last.up = down, up
+        row.acctupdatetime = now
+        row.acctsessiontime = int((now - row.acctstarttime).total_seconds()) if row.acctstarttime else row.acctsessiontime
+        if c.get('ip'):
+            row.framedipaddress = str(c['ip'])[:15]
+    db.session.commit()
+    return len(rows)
+
+
+def _omada_sync_due():
+    """Sync every hosted Omada site that has open sessions, at most once a minute across all web workers."""
+    cutoff = datetime.utcnow() - timedelta(seconds=OMADA_SYNC_SECONDS)
+    open_sites = {int(v[6:]) for (v,) in db.session.query(RadAcct.calledstationid).filter(
+        RadAcct.calledstationid.like('omada-%'), RadAcct.acctstoptime.is_(None)).distinct() if v[6:].isdigit()}
+    site_ids = [sid for (sid,) in db.session.query(Site.id).filter(
+        Site.id.in_(open_sites), Site.omada_hosted.is_(True), Site.omada_site_id.isnot(None))] if open_sites else []
+    for sid in site_ids:
+        # claim the site (another worker may be doing the same)
+        claimed = Site.query.filter(Site.id == sid, or_(Site.omada_synced_at.is_(None), Site.omada_synced_at < cutoff)) \
+            .update({'omada_synced_at': datetime.utcnow()}, synchronize_session=False)
+        db.session.commit()
+        if claimed:
+            try:
+                _omada_sync_site(db.session.get(Site, sid))
+            except Exception as e:          # the controller may be restarting: try again next minute
+                db.session.rollback()
+                log.warning('omada usage sync for site %s failed: %s', sid, e)
+
+
+def _omada_sync_loop():
+    while True:
+        time.sleep(OMADA_SYNC_SECONDS)
+        try:
+            with app.app_context():
+                _omada_sync_due()
+        except Exception:
+            log.exception('omada usage sync failed')
+
+
+def start_background_jobs():
+    """Run by each gunicorn worker (see the bottom of this file)."""
+    if Config.OMADA_OPENAPI_CLIENT_ID and Config.OMADA_HOSTED_URL:
+        threading.Thread(target=_omada_sync_loop, name='omada-usage', daemon=True).start()
+
+
 def _omada_site_name(site, tenant):
     many = Site.query.filter_by(tenant_id=tenant.id).count() > 1
     return (f'{tenant.name} - {site.name}' if many else tenant.name)[:64]
@@ -2882,7 +2959,7 @@ def _sms_on(tenant):
 
 def _guest_sms(payment, to, text, kind):
     """Send an SMS to a tenant's guest and charge the tenant for it. Caller commits."""
-    if not to or not sms_is_configured():
+    if not to or not _sms_on(payment.tenant):
         return
     parts = sms_parts(text)
     db.session.add(SmsCharge(tenant_id=payment.tenant_id, site_id=payment.site_id, payment_id=payment.id, phone=to, kind=kind,
@@ -4135,9 +4212,11 @@ def earnings():
                             .with_entities(func.coalesce(func.sum(Voucher.price), 0)).scalar())),
     }
     withdrawals = scoped(Withdrawal).order_by(Withdrawal.created_at.desc()).limit(50).all()
+    sms_history = SmsCharge.query.filter_by(tenant_id=tid).order_by(SmsCharge.id.desc()).limit(100).all()
     form = WithdrawalForm(phone=tenant.phone or '')
     return render_template('earnings.html', stats=stats, withdrawals=withdrawals, form=form,
                            fee_percent=_fee_percent(tenant), min_withdrawal=Config.MIN_WITHDRAWAL, sms_price=Config.SMS_PRICE,
+                           sms_history=sms_history,
                            can_withdraw=current_user.has_role('owner'))
 
 
@@ -4200,7 +4279,7 @@ def request_withdrawal():
 def payment_settings():
     tenant = current_tenant()
     form = PaymentSettingsForm(payment_mode=tenant.payment_mode, client_id=tenant.clickpesa_client_id,
-                               own_provider=tenant.own_provider or 'snippe', sms_to_guests=tenant.sms_to_guests)
+                               own_provider=tenant.own_provider or 'snippe')
     if form.validate_on_submit():
         mode = form.payment_mode.data
         tenant.own_provider = form.own_provider.data if form.own_provider.data in paylib.PROVIDERS else 'clickpesa'
@@ -4225,7 +4304,6 @@ def payment_settings():
         if mode == 'own' and own.provider == 'snippe' and not own.creds.webhook_key:
             flash('Saved. Add your Snippe webhook signing key too, so payments are confirmed the moment they arrive.', 'warning')
         tenant.payment_mode = mode
-        tenant.sms_to_guests = bool(form.sms_to_guests.data)
         db.session.commit()
         flash('Payment settings saved.', 'success')
         return redirect(url_for('payment_settings'))
@@ -4236,7 +4314,24 @@ def payment_settings():
                            webhook_url=_link('clickpesa_webhook'), snippe_webhook_url=_link('snippe_webhook'),
                            platform_ready=paylib.is_ready(platform), platform_name=paylib.name(platform),
                            sms_price=Config.SMS_PRICE, sms_month=sms_totals(tenant.id, _month_start()),
-                           sms_ready=sms_is_configured())
+                           sms_ready=sms_is_configured(), tenant=tenant)
+
+
+@app.route('/settings/sms', methods=['POST'])
+@login_required
+@role_required('owner')
+def sms_setting():
+    """Switch voucher SMS to guests on or off (on its own, so nothing else on the page can stop it saving)."""
+    _check_csrf()
+    tenant = current_tenant()
+    on = request.form.get('sms') == 'on'
+    if tenant.sms_to_guests != on:
+        tenant.sms_to_guests, tenant.sms_changed_at = on, datetime.utcnow()
+        db.session.commit()
+        log.info('tenant %s turned voucher SMS %s', tenant.id, 'on' if on else 'off')
+    flash(f'Voucher SMS to guests is {"ON: each SMS costs TZS " + str(Config.SMS_PRICE) if on else "OFF: no SMS are sent or charged"}.',
+          'success')
+    return redirect(url_for('payment_settings') + '#sms')
 
 
 @app.route('/settings/payments/test', methods=['POST'])
@@ -5208,6 +5303,11 @@ def seed_users(path, update_password, plan, tenant_slug):
         f'Done. created={created} updated={updated} skipped={skipped} '
         f'total_input={len(users)}'
     )
+
+
+# Background jobs in the web server's workers (not in scripts, tests or `flask` commands)
+if 'gunicorn' in os.path.basename(sys.argv[0] if sys.argv else ''):
+    start_background_jobs()
 
 
 if __name__ == '__main__':
