@@ -47,10 +47,26 @@ def parse_networks(spec):
 LOGOS_VERSION = 2   # bump when a logo file changes (proxies may keep an old copy or a 404)
 
 
+def normalize_phone(raw):
+    """Any way a Tanzanian mobile number is typed -> 255XXXXXXXXX, else None.
+    0712 345 678, 712345678, +255 712..., 255712..., +255 0712... (the 0 kept by habit), 00255712..."""
+    d = re.sub(r'\D', '', raw or '')
+    if d.startswith('00'):
+        d = d[2:]
+    if d.startswith('2550') and len(d) == 13:
+        d = '255' + d[4:]
+    if len(d) == 10 and d.startswith('0'):
+        d = '255' + d[1:]
+    elif len(d) == 9:
+        d = '255' + d
+    return d if re.fullmatch(r'255[67]\d{8}', d) else None
+
+
 def network_for_phone(phone):
     """Network id for a 255XXXXXXXXX / 0XXXXXXXXX number, or None if the prefix is unknown."""
+    full = normalize_phone(phone)
     digits = re.sub(r'\D', '', phone or '')
-    local = digits[3:] if digits.startswith('255') else digits.lstrip('0')
+    local = full[3:] if full else (digits[3:] if digits.startswith('255') else digits.lstrip('0'))
     for key, info in NETWORKS.items():
         if local[:2] in info['prefixes']:
             return key
@@ -395,7 +411,7 @@ window.addEventListener('pageshow',function(ev){{if(ev.persisted)location.reload
   nets.forEach(function(n){{n.querySelector('input').addEventListener('change',paint);}});
   document.querySelectorAll('.pkg input').forEach(function(r){{r.addEventListener('change',limits);}});
   var ph=document.getElementById('phone');
-  if(ph)ph.addEventListener('input',function(){{var d=ph.value.replace(/\\D/g,'');if(d.indexOf('255')===0)d=d.slice(3);d=d.replace(/^0/,'');
+  if(ph)ph.addEventListener('input',function(){{var d=ph.value.replace(/\\D/g,'');d=d.replace(/^00/,'');if(d.indexOf('255')===0)d=d.slice(3);d=d.replace(/^0/,'');
     if(d.length<2)return;nets.forEach(function(n){{var r=n.querySelector('input');
       if(!r.disabled&&(' '+n.dataset.prefixes+' ').indexOf(' '+d.slice(0,2)+' ')>=0){{r.checked=true;}}}});paint();}});
   limits();
@@ -511,8 +527,7 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
           <span>{t(lang, 'gift')}</span></label>
         <div class="field" id="gift-box" hidden>
           <label for="gift_phone">{t(lang, 'gift_phone')}</label>
-          <div class="phone"><span>+255</span><input class="input" type="tel" id="gift_phone" name="gift_phone" inputmode="tel"
-            autocomplete="off" placeholder="7XX XXX XXX"></div>
+          <input class="input" type="tel" id="gift_phone" name="gift_phone" inputmode="tel" autocomplete="off" placeholder="07XX XXX XXX">
           <p class="hint" style="margin-top:6px">{t(lang, 'gift_hint')}</p>
         </div>''' if th['sms'] else ''
         buy = f"""
@@ -525,8 +540,7 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
         {net_tiles}
         <div class="field">
           <label for="phone">{t(lang, 'phone')}</label>
-          <div class="phone"><span>+255</span><input class="input" type="tel" id="phone" name="phone" inputmode="tel" autocomplete="tel"
-            placeholder="7XX XXX XXX" required></div>
+          <input class="input" type="tel" id="phone" name="phone" inputmode="tel" autocomplete="tel" placeholder="07XX XXX XXX" required>
         </div>
         {gift}
         {_terms_check(th, lang, 'agree-b')}

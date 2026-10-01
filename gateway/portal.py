@@ -896,17 +896,14 @@ class PortalHandler(BaseHTTPRequestHandler):
             package_id = int(form.get('package_id', ''))
         except ValueError:
             return err('Choose a package.')
-        phone = re.sub(r'\D', '', form.get('phone', ''))
-        if len(phone) == 9:                      # typed after the +255 prefix
-            phone = '255' + phone
+        raw = form.get('phone', '')
+        phone = ui.normalize_phone(raw) or re.sub(r'\D', '', raw)      # 07..., 7..., +255 07... all work
         network = form.get('network', '')[:16] or None
         if portal_networks() and not network:
             return err('Choose your mobile-money network.')
         gift_phone = None
         if form.get('gift'):                     # buying for a friend
-            gift_phone = re.sub(r'\D', '', form.get('gift_phone', ''))
-            if len(gift_phone) == 9:
-                gift_phone = '255' + gift_phone
+            gift_phone = ui.normalize_phone(form.get('gift_phone', '')) or re.sub(r'\D', '', form.get('gift_phone', ''))
         ref, error = start_purchase(mac, ip, package_id, phone, network, gift_phone)
         if error:
             return err(error)

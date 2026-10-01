@@ -2054,9 +2054,7 @@ def omada_buy(token):
                                                      is_active=True, show_on_portal=True), site.id).first()
     if not package:
         return err('Choose a package.')
-    phone = re.sub(r'\D', '', request.form.get('phone', ''))
-    if len(phone) == 9:                      # typed after the +255 prefix
-        phone = '255' + phone
+    phone = request.form.get('phone', '')        # 07..., 7..., +255... all fine (_start_purchase reads it)
     network = (request.form.get('network') or '')[:16] or None
     if payment_networks(tenant) and not network:
         return err('Choose your mobile-money network.')
@@ -2620,9 +2618,7 @@ def wifidog_buy(token):
                                                      is_active=True, show_on_portal=True), site.id).first()
     if not package:
         return err('Choose a package.')
-    phone = re.sub(r'\D', '', request.form.get('phone', ''))
-    if len(phone) == 9:
-        phone = '255' + phone
+    phone = request.form.get('phone', '')
     network = (request.form.get('network') or '')[:16] or None
     if payment_networks(tenant) and not network:
         return err('Choose your mobile-money network.')
@@ -2981,13 +2977,8 @@ def check_network(phone, network_id, amount, currency='TZS', networks=None):
 
 
 def _normalize_tz_phone(raw):
-    """0712 345 678 / +255 712 345 678 / 712345678 -> 255712345678, else None."""
-    digits = re.sub(r'\D', '', raw or '')
-    if len(digits) == 10 and digits.startswith('0'):
-        digits = '255' + digits[1:]
-    elif len(digits) == 9:
-        digits = '255' + digits
-    return digits if re.fullmatch(r'255[67]\d{8}', digits) else None
+    """0712 345 678 / +255 712 345 678 / 712345678 / +255 0712... -> 255712345678, else None (see portal_ui)."""
+    return portal_ui.normalize_phone(raw)
 
 
 def _fee_percent(tenant):
