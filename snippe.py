@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 from collections import namedtuple
 
+import safetext
 from config import Config
 
 # Whose Snippe account: the platform's (.env) or a tenant's own
@@ -28,7 +29,9 @@ def platform_credentials():
 
 
 class SnippeError(Exception):
-    pass
+    """Message is cleaned of keys and IDs before anyone can see it."""
+    def __init__(self, message=''):
+        super().__init__(safetext.clean(message))
 
 
 def is_configured(creds=None):

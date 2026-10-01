@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 from collections import namedtuple
 
+import safetext
 from config import Config
 
 # Whose ClickPesa account to use: the platform's (from .env) or a tenant's own
@@ -22,7 +23,9 @@ def platform_credentials():
 
 
 class ClickPesaError(Exception):
-    pass
+    """Message is cleaned of keys and IDs (ClickPesa echoes the client id in some errors)."""
+    def __init__(self, message=''):
+        super().__init__(safetext.clean(message))
 
 
 _tokens = {}  # client_id -> (header value, expiry)

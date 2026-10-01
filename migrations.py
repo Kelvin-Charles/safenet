@@ -206,6 +206,7 @@ def run():
     _add_column('sites', 'omada_error', 'VARCHAR(255)')
     _add_index('sites', 'uq_sites_portal_token', 'portal_token', unique=True)
     _ensure_sites()
+    _scrub_provider_messages()
 
 
 STARTER_PLANS = (
@@ -240,3 +241,20 @@ def _ensure_sites():
         db.session.execute(text(f'UPDATE {table} SET site_id = {first.format(t=table)} '
                                 f'WHERE site_id IS NULL AND tenant_id IS NOT NULL'))
     db.session.commit()
+
+
+def _scrub_provider_messages():
+    """Provider errors saved before they were cleaned may hold IDs or keys (e.g. a ClickPesa client id)."""
+    import safetext
+    targets = [(t, c) for t, c in (('withdrawals', 'payout_error'), ('payments', 'message'), ('subscription_payments', 'message'))
+               if c in _columns(t)]        # look up columns first: inspecting mid-update can reset the connection
+    for table, column in targets:
+        rows = db.session.execute(text(
+            f"SELECT id, {_q(column)} FROM {_q(table)} WHERE {_q(column)} LIKE '%Application%' OR {_q(column)} LIKE '%snp_%' "
+            f"OR {_q(column)} LIKE '%Bearer%' OR {_q(column)} LIKE '%eyJ%'")).all()
+        for row_id, value in rows:
+            cleaned = safetext.clean(value)[:255]
+            if cleaned != value:
+                db.session.execute(text(f'UPDATE {_q(table)} SET {_q(column)} = :v WHERE id = :i'), {'v': cleaned, 'i': row_id})
+                print(f'migrate: cleaned {table}.{column} #{row_id}')
+        db.session.commit()
