@@ -12,6 +12,8 @@ import payments as paylib   # (app has a route called payments)
 import snippe
 from gateway import portal_ui
 from sms import send_sms_async, is_configured as sms_is_configured
+import i18n
+from i18n import tr
 from models import format_minutes
 import radclient
 import threading
@@ -61,6 +63,30 @@ def load_user(user_id):
     return Admin.query.get(int(user_id))
 
 
+app.jinja_env.globals['_'] = tr
+
+
+@app.before_request
+def pick_language():
+    """Dashboard language: the user's choice, or before login the one remembered in a cookie."""
+    lang = current_user.language if current_user.is_authenticated else request.cookies.get('sn_lang')
+    g.lang = lang if lang in i18n.LANGS else 'en'
+
+
+@app.route('/language', methods=['POST'])
+def set_language():
+    """Switch the dashboard between English and Kiswahili."""
+    _check_csrf()
+    lang = request.form.get('lang') if request.form.get('lang') in i18n.LANGS else 'en'
+    if current_user.is_authenticated and current_user.language != lang:
+        current_user.language = lang
+        db.session.commit()
+    back = request.form.get('next') or ''
+    resp = redirect(back if back.startswith('/') and not back.startswith('//') else url_for('dashboard'))
+    resp.set_cookie('sn_lang', lang, max_age=31536000, samesite='Lax', secure=Config.SESSION_COOKIE_SECURE)
+    return resp
+
+
 # Context processor for global template variables
 @app.context_processor
 def inject_globals():
@@ -76,6 +102,7 @@ def inject_globals():
         'billing': billing_state(tenant) if tenant else None,
         'sites': tenant_sites(tenant.id) if tenant else [],
         'site': current_site() if tenant else None,
+        'lang': i18n.current(),
     }
 
 
@@ -104,9 +131,9 @@ def block_suspended_tenants():
 # Partners / shareholders (role "viewer"): read-only pages only; a partner limited to one
 # site also doesn't see the business-wide pages (earnings balance, all sites, customer accounts).
 VIEWER_PAGES = {'dashboard', 'live', 'api_live', 'payments', 'accounting', 'accounting_detail', 'vouchers',
-                'docs', 'logout', 'static', 'landing', 'stop_impersonating', 'portal', 'portal_logo'}
+                'docs', 'logout', 'static', 'landing', 'stop_impersonating', 'portal', 'portal_logo', 'set_language'}
 VIEWER_BUSINESS_PAGES = VIEWER_PAGES | {'earnings', 'sites_page', 'users', 'auth_logs', 'switch_site'}
-VIEWER_CHANGES = {'switch_site', 'stop_impersonating'}      # the only POSTs a partner may make
+VIEWER_CHANGES = {'switch_site', 'stop_impersonating', 'set_language'}      # the only POSTs a partner may make
 
 
 @app.before_request
@@ -2155,6 +2182,7 @@ def start_background_jobs():
     """Run by each gunicorn worker (see the bottom of this file)."""
     if Config.OMADA_OPENAPI_CLIENT_ID and Config.OMADA_HOSTED_URL:
         threading.Thread(target=_omada_sync_loop, name='omada-usage', daemon=True).start()
+    threading.Thread(target=_daily_summary_loop, name='daily-summary', daemon=True).start()
 
 
 def _omada_site_name(site, tenant):
@@ -2968,6 +2996,130 @@ def _guest_sms(payment, to, text, kind):
     send_sms_async(to, text, payment.reference)
 
 
+def _owner(tenant):
+    return Admin.query.filter_by(tenant_id=tenant.id, role='owner', is_active=True).order_by(Admin.id).first()
+
+
+def _owner_phone(tenant):
+    return _normalize_tz_phone(tenant.notify_phone or '') or _normalize_tz_phone(tenant.phone or '')
+
+
+def _owner_sms(tenant, text, kind, payment=None):
+    """SMS to the business owner (sale alert, daily summary), charged like guest SMS. Caller commits."""
+    to = _owner_phone(tenant)
+    if not to or not sms_is_configured():
+        return False
+    parts = sms_parts(text)
+    db.session.add(SmsCharge(tenant_id=tenant.id, site_id=payment.site_id if payment else None,
+                             payment_id=payment.id if payment else None, phone=to, kind=kind, parts=parts,
+                             amount=Decimal(parts * Config.SMS_PRICE),
+                             method='balance' if tenant.payment_mode == 'platform' else 'bill'))
+    send_sms_async(to, text, payment.reference if payment else None)
+    return True
+
+
+def _masked(phone):
+    """0684***111 (enough for the owner to recognise a regular, not a full number in an SMS)."""
+    local = '0' + phone[3:] if phone and phone.startswith('255') else (phone or '')
+    return local[:4] + '***' + local[-3:] if len(local) >= 8 else local
+
+
+def _day_stats(tenant, day_start=None):
+    """Today's figures for a business (local day): sales, guests, data."""
+    start = day_start or _local_midnight_utc()
+    tid = tenant.id
+    view = _site_filters(tid, None)
+    paid = Payment.query.filter(Payment.tenant_id == tid, Payment.status == 'paid', Payment.paid_at >= start)
+    online = Decimal(str(paid.with_entities(func.coalesce(func.sum(Payment.amount), 0)).scalar()))
+    cash = Decimal(str(Voucher.query.filter(Voucher.tenant_id == tid, Voucher.first_used_at >= start,
+                                            Voucher.batch != 'online-payments')
+                       .with_entities(func.coalesce(func.sum(Voucher.price), 0)).scalar()))
+    sessions = view['sessions'](RadAcct.query).filter(or_(RadAcct.acctstarttime >= start, RadAcct.acctstoptime.is_(None),
+                                                          RadAcct.acctstoptime >= start))
+    guests = sessions.with_entities(func.count(func.distinct(RadAcct.callingstationid))).scalar() or 0
+    data = sessions.with_entities(func.coalesce(func.sum(RadAcct.acctinputoctets), 0) + func.coalesce(func.sum(RadAcct.acctoutputoctets), 0)).scalar() or 0
+    return {'online': online, 'cash': cash, 'total': online + cash, 'sales': paid.count(), 'guests': int(guests), 'bytes': int(data)}
+
+
+def _gb(n):
+    return f'{n / 1e9:.1f} GB' if n >= 1e8 else f'{n / 1e6:.0f} MB'
+
+
+def _sale_alert(payment):
+    """'New sale' SMS to the owner, if they asked for it. Caller commits."""
+    tenant = payment.tenant
+    if not tenant or not tenant.notify_sale_sms:
+        return
+    owner = _owner(tenant)
+    sw = owner is not None and owner.language == 'sw'
+    site = db.session.get(Site, payment.site_id) if payment.site_id else None
+    where = site.name if site and Site.query.filter_by(tenant_id=tenant.id).count() > 1 else ''
+    detail = ', '.join(x for x in (payment.package_name, where) if x)
+    total = _day_stats(tenant)['total']
+    text = (f'SafeNet: Mauzo {payment.currency} {payment.amount:,.0f} ({detail}) {_masked(payment.phone)}. Leo jumla: {payment.currency} {total:,.0f}.'
+            if sw else
+            f'SafeNet: Sale {payment.currency} {payment.amount:,.0f} ({detail}) from {_masked(payment.phone)}. Today: {payment.currency} {total:,.0f}.')
+    _owner_sms(tenant, text, 'sale', payment)
+
+
+def _daily_summary_text(tenant, stats, sw):
+    cur = tenant.currency or 'TZS'
+    day = datetime.now().strftime('%d/%m')
+    balance = tenant_balance(tenant.id)[0] if tenant.payment_mode == 'platform' else None
+    if sw:
+        text = (f'SafeNet {day}: Mauzo {cur} {stats["total"]:,.0f} (mtandaoni {stats["online"]:,.0f}, vocha {stats["cash"]:,.0f}), '
+                f'wateja {stats["guests"]}, data {_gb(stats["bytes"])}.')
+        return text + (f' Salio: {cur} {balance:,.0f}.' if balance is not None else '')
+    text = (f'SafeNet {day}: Sales {cur} {stats["total"]:,.0f} (online {stats["online"]:,.0f}, vouchers {stats["cash"]:,.0f}), '
+            f'{stats["guests"]} guests, {_gb(stats["bytes"])} used.')
+    return text + (f' Balance: {cur} {balance:,.0f}.' if balance is not None else '')
+
+
+SUMMARY_HOUR = 21          # local time the daily summary goes out
+
+
+def _send_daily_summaries(now_local=None):
+    """At SUMMARY_HOUR, send each business that asked for it today's summary, once (claimed per tenant)."""
+    now_local = now_local or datetime.now()
+    if now_local.hour < SUMMARY_HOUR:
+        return 0
+    today = now_local.date()
+    sent = 0
+    wanted = Tenant.query.filter(or_(Tenant.notify_daily_sms.is_(True), Tenant.notify_daily_email.is_(True)),
+                                 or_(Tenant.summary_sent_on.is_(None), Tenant.summary_sent_on < today)).all()
+    for tenant in wanted:
+        claimed = Tenant.query.filter(Tenant.id == tenant.id, or_(Tenant.summary_sent_on.is_(None), Tenant.summary_sent_on < today)) \
+            .update({'summary_sent_on': today}, synchronize_session=False)
+        db.session.commit()
+        if not claimed:
+            continue
+        try:
+            owner = _owner(tenant)
+            sw = owner is not None and owner.language == 'sw'
+            text = _daily_summary_text(tenant, _day_stats(tenant), sw)
+            if tenant.notify_daily_sms:
+                _owner_sms(tenant, text, 'daily')
+            if tenant.notify_daily_email and owner and owner.email:
+                send_mail(owner.email, ('Muhtasari wa leo' if sw else "Today's summary") + f' - {tenant.name}',
+                          text + '\n\n' + _link('dashboard') + '\n')
+            db.session.commit()
+            sent += 1
+        except Exception:
+            db.session.rollback()
+            log.exception('daily summary for tenant %s failed', tenant.id)
+    return sent
+
+
+def _daily_summary_loop():
+    while True:
+        time.sleep(300)
+        try:
+            with app.app_context():
+                _send_daily_summaries()
+        except Exception:
+            log.exception('daily summaries failed')
+
+
 def _month_start():
     now = datetime.utcnow()
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -3005,6 +3157,7 @@ def _fulfil_payment(payment):
     payment.status = 'paid'
     payment.paid_at = datetime.utcnow()
     log.info('payment %s paid: voucher %s', payment.reference, voucher.code)
+    _sale_alert(payment)
     if not _sms_on(payment.tenant):
         return                       # the guest sees the code on screen; no SMS, no charge
     brand = _hotspot_settings(payment.tenant)
@@ -4314,7 +4467,7 @@ def payment_settings():
                            webhook_url=_link('clickpesa_webhook'), snippe_webhook_url=_link('snippe_webhook'),
                            platform_ready=paylib.is_ready(platform), platform_name=paylib.name(platform),
                            sms_price=Config.SMS_PRICE, sms_month=sms_totals(tenant.id, _month_start()),
-                           sms_ready=sms_is_configured(), tenant=tenant)
+                           sms_ready=sms_is_configured(), tenant=tenant, owner_phone=_owner_phone(tenant), summary_hour=SUMMARY_HOUR)
 
 
 @app.route('/settings/sms', methods=['POST'])
@@ -4332,6 +4485,31 @@ def sms_setting():
     flash(f'Voucher SMS to guests is {"ON: each SMS costs TZS " + str(Config.SMS_PRICE) if on else "OFF: no SMS are sent or charged"}.',
           'success')
     return redirect(url_for('payment_settings') + '#sms')
+
+
+@app.route('/settings/notifications', methods=['POST'])
+@login_required
+@role_required('owner')
+def notification_settings():
+    """Sale alerts and the daily summary for the owner."""
+    _check_csrf()
+    tenant = current_tenant()
+    raw = (request.form.get('notify_phone') or '').strip()
+    phone = _normalize_tz_phone(raw) if raw else None
+    if raw and not phone:
+        flash('Enter a valid mobile number for alerts, e.g. 0712 345 678.', 'danger')
+        return redirect(url_for('payment_settings') + '#alerts')
+    tenant.notify_phone = phone
+    tenant.notify_sale_sms = bool(request.form.get('sale_sms'))
+    tenant.notify_daily_sms = bool(request.form.get('daily_sms'))
+    tenant.notify_daily_email = bool(request.form.get('daily_email'))
+    if (tenant.notify_sale_sms or tenant.notify_daily_sms) and not _owner_phone(tenant):
+        db.session.rollback()
+        flash('Add the mobile number the alerts should go to.', 'danger')
+        return redirect(url_for('payment_settings') + '#alerts')
+    db.session.commit()
+    flash('Alerts saved.', 'success')
+    return redirect(url_for('payment_settings') + '#alerts')
 
 
 @app.route('/settings/payments/test', methods=['POST'])

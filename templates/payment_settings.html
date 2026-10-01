@@ -37,6 +37,24 @@
                 </form>
             </div>
         </div>
+        <div class="card" id="alerts">
+            <div class="card-header"><i class="bi bi-bell"></i> Alerts for you</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('notification_settings') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="form-check mb-1"><input class="form-check-input" type="checkbox" name="sale_sms" id="sale_sms" value="1" {{ 'checked' if tenant.notify_sale_sms }}>
+                        <label class="form-check-label" for="sale_sms"><strong>SMS for every sale</strong> <span class="text-muted small">(package, place, buyer's number, today's total)</span></label></div>
+                    <div class="form-check mb-1"><input class="form-check-input" type="checkbox" name="daily_sms" id="daily_sms" value="1" {{ 'checked' if tenant.notify_daily_sms }}>
+                        <label class="form-check-label" for="daily_sms"><strong>Daily summary by SMS</strong> <span class="text-muted small">at {{ summary_hour }}:00: today's sales, guests, data{% if tenant.payment_mode == 'platform' %} and balance{% endif %}</span></label></div>
+                    <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="daily_email" id="daily_email" value="1" {{ 'checked' if tenant.notify_daily_email }}>
+                        <label class="form-check-label" for="daily_email"><strong>Daily summary by email</strong> <span class="text-muted small">(free)</span></label></div>
+                    <label class="form-label small mb-1" for="notify_phone">Send SMS alerts to</label>
+                    <input class="form-control mb-1" style="max-width: 260px" id="notify_phone" name="notify_phone" value="{{ tenant.notify_phone or '' }}" placeholder="{{ owner_phone or '07XX XXX XXX' }}">
+                    <p class="small text-muted">Empty: your business number{% if owner_phone %} ({{ owner_phone }}){% endif %}. Alert SMS cost TZS {{ sms_price }} each like guest SMS: a daily summary is about TZS {{ sms_price * 30 }} a month. They come in your dashboard language.</p>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle"></i> Save alerts</button>
+                </form>
+            </div>
+        </div>
         <div class="card" id="sms">
             <div class="card-header"><i class="bi bi-chat-dots"></i> Voucher code by SMS</div>
             <div class="card-body">

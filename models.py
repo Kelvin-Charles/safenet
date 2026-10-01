@@ -31,6 +31,12 @@ class Tenant(db.Model):
     own_provider = db.Column(db.String(16), nullable=False, default='snippe', server_default='clickpesa')  # with payment_mode 'own'
     sms_to_guests = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())  # voucher code by SMS (charged per SMS)
     sms_changed_at = db.Column(db.DateTime)              # when the owner last switched SMS on or off
+    # Owner notifications (all off until the owner turns them on; SMS ones cost like guest SMS)
+    notify_phone = db.Column(db.String(16))              # 255XXXXXXXXX; empty = the business phone
+    notify_sale_sms = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    notify_daily_sms = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    notify_daily_email = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    summary_sent_on = db.Column(db.Date)                 # last day the daily summary went out
     snippe_api_key_enc = db.Column(db.Text)           # secretbox-encrypted
     snippe_webhook_key_enc = db.Column(db.Text)       # secretbox-encrypted
     fee_percent = db.Column(db.Numeric(5, 2))         # platform fee; NULL = PLATFORM_FEE_PERCENT
@@ -144,6 +150,7 @@ class Admin(UserMixin, db.Model):
     last_login = db.Column(db.DateTime)
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), index=True)
     site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'))   # viewer limited to one site
+    language = db.Column(db.String(2), nullable=False, default='en', server_default='en')   # dashboard: en, sw
     role = db.Column(db.String(16), nullable=False, default='owner')
     is_superadmin = db.Column(db.Boolean, nullable=False, default=False)  # platform operator
     email_verified_at = db.Column(db.DateTime)
@@ -766,7 +773,7 @@ class SmsCharge(db.Model):
     site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'), index=True)
     payment_id = db.Column(db.Integer, db.ForeignKey('payments.id', ondelete='SET NULL'))
     phone = db.Column(db.String(16), nullable=False)
-    kind = db.Column(db.String(16), nullable=False)            # voucher, gift (to the friend), receipt (to a gift's payer)
+    kind = db.Column(db.String(16), nullable=False)            # voucher, gift, receipt (guests); sale, daily (to the owner)
     parts = db.Column(db.Integer, nullable=False, default=1)   # a long message is billed as several SMS
     amount = db.Column(db.Numeric(10, 2), nullable=False)
     method = db.Column(db.String(8), nullable=False)           # balance, bill

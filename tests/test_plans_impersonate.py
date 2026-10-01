@@ -40,7 +40,7 @@ c = login('platform')
 page = c.get('/platform/tenants').text
 assert 'Log in as owner' in page
 r = c.post(f'/platform/impersonate/{TID}', data={'csrf_token': tok(page)}, follow_redirects=True).text
-assert 'You are logged in as <strong>mama</strong>' in r and 'Mama Shop' in r
+assert 'You are logged in as mama (Mama Shop owner)' in r
 assert c.get('/platform/tenants').status_code == 404                       # really is the owner now
 b = c.get('/billing').text
 assert '200 customers' in b and '2 staff' in b and 'or 110,000 / year' in b and '1 year' in b

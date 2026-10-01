@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -238,43 +238,43 @@
         {% set partner = current_user.is_viewer %}
         {% set site_partner = partner and current_user.site_id %}
         <nav class="nav flex-column mt-3">
-            {{ link(['dashboard'], url_for('dashboard'), 'bi-speedometer2', 'Dashboard') }}
-            {% if not site_partner %}{{ link(['sites_page'], url_for('sites_page'), 'bi-geo-alt', 'Sites') }}{% endif %}
-            {{ link(['live'], url_for('live'), 'bi-broadcast', 'Live') }}
-            {% if not site_partner %}{{ link(['users', 'add_user', 'edit_user'], url_for('users'), 'bi-people', 'Users') }}{% endif %}
-            {{ link(['vouchers', 'generate_vouchers'], url_for('vouchers'), 'bi-ticket-perforated', 'Vouchers') }}
-            {{ link(['payments'], url_for('payments'), 'bi-phone', 'Payments') }}
-            {% if partner and not site_partner %}{{ link(['earnings'], url_for('earnings'), 'bi-wallet2', 'Earnings') }}{% endif %}
+            {{ link(['dashboard'], url_for('dashboard'), 'bi-speedometer2', _('Dashboard')) }}
+            {% if not site_partner %}{{ link(['sites_page'], url_for('sites_page'), 'bi-geo-alt', _('Sites')) }}{% endif %}
+            {{ link(['live'], url_for('live'), 'bi-broadcast', _('Live')) }}
+            {% if not site_partner %}{{ link(['users', 'add_user', 'edit_user'], url_for('users'), 'bi-people', _('Users')) }}{% endif %}
+            {{ link(['vouchers', 'generate_vouchers'], url_for('vouchers'), 'bi-ticket-perforated', _('Vouchers')) }}
+            {{ link(['payments'], url_for('payments'), 'bi-phone', _('Payments')) }}
+            {% if partner and not site_partner %}{{ link(['earnings'], url_for('earnings'), 'bi-wallet2', _('Earnings')) }}{% endif %}
             {% if is_admin %}
-            {{ link(['earnings'], url_for('earnings'), 'bi-wallet2', 'Earnings') }}
-            {{ link(['packages', 'add_package', 'edit_package'], url_for('packages'), 'bi-bag', 'Packages') }}
-            {{ link(['plans', 'add_plan', 'edit_plan', 'add_plan_attribute'], url_for('plans'), 'bi-box', 'Plans') }}
-            {{ link(['gateways', 'add_gateway'], url_for('gateways'), 'bi-hdd-network', 'Gateways') }}
-            {{ link(['routers', 'router_script'], url_for('routers'), 'bi-shield-lock', 'Routers (VPN)') }}
-            {{ link(['nas_list', 'add_nas', 'edit_nas'], url_for('nas_list'), 'bi-router', 'RADIUS clients (NAS)') }}
+            {{ link(['earnings'], url_for('earnings'), 'bi-wallet2', _('Earnings')) }}
+            {{ link(['packages', 'add_package', 'edit_package'], url_for('packages'), 'bi-bag', _('Packages')) }}
+            {{ link(['plans', 'add_plan', 'edit_plan', 'add_plan_attribute'], url_for('plans'), 'bi-box', _('Plans')) }}
+            {{ link(['gateways', 'add_gateway'], url_for('gateways'), 'bi-hdd-network', _('Gateways')) }}
+            {{ link(['routers', 'router_script'], url_for('routers'), 'bi-shield-lock', _('Routers (VPN)')) }}
+            {{ link(['nas_list', 'add_nas', 'edit_nas'], url_for('nas_list'), 'bi-router', _('RADIUS clients (NAS)')) }}
             {% endif %}
-            {{ link(['accounting', 'accounting_detail'], url_for('accounting'), 'bi-graph-up', 'Accounting') }}
-            {% if not site_partner %}{{ link(['auth_logs'], url_for('auth_logs'), 'bi-shield-check', 'Auth Logs') }}{% endif %}
+            {{ link(['accounting', 'accounting_detail'], url_for('accounting'), 'bi-graph-up', _('Accounting')) }}
+            {% if not site_partner %}{{ link(['auth_logs'], url_for('auth_logs'), 'bi-shield-check', _('Auth Logs')) }}{% endif %}
             {% if is_admin %}
             <hr style="border-color: #2E3B76; opacity: 1; margin: 1rem 0;">
-            {{ link(['billing', 'billing_payment'], url_for('billing'), 'bi-receipt', 'Billing') }}
-            {{ link(['portal_settings'], url_for('portal_settings'), 'bi-phone-landscape', 'Captive portal') }}
-            {{ link(['tenant_settings'], url_for('tenant_settings'), 'bi-sliders', 'Settings') }}
-            {{ link(['team', 'add_team_member'], url_for('team'), 'bi-person-badge', 'Team') }}
-            {{ link(['radius_features'], url_for('radius_features'), 'bi-gear', 'RADIUS Features') }}
+            {{ link(['billing', 'billing_payment'], url_for('billing'), 'bi-receipt', _('Billing')) }}
+            {{ link(['portal_settings'], url_for('portal_settings'), 'bi-phone-landscape', _('Captive portal')) }}
+            {{ link(['tenant_settings'], url_for('tenant_settings'), 'bi-sliders', _('Settings')) }}
+            {{ link(['team', 'add_team_member'], url_for('team'), 'bi-person-badge', _('Team')) }}
+            {{ link(['radius_features'], url_for('radius_features'), 'bi-gear', _('RADIUS Features')) }}
             {% endif %}
             {% if current_user.is_superadmin %}
             {{ link(['platform_tenants'], url_for('platform_tenants'), 'bi-buildings', 'Platform: Tenants') }}
             {{ link(['platform_payouts'], url_for('platform_payouts'), 'bi-cash-coin', 'Platform: Payouts') }}
             {{ link(['platform_billing'], url_for('platform_billing'), 'bi-tags', 'Platform: Billing') }}
             {% endif %}
-            <a class="nav-link" href="{{ url_for('docs') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> Setup guides</a>
+            <a class="nav-link" href="{{ url_for('docs') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Setup guides') }}</a>
             <hr style="border-color: #2E3B76; opacity: 1; margin: 1rem 0;">
             <a class="nav-link" href="{{ url_for('logout') }}">
-                <i class="bi bi-box-arrow-right"></i> Logout
+                <i class="bi bi-box-arrow-right"></i> {{ _('Logout') }}
             </a>
         </nav>
-        <div class="powered">Powered by Safezone Tech</div>
+        <div class="powered">{{ _('Powered by Safezone Tech') }}</div>
     </div>
     {% endif %}
     
@@ -285,31 +285,36 @@
         <div class="navbar-top d-flex justify-content-between align-items-center gap-2">
             <div class="d-flex align-items-center">
                 <button class="menu-btn" type="button" aria-label="Menu" onclick="document.body.classList.toggle('nav-open')"><i class="bi bi-list"></i></button>
-                <h4 class="mb-0">{% block page_title %}Dashboard{% endblock %}</h4>
+                <h4 class="mb-0">{% block page_title %}{{ _('Dashboard') }}{% endblock %}</h4>
             </div>
             <div class="d-flex align-items-center gap-2">
-                {% if current_user.is_viewer %}<span class="badge bg-info text-dark"><i class="bi bi-eye"></i> View only</span>{% endif %}
+                {% if current_user.is_viewer %}<span class="badge bg-info text-dark"><i class="bi bi-eye"></i> {{ _('View only') }}</span>{% endif %}
                 {% if current_user.is_viewer and current_user.site_id %}
                 <span class="site-btn"><span class="site-badge">{{ (site.name if site else '?')[:1]|upper }}</span>{{ site.name if site else '' }}</span>
                 {% elif tenant and sites %}
                 <div class="dropdown">
-                    <button class="site-btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-label="Choose site">
-                        <span class="site-badge">{{ (site.name if site else 'All')[:1]|upper }}</span>{{ site.name if site else ('All sites' if sites|length > 1 else sites[0].name) }}
+                    <button class="site-btn dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-label="{{ _('Choose site') }}">
+                        <span class="site-badge">{{ (site.name if site else 'All')[:1]|upper }}</span>{{ site.name if site else (_('All sites') if sites|length > 1 else sites[0].name) }}
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">
-                        <li><h6 class="dropdown-header">Show</h6></li>
+                        <li><h6 class="dropdown-header">{{ _('Show') }}</h6></li>
                         {% for choice in [none] + sites %}
                         <li><form method="POST" action="{{ url_for('switch_site') }}" class="m-0 keep">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="site_id" value="{{ choice.id if choice else '' }}">
-                            <button class="dropdown-item {{ 'active' if (choice and site and choice.id == site.id) or (not choice and not site) }}" type="submit">{{ choice.name if choice else 'All sites' }}</button>
+                            <button class="dropdown-item {{ 'active' if (choice and site and choice.id == site.id) or (not choice and not site) }}" type="submit">{{ choice.name if choice else _('All sites') }}</button>
                         </form></li>
                         {% endfor %}
                         <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="{{ url_for('sites_page') }}"><i class="bi bi-geo-alt"></i> Manage sites</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('sites_page') }}"><i class="bi bi-geo-alt"></i> {{ _('Manage sites') }}</a></li>
                     </ul>
                 </div>
                 {% endif %}
+                <form method="POST" action="{{ url_for('set_language') }}" class="m-0 keep">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="next" value="{{ request.full_path if request.method == 'GET' else '' }}">
+                    <button class="site-btn" type="submit" name="lang" value="{{ 'en' if lang == 'sw' else 'sw' }}" title="{{ _('Change language') }}"><i class="bi bi-translate"></i> {{ 'English' if lang == 'sw' else 'Kiswahili' }}</button>
+                </form>
                 <span class="text-muted who"><i class="bi bi-person-circle"></i> {{ current_user.username }}</span>
             </div>
         </div>
@@ -317,30 +322,30 @@
         
         {% if impersonating %}
         <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <span><i class="bi bi-person-badge"></i> You are logged in as <strong>{{ current_user.username }}</strong> ({{ tenant.name if tenant else '' }} owner). Everything you do here is done as them.</span>
+            <span><i class="bi bi-person-badge"></i> {{ _('You are logged in as {user} ({business} owner). Everything you do here is done as them.', user=current_user.username, business=tenant.name if tenant else '') }}</span>
             <form method="POST" action="{{ url_for('stop_impersonating') }}" class="m-0 keep">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="btn btn-sm btn-dark" type="submit"><i class="bi bi-box-arrow-left"></i> Back to platform</button>
+                <button class="btn btn-sm btn-dark" type="submit"><i class="bi bi-box-arrow-left"></i> {{ _('Back to platform') }}</button>
             </form>
         </div>
         {% endif %}
         {% if current_user.is_authenticated and viewing_other_tenant %}
         <div class="alert alert-info d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-eye"></i> You are managing <strong>{{ tenant.name }}</strong> as platform admin.</span>
+            <span><i class="bi bi-eye"></i> {{ _('You are managing {business} as platform admin.', business=tenant.name) }}</span>
             <form method="POST" action="{{ url_for('platform_switch_back') }}" class="m-0">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="btn btn-sm btn-outline-primary" type="submit">Back to platform</button>
+                <button class="btn btn-sm btn-outline-primary" type="submit">{{ _('Back to platform') }}</button>
             </form>
         </div>
         {% endif %}
         {% if current_user.is_authenticated and billing and not viewing_other_tenant and not (request.endpoint == 'dashboard' and billing.state == 'trial') %}
         {% set bs = billing.state %}
         {% if bs == 'trial' and billing.days_left is not none %}
-        <div class="alert alert-light"><i class="bi bi-hourglass-split"></i> Free trial: {{ billing.days_left }} day{{ '' if billing.days_left == 1 else 's' }} left. <a href="{{ url_for('billing') }}">Choose a plan</a></div>
+        <div class="alert alert-light"><i class="bi bi-hourglass-split"></i> {{ _('Free trial: {n} day left.', n=billing.days_left) if billing.days_left == 1 else _('Free trial: {n} days left.', n=billing.days_left) }} <a href="{{ url_for('billing') }}">{{ _('Choose a plan') }}</a></div>
         {% elif bs == 'active' and billing.days_left is not none and billing.days_left <= 3 %}
-        <div class="alert alert-warning"><i class="bi bi-hourglass-split"></i> Your subscription ends in {{ billing.days_left }} day{{ '' if billing.days_left == 1 else 's' }}. <a href="{{ url_for('billing') }}">Renew now</a></div>
+        <div class="alert alert-warning"><i class="bi bi-hourglass-split"></i> {{ _('Your subscription ends in {n} day.', n=billing.days_left) if billing.days_left == 1 else _('Your subscription ends in {n} days.', n=billing.days_left) }} <a href="{{ url_for('billing') }}">{{ _('Renew now') }}</a></div>
         {% elif bs == 'grace' %}
-        <div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> Your {{ 'trial' if not tenant.paid_until else 'subscription' }} has ended. Your Wi-Fi stops on {{ billing.service_until.strftime('%d %b %Y') }} unless you <a href="{{ url_for('billing') }}">renew</a>.</div>
+        <div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> {{ (_('Your trial has ended.') if not tenant.paid_until else _('Your subscription has ended.')) }} {{ _('Your Wi-Fi stops on {date} unless you renew.', date=billing.service_until.strftime('%d %b %Y')) }} <a href="{{ url_for('billing') }}">{{ _('Renew now') }}</a></div>
         {% endif %}
         {% endif %}
 

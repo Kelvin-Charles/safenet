@@ -114,6 +114,17 @@
     </div>
     {% endif %}
 
+    {% if tenant and current_user.has_role('owner') and not (tenant.notify_sale_sms or tenant.notify_daily_sms or tenant.notify_daily_email) %}
+    <div class="notice d-flex flex-wrap gap-3 align-items-center justify-content-between mb-4">
+        <div class="d-flex gap-3 align-items-center">
+            <div class="ic"><i class="bi bi-bell"></i></div>
+            <div><strong>Know every sale, even when you're away</strong>
+                <div class="small text-primary">Get an SMS for each sale and a summary every evening: sales, guests and data.</div></div>
+        </div>
+        <a href="{{ url_for('payment_settings') }}#alerts" class="btn btn-primary">Turn on alerts <i class="bi bi-arrow-right"></i></a>
+    </div>
+    {% endif %}
+
     <!-- Financial overview -->
     <div class="d-flex flex-wrap justify-content-between align-items-end mb-3 gap-2">
         <div><div class="eyebrow">Financial overview</div><h2 class="sec">Earnings for {{ period_label }}</h2><div class="sub">This calendar month{{ ', ' ~ site.name if site }}.</div></div>

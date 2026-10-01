@@ -107,7 +107,7 @@
                             <tr>
                                 <td><small>{{ c.created_at.strftime('%Y-%m-%d %H:%M') }}</small></td>
                                 <td><small>{{ c.phone }}</small></td>
-                                <td><small>{{ {'voucher': 'Voucher code', 'gift': 'Code for a friend', 'receipt': 'Receipt to the payer'}.get(c.kind, c.kind) }}</small></td>
+                                <td><small>{{ {'voucher': 'Voucher code', 'gift': 'Code for a friend', 'receipt': 'Receipt to the payer', 'sale': 'Sale alert to you', 'daily': 'Daily summary to you'}.get(c.kind, c.kind) }}</small></td>
                                 <td>{{ c.parts }}</td>
                                 <td>{{ cur }} {{ '{:,.0f}'.format(c.amount) }}</td>
                                 <td><small>{{ 'Balance' if c.method == 'balance' else 'SafeNet bill' }}</small></td>
