@@ -430,7 +430,8 @@ def _alert(message, lang, ok=False):
 def _terms_check(th, lang, field_id):
     link = (f'<button type="button" class="linkbtn" onclick="openTerms()">{t(lang, "terms")}</button>' if th['terms']
             else t(lang, 'terms'))
-    return (f'<label class="check" for="{field_id}"><input type="checkbox" id="{field_id}" name="agree" value="1" required>'
+    # ticked already: guests can untick it, and the server still requires it
+    return (f'<label class="check" for="{field_id}"><input type="checkbox" id="{field_id}" name="agree" value="1" required checked>'
             f'<span>{t(lang, "accept")} {link}</span></label>')
 
 
