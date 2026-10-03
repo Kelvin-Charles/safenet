@@ -247,6 +247,8 @@ def refresh_branding():
         return
     portal = data.get('portal') or {}
     apply_antishare(data.get('block_tethering', True))
+    if data.get('tenant'):
+        branding['tenant'] = data['tenant']       # for the link to the guest app
     branding.update(name=data.get('hotspot_name') or branding['name'],
                     support=data.get('support') or '', terms=data.get('terms') or branding['terms'],
                     **{k: portal.get(k) for k in ('color', 'style', 'title', 'message', 'language',
@@ -721,9 +723,17 @@ def login_page(dst='', error='', lang='en', tab=None):
                          buy_enabled=bool(SAFENET_API_URL), networks=portal_networks(), logo_base='/img/')
 
 
+def app_url(code):
+    """The business's 'My Wi-Fi' app in the SafeNet cloud, with this voucher code (not for account logins)."""
+    if not (SAFENET_API_URL and branding.get('tenant') and re.fullmatch(r'\d{6,12}', code or '')):
+        return None
+    return f"{SAFENET_API_URL.rstrip('/')}/app/{branding['tenant']}#code={code}"
+
+
 def status_page(session, dst='', new_code=None, lang='en'):
     return ui.status_page(_theme(), lang, user=session['user'], remaining=session['expires'] - time.time(),
-                          total=session['expires'] - session.get('start', session['expires']), dst=dst, new_code=new_code)
+                          total=session['expires'] - session.get('start', session['expires']), dst=dst, new_code=new_code,
+                          app_url=app_url(session['user']))
 
 
 def waiting_page(ref, info, timed_out=False, lang='en'):

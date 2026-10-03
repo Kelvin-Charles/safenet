@@ -122,6 +122,7 @@ T = {
         'gift_ok': 'Payment received. The code is on its way!', 'gift_lead': 'We sent the {package} code to {phone} by SMS.',
         'gift_code': "Your friend's code", 'gift_share': "If the SMS doesn't arrive, share this code with them yourself.",
         'gift_again': 'Back to packages',
+        'app_cta': 'Get the Wi-Fi app', 'app_cta_lead': 'See your time and data, buy more, buy for a friend.',
     },
     'sw': {
         'wifi': 'Wi-Fi ya Wageni', 'switch': 'English', 'welcome': 'Karibu {name}',
@@ -160,6 +161,7 @@ T = {
         'gift_ok': 'Malipo yamepokelewa. Vocha imetumwa!', 'gift_lead': 'Tumetuma vocha ya {package} kwa {phone} kwa SMS.',
         'gift_code': 'Namba ya vocha ya rafiki', 'gift_share': 'SMS isipofika, mtumie namba hii wewe mwenyewe.',
         'gift_again': 'Rudi kwenye vifurushi',
+        'app_cta': 'Pata app ya Wi-Fi', 'app_cta_lead': 'Ona muda na data yako, nunua zaidi, nunulia rafiki.',
     },
 }
 
@@ -567,7 +569,7 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
 
 
 def status_page(th, lang, *, user, remaining, total=None, dst='', new_code=None, preview=False, base='', logout=True,
-                lang_url='/'):
+                lang_url='/', app_url=None):
     remaining = max(0, int(remaining))
     bar = ''
     if total and total > 0:
@@ -593,6 +595,7 @@ def status_page(th, lang, *, user, remaining, total=None, dst='', new_code=None,
       {bar}
       {bought}
       <div style="margin-top:18px">{go}</div>
+      {_app_card(lang, app_url)}
       {f'<form method="post" action="{e(base)}/logout"><button class="btn ghost" type="{"button" if preview else "submit"}">{icon("logout", 18)} {t(lang, "disconnect")}</button></form>' if logout else ''}
       <script>
       function copyCode(b){{var c=document.getElementById('vcode').textContent,s=b.querySelector('span');
@@ -601,6 +604,15 @@ def status_page(th, lang, *, user, remaining, total=None, dst='', new_code=None,
         var i=document.createElement('input');i.value=c;document.body.appendChild(i);i.select();try{{document.execCommand('copy');done();}}catch(x){{}}i.remove();}}
       </script>"""
     return page(th, lang, body, hero_extra=False, preview=preview, lang_url=lang_url)
+
+
+def _app_card(lang, app_url):
+    """'Get the Wi-Fi app' on the connected screen (opens in the phone's browser, where it can be installed)."""
+    if not app_url:
+        return ''
+    return (f'<a class="appcard" href="{e(app_url)}" target="_blank" rel="noopener">'
+            f'<span class="ic">{icon("phone", 22)}</span><span><b>{t(lang, "app_cta")}</b>'
+            f'<small>{t(lang, "app_cta_lead")}</small></span>{icon("arrow", 18)}</a>')
 
 
 def gift_page(th, lang, *, code, friend, package='', base='', lang_url='/', preview=False):
@@ -666,3 +678,168 @@ def instructions_page(th, lang, *, preview=False, lang_url='/'):
         <li><b>4</b><span>{t(lang, 'how4')}</span></li>
       </ol>"""
     return page(th, lang, body, preview=preview, lang_url=lang_url)
+
+
+# ---------------------------------------------------------------------------
+# "My Wi-Fi" guest app (served by the SafeNet cloud at /app/<business>)
+# ---------------------------------------------------------------------------
+APP_T = {
+    'en': {
+        'title': 'My Wi-Fi', 'add_code': 'Add your voucher code', 'add_lead': 'Type the code you used to connect. Your phone keeps it, so next time the app opens straight away.',
+        'add': 'Add', 'adding': 'Adding…', 'online': 'Online now', 'offline': 'Not connected', 'left': 'Time left',
+        'not_started': 'Starts when you first connect', 'expired': 'Time is up', 'used': 'Data used', 'down': 'down', 'up': 'up',
+        'package': 'Package', 'code': 'Code', 'buy_more': 'Buy more', 'buy_friend': 'Buy for a friend', 'history': 'My packages',
+        'help': 'Help', 'call': 'Call', 'install': 'Add to home screen', 'install_ios': 'On iPhone: tap Share, then "Add to Home Screen".',
+        'choose': 'Choose a package', 'network': 'Mobile-money network', 'your_phone': 'Your mobile money number', 'friend_phone': "Friend's phone number",
+        'pay': 'Pay {price}', 'check_phone': 'Check your phone and enter your PIN to pay {amount}.', 'waiting': 'Waiting for your payment…',
+        'paid_me': 'Paid! Your new package {code} is ready: your phone connects with it by itself when the current time ends.',
+        'paid_friend': 'Paid! We sent code {code} to {phone} by SMS.', 'failed': 'Payment not completed: {reason}',
+        'no_buy': 'Buying in the app is not available here. Ask at the counter.', 'another': 'Add another code', 'refresh': 'Refresh',
+        'updated': 'Updated {time}', 'offline_note': 'No internet: showing the last figures.', 'devices': 'devices', 'cancel': 'Cancel',
+        'active': 'Active', 'unused': 'Not started', 'expired_s': 'Finished', 'disabled': 'Disabled', 'none': 'No packages yet.',
+    },
+    'sw': {
+        'title': 'Wi-Fi Yangu', 'add_code': 'Weka namba ya vocha yako', 'add_lead': 'Andika namba uliyotumia kuunganishwa. Simu yako inaihifadhi, hivyo app itafunguka moja kwa moja wakati ujao.',
+        'add': 'Weka', 'adding': 'Inaweka…', 'online': 'Uko mtandaoni', 'offline': 'Hujaunganishwa', 'left': 'Muda uliobaki',
+        'not_started': 'Inaanza ukiunganishwa mara ya kwanza', 'expired': 'Muda umeisha', 'used': 'Data uliyotumia', 'down': 'kupakua', 'up': 'kupakia',
+        'package': 'Kifurushi', 'code': 'Namba', 'buy_more': 'Nunua zaidi', 'buy_friend': 'Nunulia rafiki', 'history': 'Vifurushi vyangu',
+        'help': 'Msaada', 'call': 'Piga', 'install': 'Weka kwenye skrini ya simu', 'install_ios': 'Kwenye iPhone: bonyeza Share, kisha "Add to Home Screen".',
+        'choose': 'Chagua kifurushi', 'network': 'Mtandao wa malipo', 'your_phone': 'Namba yako ya malipo', 'friend_phone': 'Namba ya simu ya rafiki',
+        'pay': 'Lipa {price}', 'check_phone': 'Angalia simu yako na weka PIN kulipia {amount}.', 'waiting': 'Tunasubiri malipo yako…',
+        'paid_me': 'Umelipa! Kifurushi kipya {code} kiko tayari: simu yako itaunganishwa nacho yenyewe muda wa sasa ukiisha.',
+        'paid_friend': 'Umelipa! Tumetuma namba {code} kwa {phone} kwa SMS.', 'failed': 'Malipo hayajakamilika: {reason}',
+        'no_buy': 'Kununua kwenye app hakupatikani hapa. Uliza kaunta.', 'another': 'Weka namba nyingine', 'refresh': 'Sasisha',
+        'updated': 'Imesasishwa {time}', 'offline_note': 'Hakuna intaneti: tunaonyesha takwimu za mwisho.', 'devices': 'vifaa', 'cancel': 'Ghairi',
+        'active': 'Inatumika', 'unused': 'Haijaanza', 'expired_s': 'Imeisha', 'disabled': 'Imezimwa', 'none': 'Bado hakuna vifurushi.',
+    },
+}
+
+APP_CSS = """
+#app .big{font-size:40px;font-weight:800;letter-spacing:-1px;margin:4px 0}
+#app .row{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+#app .row:last-child{border-bottom:0}#app .row span{color:var(--ink-2)}
+#app .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:#94a3b8}#app .dot.on{background:#16a34a}
+#app .acts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}#app .acts .btn{margin:0;font-size:14px;padding:12px 8px}
+#app .sec{margin-top:18px}#app .muted{color:var(--ink-2);font-size:13px}#app .hidden{display:none}
+#app a{color:var(--brand);font-weight:600;text-decoration:none}
+#app .pill{font-size:11px;padding:2px 8px;border-radius:99px;background:var(--tint);color:var(--brand-dark,var(--brand))}
+"""
+
+APP_JS = r"""
+(function(){
+var T=window.APP_T, base=window.APP_BASE, KEY='snapp:'+base, box=document.getElementById('app');
+function tt(k,v){var s=T[k]||k;if(v)for(var n in v)s=s.split('{'+n+'}').join(v[n]);return s;}
+function el(tag,cls,text){var x=document.createElement(tag);if(cls)x.className=cls;if(text!=null)x.textContent=text;return x;}
+function load(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){return {}}}
+function save(s){try{localStorage.setItem(KEY,JSON.stringify(s))}catch(e){}}
+var st=load(); st.tokens=st.tokens||[];
+function api(path,body){return fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json'},
+  body:body===undefined?undefined:JSON.stringify(body)}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.status);return j;});});}
+function money(c,a){return c+' '+Number(a).toLocaleString('en-US');}
+function dur(s){s=Math.max(0,s|0);var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+  return d?d+'d '+h+'h':h?h+'h '+m+'m':m+'m';}
+function bytes(n){return n>=1e9?(n/1e9).toFixed(2)+' GB':n>=1e6?(n/1e6).toFixed(0)+' MB':Math.round(n/1e3)+' KB';}
+// a code in the link (#code=...) from the connected screen
+var m=location.hash.match(/code=([0-9A-Za-z]+)/);
+if(m){history.replaceState(null,'',location.pathname+location.search);link(m[1]);}
+else if(st.tokens.length){refresh();}else{showAdd();}
+function link(code,err){box.replaceChildren(el('p','muted',tt('adding')));
+  api('/api/link',{code:code}).then(function(j){if(st.tokens.indexOf(j.token)<0)st.tokens.push(j.token);save(st);refresh();})
+  .catch(function(e){showAdd(e.message);});}
+function showAdd(err){var f=el('form');f.append(el('h2',null,tt('add_code')),el('p','lead',tt('add_lead')));
+  if(err){var a=el('div','alert');a.textContent=err;f.append(a);}
+  var i=el('input','input code');i.inputMode='numeric';i.placeholder='12345678';i.required=true;i.autocomplete='one-time-code';
+  var b=el('button','btn',tt('add'));b.type='submit';f.append(i,b);
+  if(st.tokens.length){var c=el('button','btn ghost',tt('cancel'));c.type='button';c.onclick=refresh;f.append(c);}
+  f.onsubmit=function(ev){ev.preventDefault();link(i.value.replace(/\s+/g,''));};box.replaceChildren(f);i.focus();}
+function refresh(){api('/api/me',{tokens:st.tokens}).then(function(d){st.tokens=d.tokens.length?d.tokens:st.tokens;st.last=d;st.at=Date.now();save(st);show(d);})
+  .catch(function(){if(st.last)show(st.last,true);else showAdd();});}
+function show(d,stale){var v=d.vouchers[0];box.replaceChildren();
+  if(stale)box.append(el('div','alert',tt('offline_note')));
+  if(!v){showAdd();return;}
+  var top=el('div','center');var on=el('p','lead');var dot=el('span','dot'+(v.online?' on':''));on.append(dot,v.online?tt('online'):tt('offline'));
+  var left=v.state==='active'?dur(v.seconds_left):v.state==='unused'?'—':'0m';
+  top.append(on,el('div','big',left),el('p','muted',v.state==='unused'?tt('not_started'):v.state==='active'?tt('left'):tt('expired')));box.append(top);
+  var rows=el('div','sec');
+  function row(a,b){var r=el('div','row');r.append(el('span',null,a),el('b',null,b));rows.append(r);}
+  row(tt('used'),bytes(v.down+v.up)+' ('+bytes(v.down)+' '+tt('down')+' · '+bytes(v.up)+' '+tt('up')+')');
+  if(v.package)row(tt('package'),v.package);row(tt('code'),v.code);box.append(rows);
+  var acts=el('div','acts');
+  function act(label,fn,ghost){var b=el('button','btn'+(ghost?' ghost':''),label);b.type='button';b.onclick=fn;acts.append(b);}
+  if(d.can_buy)act(tt('buy_more'),function(){buy(d,false);});
+  if(d.can_buy&&d.can_gift)act(tt('buy_friend'),function(){buy(d,true);},true);
+  act(tt('history'),function(){hist(d);},true);act(tt('refresh'),refresh,true);box.append(acts);
+  if(!d.can_buy)box.append(el('p','muted sec',tt('no_buy')));
+  var more=el('div','sec');var add=el('a',null,tt('another'));add.href='#';add.onclick=function(e){e.preventDefault();showAdd();};more.append(add);
+  if(d.support){more.append(document.createTextNode(' · '));var c=el('a',null,tt('call')+' '+d.support);c.href='tel:'+d.support.replace(/\s+/g,'');more.append(c);}
+  box.append(more);installHint();}
+function hist(d){box.replaceChildren(el('h2',null,tt('history')));
+  if(!d.vouchers.length)box.append(el('p','muted',tt('none')));
+  d.vouchers.forEach(function(v){var r=el('div','row');var a=el('span');a.append(el('b',null,v.package||v.code),el('br'),
+    document.createTextNode(v.code+(v.bought?' · '+v.bought.slice(0,10):'')));
+    r.append(a,el('span','pill',tt({active:'active',unused:'unused',expired:'expired_s',disabled:'disabled'}[v.state]||v.state)));box.append(r);});
+  var b=el('button','btn ghost sec',tt('cancel'));b.type='button';b.onclick=function(){show(d);};box.append(b);}
+function buy(d,gift){var f=el('form');f.append(el('h2',null,gift?tt('buy_friend'):tt('buy_more')),el('p','lead',tt('choose')));
+  var err=el('div','alert hidden');f.append(err);var pk=el('div','pkgs');
+  d.packages.forEach(function(p,i){var l=el('label','pkg'+(i?'':' on'));var r=el('input');r.type='radio';r.name='package_id';r.value=p.id;r.checked=!i;
+    r.onchange=function(){pk.querySelectorAll('.pkg').forEach(function(x){x.classList.toggle('on',x.contains(r));});pay.textContent=tt('pay',{price:money(p.currency,p.price)});};
+    var nm=el('span','nm');nm.append(el('b',null,p.name),el('small',null,dur(p.validity_minutes*60)));
+    l.append(r,nm,el('span','pr',money(p.currency,p.price)));pk.append(l);});f.append(pk);
+  var net=null;if(d.networks.length){net=el('select','input');d.networks.forEach(function(n){var o=el('option',null,n.name);o.value=n.id;net.append(o);});
+    var nf=el('div','field');nf.append(el('label',null,tt('network')),net);f.append(nf);}
+  var ph=el('input','input');ph.type='tel';ph.inputMode='tel';ph.placeholder='07XX XXX XXX';ph.required=true;
+  var pf=el('div','field');pf.append(el('label',null,tt('your_phone')),ph);f.append(pf);
+  var gp=null;if(gift){gp=el('input','input');gp.type='tel';gp.inputMode='tel';gp.placeholder='07XX XXX XXX';gp.required=true;
+    var gf=el('div','field');gf.append(el('label',null,tt('friend_phone')),gp);f.append(gf);}
+  var p0=d.packages[0];var pay=el('button','btn',p0?tt('pay',{price:money(p0.currency,p0.price)}):'');pay.type='submit';
+  var cancel=el('button','btn ghost',tt('cancel'));cancel.type='button';cancel.onclick=function(){show(d);};f.append(pay,cancel);
+  f.onsubmit=function(ev){ev.preventDefault();pay.disabled=true;err.classList.add('hidden');
+    var sel=f.querySelector('input[name=package_id]:checked');
+    api('/api/buy',{tokens:st.tokens,package_id:sel&&sel.value,phone:ph.value,network:net&&net.value,gift:!!gift,gift_phone:gp&&gp.value})
+    .then(function(j){wait(j);}).catch(function(e){err.textContent=e.message;err.classList.remove('hidden');pay.disabled=false;});};
+  box.replaceChildren(f);}
+function wait(j){box.replaceChildren(el('h2',null,tt('waiting')),el('p','lead',tt('check_phone',{amount:money(j.currency,j.amount)})));
+  var n=0,timer=setInterval(function(){n++;api('/api/pay/'+j.reference).then(function(p){
+    if(p.status==='paid'){clearInterval(timer);if(p.token&&st.tokens.indexOf(p.token)<0){st.tokens.push(p.token);save(st);}
+      var a=el('div','alert ok');a.textContent=p.gift_phone?tt('paid_friend',{code:p.code,phone:p.gift_phone}):tt('paid_me',{code:p.code});
+      box.replaceChildren(a);setTimeout(refresh,4000);}
+    else if(p.status==='failed'||p.status==='review'){clearInterval(timer);var a2=el('div','alert');a2.textContent=tt('failed',{reason:p.message||''});
+      box.replaceChildren(a2);var b=el('button','btn ghost',tt('cancel'));b.onclick=refresh;box.append(b);}
+    }).catch(function(){});if(n>60)clearInterval(timer);},3000);}
+var promptEvt=null;window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();promptEvt=e;installHint();});
+function installHint(){var old=document.getElementById('install');if(old)old.remove();
+  if(window.matchMedia('(display-mode: standalone)').matches||navigator.standalone)return;
+  var s=el('div','sec');s.id='install';
+  if(promptEvt){var b=el('button','btn ghost',tt('install'));b.type='button';b.onclick=function(){promptEvt.prompt();};s.append(b);}
+  else if(/iphone|ipad/i.test(navigator.userAgent))s.append(el('p','muted',tt('install_ios')));
+  if(s.childNodes.length)box.append(s);}
+if('serviceWorker' in navigator)navigator.serviceWorker.register(window.APP_WORKER,{scope:'/app/'}).catch(function(){});
+setInterval(function(){if(document.visibilityState==='visible'&&st.tokens.length&&!box.querySelector('form'))refresh();},30000);
+})();
+"""
+
+APP_WORKER_JS = """
+// SafeNet guest app: keep the app's page so it opens without internet; the app keeps its last figures itself.
+var CACHE='snapp-v1';
+self.addEventListener('install',function(e){self.skipWaiting();});
+self.addEventListener('activate',function(e){e.waitUntil(self.clients.claim());});
+self.addEventListener('fetch',function(e){
+  var r=e.request;if(r.method!=='GET'||r.url.indexOf('/api/')>=0)return;
+  e.respondWith(fetch(r).then(function(res){var copy=res.clone();caches.open(CACHE).then(function(c){c.put(r,copy);});return res;})
+    .catch(function(){return caches.match(r);}));
+});
+"""
+
+
+def app_page(th, lang, *, base, manifest, worker, logo_base='/img/'):
+    """The guest app's page: everything else is drawn by APP_JS from the cloud's JSON."""
+    import json
+    strings = APP_T.get(lang, APP_T['en'])
+    head = (f'<link rel="manifest" href="{e(manifest)}"><meta name="theme-color" content="{e(th["color"])}">'
+            f'<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">'
+            f'<meta name="apple-mobile-web-app-title" content="{e(th["name"])}">'
+            f'<link rel="apple-touch-icon" href="{e(logo_base)}app-192.png"><style>{APP_CSS}</style>')
+    body = (f'<div id="app"><p class="muted">…</p></div>'
+            f'<script>window.APP_T={json.dumps(strings)};window.APP_BASE={json.dumps(base)};window.APP_WORKER={json.dumps(worker)};</script>'
+            f'<script>{APP_JS}</script>')
+    return page(th, lang, body, head=head, hero_extra=False, lang_url=base)

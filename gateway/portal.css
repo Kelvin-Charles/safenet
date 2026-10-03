@@ -190,3 +190,8 @@ body.preview .sheet { padding-bottom: 64px; }
     h1 { font-size: 23px; }
 }
 @media (prefers-reduced-motion: reduce) { .state-ic.wait { animation: none; } .spinner { animation-duration: 2s; } }
+
+/* Link to the guest app on the connected screen */
+.appcard{display:flex;gap:12px;align-items:center;margin-top:14px;padding:13px 14px;border:1.5px solid var(--line);border-radius:14px;color:var(--ink);text-decoration:none;background:var(--tint)}
+.appcard .ic{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--brand);color:var(--on-brand);flex:none}
+.appcard b{display:block;font-size:15px}.appcard small{color:var(--ink-2);font-size:12.5px}.appcard>svg{margin-left:auto;flex:none}

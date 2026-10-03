@@ -1467,7 +1467,11 @@ def _returning_code(tid, mac):
                                           *([SessionKick.created_at >= last] if last else [])).first()
         if not kicked:
             return code
-    return None
+    # a package bought in the guest app for this phone, not started yet: it starts now
+    waiting = db.session.query(Voucher.code).filter(
+        Voucher.tenant_id == tid, Voucher.first_mac == dashed.lower().replace('-', ':'), Voucher.first_used_at.is_(None),
+        Voucher.status == 'unused', Voucher.is_free.is_(False)).order_by(Voucher.id).first()
+    return waiting[0] if waiting else None
 
 
 def _free_trial_stats(tid):
@@ -1909,6 +1913,8 @@ def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, **ext
     wanted = request.args.get('lang')
     lang = wanted if wanted in portal_ui.LANGS else request.cookies.get('sn_lang') if request.cookies.get('sn_lang') in portal_ui.LANGS else th['language']
     if view == 'status':
+        if extra.get('user') and Voucher.query.filter_by(tenant_id=tenant.id, code=extra['user']).first():
+            extra.setdefault('app_url', _guest_app_link(tenant, extra['user']))
         html_out = portal_ui.status_page(th, lang, base=base, logout=False, lang_url=base, **extra)
     elif view == 'wait':
         html_out = portal_ui.waiting_page(th, lang, base=base, lang_url=base, **extra)
@@ -2738,6 +2744,184 @@ def site_omada(site_id):
     return redirect(url_for('sites_page'))
 
 
+# ---------------------------------------------------------------------------
+# "My Wi-Fi": the guest app (a web app guests add to their home screen). It shows their time and
+# data, and lets them buy more or buy for a friend. A guest is known by the voucher codes they
+# added (kept on their phone as signed tokens), never by an account.
+# ---------------------------------------------------------------------------
+def _guest_app_link(tenant, code=None):
+    return _link('guest_app', slug=tenant.slug) + (f'#code={code}' if code else '')
+
+
+def _guest_token(tenant, code):
+    return _tokens('guest-app').dumps({'t': tenant.id, 'c': code})
+
+
+def _guest_app_tenant(slug):
+    tenant = Tenant.query.filter_by(slug=slug[:64]).first()
+    if tenant is None or tenant_blocked(tenant):
+        abort(404)
+    return tenant
+
+
+def _guest_app_vouchers(tenant, tokens):
+    """The vouchers behind the app's tokens (only this business's), plus the other packages the same
+    phone bought for itself (not gifts), newest first."""
+    codes = []
+    for token in (tokens or [])[:20]:
+        try:
+            data = _tokens('guest-app').loads(str(token))
+        except BadSignature:
+            continue
+        if data.get('t') == tenant.id and data.get('c') not in codes:
+            codes.append(data['c'])
+    vouchers = Voucher.query.filter(Voucher.tenant_id == tenant.id, Voucher.code.in_(codes)).all() if codes else []
+    phones = {p.phone for p in Payment.query.filter(Payment.voucher_id.in_([v.id for v in vouchers]), Payment.gift_phone.is_(None))} if vouchers else set()
+    if phones:
+        mine = Payment.query.filter(Payment.tenant_id == tenant.id, Payment.phone.in_(phones), Payment.status == 'paid',
+                                    Payment.gift_phone.is_(None), Payment.voucher_id.isnot(None)).order_by(Payment.id.desc()).limit(20)
+        known = {v.id for v in vouchers}
+        vouchers += [p.voucher for p in mine if p.voucher and p.voucher_id not in known]
+    return vouchers
+
+
+def _guest_voucher_json(v):
+    now = datetime.utcnow()
+    rows = RadAcct.query.filter_by(username=v.code)
+    down, up = rows.with_entities(func.coalesce(func.sum(RadAcct.acctoutputoctets), 0),
+                                  func.coalesce(func.sum(RadAcct.acctinputoctets), 0)).one()
+    online = rows.filter(RadAcct.acctstoptime.is_(None),
+                         func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime) >= now - timedelta(minutes=LIVE_STALE_MINUTES)).count()
+    pay = Payment.query.filter_by(voucher_id=v.id).first()
+    left = max(0, int((v.expires_at - now).total_seconds())) if v.expires_at else v.validity_minutes * 60
+    return {'code': v.code, 'state': v.state, 'package': (pay.package_name if pay else None) or (v.plan.name if v.plan else ''),
+            'validity_minutes': v.validity_minutes, 'seconds_left': left if v.state in ('active', 'unused') else 0,
+            'total_seconds': v.validity_minutes * 60, 'expires': _iso(v.expires_at), 'started': _iso(v.first_used_at),
+            'down': int(down), 'up': int(up), 'online': online, 'max_devices': v.max_devices or 1,
+            'bought': _iso(pay.paid_at) if pay and pay.paid_at else None, 'amount': f'{pay.amount:.0f}' if pay else None,
+            'site_id': v.site_id}
+
+
+@app.route('/app/<slug>')
+def guest_app(slug):
+    tenant = _guest_app_tenant(slug)
+    cfg = portal_config(tenant)
+    if cfg.get('logo_version'):
+        cfg['logo_url'] = url_for('portal_logo', slug=tenant.slug, v=cfg['logo_version'])
+    th = portal_ui.theme(cfg)
+    wanted = request.args.get('lang')
+    lang = wanted if wanted in portal_ui.LANGS else request.cookies.get('sn_lang') if request.cookies.get('sn_lang') in portal_ui.LANGS else th['language']
+    resp = make_response(portal_ui.app_page(th, lang, base=url_for('guest_app', slug=tenant.slug),
+                                            manifest=url_for('guest_app_manifest', slug=tenant.slug),
+                                            worker=url_for('guest_app_worker'), logo_base=url_for('static', filename='img/')))
+    resp.headers['Cache-Control'] = 'no-cache'
+    if wanted in portal_ui.LANGS:
+        resp.set_cookie('sn_lang', wanted, max_age=31536000, samesite='Lax', secure=Config.SESSION_COOKIE_SECURE)
+    return resp
+
+
+@app.route('/app/<slug>/manifest.webmanifest')
+def guest_app_manifest(slug):
+    tenant = _guest_app_tenant(slug)
+    th = portal_ui.theme(portal_config(tenant))
+    start = url_for('guest_app', slug=tenant.slug)
+    icons = [{'src': url_for('static', filename=f'img/app-{n}.png'), 'sizes': f'{n}x{n}', 'type': 'image/png', 'purpose': 'any maskable'}
+             for n in (192, 512)]
+    data = {'name': f"{th['name']} Wi-Fi", 'short_name': th['name'][:12], 'start_url': start, 'scope': start,
+            'display': 'standalone', 'background_color': '#f1f5f9', 'theme_color': th['color'], 'icons': icons,
+            'description': 'Time left, data used, buy more Wi-Fi.'}
+    resp = make_response(json.dumps(data))
+    resp.headers['Content-Type'] = 'application/manifest+json'
+    return resp
+
+
+@app.route('/app/sw.js')
+def guest_app_worker():
+    """Offline helper: the app opens (with the last figures it saw) even without internet."""
+    resp = make_response(portal_ui.APP_WORKER_JS)
+    resp.headers['Content-Type'] = 'application/javascript'
+    resp.headers['Service-Worker-Allowed'] = '/app/'
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
+
+
+@app.route('/app/<slug>/api/link', methods=['POST'])
+def guest_app_link(slug):
+    """Add a voucher code to the app: answers with a token the app keeps."""
+    tenant = _guest_app_tenant(slug)
+    ip_key = f'ip:{_client_ip()}'
+    if _rate_limited('applink', ip_key, 10, 10):
+        return jsonify(error='Too many wrong attempts. Please wait a few minutes and try again.'), 429
+    code = re.sub(r'\s+', '', str((request.get_json(silent=True) or {}).get('code') or ''))[:32]
+    voucher = Voucher.query.filter_by(tenant_id=tenant.id, code=code).first() if code else None
+    if voucher is None or voucher.status == 'disabled':
+        _rate_hit('applink', ip_key)
+        return jsonify(error="That code isn't valid. Check it and try again."), 404
+    return jsonify(token=_guest_token(tenant, voucher.code), voucher=_guest_voucher_json(voucher))
+
+
+@app.route('/app/<slug>/api/me', methods=['POST'])
+def guest_app_me(slug):
+    """Everything the app shows: the guest's vouchers (current first), packages to buy, how to pay."""
+    tenant = _guest_app_tenant(slug)
+    tokens = (request.get_json(silent=True) or {}).get('tokens') or []
+    vouchers = [_guest_voucher_json(v) for v in _guest_app_vouchers(tenant, tokens)]
+    rank = {'active': 0, 'unused': 1, 'expired': 2, 'disabled': 3}
+    vouchers.sort(key=lambda v: (rank.get(v['state'], 9), -v['seconds_left'] if v['state'] == 'active' else 0, v['bought'] or ''))
+    site_id = next((v['site_id'] for v in vouchers if v['site_id']), None) or tenant_sites(tenant.id)[0].id
+    packages = [{'id': p.id, 'name': p.name, 'description': p.description or '', 'price': f'{p.price:.0f}', 'currency': p.currency,
+                 'validity_minutes': p.validity_minutes}
+                for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True), site_id)
+                .order_by(Package.sort_order, Package.price)]
+    hs = _hotspot_settings(tenant)
+    return jsonify(vouchers=vouchers, packages=packages, networks=payment_networks(tenant),
+                   can_buy=paylib.is_ready(_tenant_account(tenant)) and bool(packages), can_gift=_sms_on(tenant),
+                   support=hs['support'], name=hs['name'], tokens=[_guest_token(tenant, v['code']) for v in vouchers])
+
+
+@app.route('/app/<slug>/api/buy', methods=['POST'])
+def guest_app_buy(slug):
+    """Buy a package from the app, for this phone (it reconnects with it by itself) or for a friend."""
+    tenant = _guest_app_tenant(slug)
+    data = request.get_json(silent=True) or {}
+    if _rate_limited('appbuy', f'ip:{_client_ip()}', 6, 10):
+        return jsonify(error='Too many payment requests. Please wait a few minutes.'), 429
+    mine = _guest_app_vouchers(tenant, data.get('tokens') or [])
+    site_id = next((v.site_id for v in mine if v.site_id), None) or tenant_sites(tenant.id)[0].id
+    package = _site_packages(Package.query.filter_by(id=data.get('package_id'), tenant_id=tenant.id, is_active=True,
+                                                     show_on_portal=True), site_id).first()
+    if package is None:
+        return jsonify(error='Choose a package.'), 400
+    gift = data.get('gift_phone') if data.get('gift') else None
+    if data.get('gift') and gift is None:
+        gift = ''
+    mac = None
+    if not gift:     # for this phone: the last device that used one of its codes
+        last = RadAcct.query.filter(RadAcct.username.in_([v.code for v in mine])).order_by(RadAcct.acctstarttime.desc()).first() if mine else None
+        mac = last.callingstationid if last else None
+    _rate_hit('appbuy', f'ip:{_client_ip()}')
+    payment, error, status = _start_purchase(tenant, site_id, package, str(data.get('phone') or ''), str(data.get('network') or '')[:16] or None,
+                                             mac=mac, nas='guest-app', gift_phone=gift)
+    if error:
+        return jsonify(error=error), status
+    return jsonify(reference=payment.reference, amount=f'{payment.amount:.0f}', currency=payment.currency, phone=payment.phone,
+                   package=payment.package_name, gift_phone=payment.gift_phone or '')
+
+
+@app.route('/app/<slug>/api/pay/<reference>')
+def guest_app_payment(slug, reference):
+    tenant = _guest_app_tenant(slug)
+    if not Payment.query.filter_by(reference=reference[:20], tenant_id=tenant.id, nas_identifier='guest-app').first():
+        abort(404)
+    payment = _refresh_payment(reference[:20])
+    out = {'status': payment.status, 'message': payment.message or '', 'gift_phone': payment.gift_phone or ''}
+    if payment.status == 'paid' and payment.voucher:
+        out['code'] = payment.voucher.code
+        if not payment.gift_phone:
+            out['token'] = _guest_token(tenant, payment.voucher.code)
+    return jsonify(out)
+
+
 @app.route('/portal/logo/<slug>')
 def portal_logo(slug):
     return _logo_response(Tenant.query.filter_by(slug=slug[:64]).first())
@@ -3170,6 +3354,8 @@ def _fulfil_payment(payment):
     payment.paid_at = datetime.utcnow()
     log.info('payment %s paid: voucher %s', payment.reference, voucher.code)
     _sale_alert(payment)
+    if payment.client_mac and not payment.gift_phone:
+        voucher.first_mac = _mac_key(payment.client_mac)     # waits for this phone (see _returning_code)
     if not _sms_on(payment.tenant):
         return                       # the guest sees the code on screen; no SMS, no charge
     brand = _hotspot_settings(payment.tenant)
