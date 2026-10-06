@@ -73,4 +73,56 @@ tok = lambda h: re.search(r'name="csrf_token"[^>]*value="([^"]+)"', h).group(1)
 cl = app.test_client(); r = cl.get('/login'); cl.post('/login', data={'username': 'owner', 'password': 'password1', 'csrf_token': tok(r.text)})
 live = cl.get('/api/live').get_json()
 assert [o['down'] for o in live['online'] if o['mac'] == 'AA-BB-CC-00-00-01'] == [82_000_000], live['online']
+
+# --- a hostel: phones drop off for a moment, and the controller lets paid phones back in without the login page
+from models import SessionKick
+def sync(clients):
+    with app.app_context():
+        db.session.get(Site, SITE).omada_synced_at = None; db.session.commit()
+        api.clients_now = clients
+        appmod._omada_sync_due()
+with app.app_context():
+    s = db.session.get(Site, SITE); TENANT = s.tenant_id
+    for code, minutes in (('30304040', 600), ('50506060', 600), ('70708080', 600)):
+        db.session.add(Voucher(tenant_id=TENANT, code=code, validity_minutes=minutes, batch='x', status='active',
+                               first_used_at=now - timedelta(minutes=20), expires_at=now + timedelta(hours=9)))
+    db.session.add_all([session('h1', 'AA-BB-CC-00-00-11', now - timedelta(minutes=20)),
+                        session('h2', 'AA-BB-CC-00-00-12', now - timedelta(minutes=20))])
+    db.session.commit()
+    RadAcct.query.filter_by(acctsessionid='h1').update({'username': '30304040', 'acctupdatetime': now - timedelta(minutes=3)})
+    RadAcct.query.filter_by(acctsessionid='h2').update({'username': '50506060'})
+    db.session.commit()
+on = lambda mac, **kw: {'mac': mac, 'trafficDown': 1000, 'trafficUp': 100, 'active': True, 'authStatus': 2, **kw}
+# h1 missing for 3 minutes: still a session (walking between rooms); h2 missing for 20 minutes: closed
+sync([])
+with app.app_context():
+    assert RadAcct.query.filter_by(acctsessionid='h1').one().acctstoptime is None
+    assert RadAcct.query.filter_by(acctsessionid='h2').one().acctterminatecause == 'Lost-Carrier'
+# h2's phone is back, let in by the controller (no login page): counted again on its voucher
+sync([on('AA-BB-CC-00-00-11'), on('AA-BB-CC-00-00-12', ip='10.20.0.40')])
+with app.app_context():
+    back = RadAcct.query.filter(RadAcct.callingstationid == 'AA-BB-CC-00-00-12', RadAcct.acctstoptime.is_(None)).all()
+    assert len(back) == 1 and back[0].username == '50506060' and back[0].calledstationid == f'omada-{SITE}' and back[0].framedipaddress == '10.20.0.40'
+    assert back[0].acctoutputoctets == 1000                       # its traffic counts from the next read on
+    assert RadAcct.query.filter(RadAcct.callingstationid == 'AA-BB-CC-00-00-11', RadAcct.acctstoptime.is_(None)).count() == 1   # not doubled
+# not counted back: still waiting at the login page, a finished voucher, or a code the owner disconnected
+with app.app_context():
+    db.session.add_all([session('k1', 'AA-BB-CC-00-00-13', now - timedelta(minutes=40)), session('k2', 'AA-BB-CC-00-00-14', now - timedelta(minutes=40)),
+                        session('k3', 'AA-BB-CC-00-00-15', now - timedelta(minutes=40))])
+    db.session.commit()
+    for sid, code in (('k1', '70708080'), ('k2', '70708080'), ('k3', '99999999')):
+        RadAcct.query.filter_by(acctsessionid=sid).update({'username': code, 'acctstoptime': now - timedelta(minutes=30), 'acctterminatecause': 'Lost-Carrier'})
+    db.session.add(SessionKick(tenant_id=TENANT, username='70708080', created_at=now - timedelta(minutes=35)))
+    db.session.commit()
+sync([on('AA-BB-CC-00-00-11'), on('AA-BB-CC-00-00-12'), on('AA-BB-CC-00-00-13'), on('AA-BB-CC-00-00-14'),
+      on('AA-BB-CC-00-00-15'), on('AA-BB-CC-00-00-16', authStatus=1)])
+with app.app_context():
+    for mac in ('AA-BB-CC-00-00-13', 'AA-BB-CC-00-00-14', 'AA-BB-CC-00-00-15', 'AA-BB-CC-00-00-16'):
+        assert RadAcct.query.filter(RadAcct.callingstationid == mac, RadAcct.acctstoptime.is_(None)).count() == 0, mac
+    s = db.session.get(Site, SITE); assert s.omada_checked_at and s.omada_error is None
+# the controller doesn't answer: shown on the site
+def broken(site_id): raise appmod.omada.OmadaError("can't reach the controller")
+api.clients = broken
+sync([])
+with app.app_context(): assert 'Reading guests from the controller failed' in db.session.get(Site, SITE).omada_error
 print('OMADA USAGE OK')

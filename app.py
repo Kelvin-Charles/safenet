@@ -13,6 +13,7 @@ import snippe
 from gateway import portal_ui
 from sms import send_sms_async, is_configured as sms_is_configured
 import i18n
+import safetext
 from i18n import tr
 from models import format_minutes
 import radclient
@@ -2134,25 +2135,58 @@ def _openapi():
 OMADA_SYNC_SECONDS = 60      # how often guests' data usage is read from SafeNet's controller
 
 
+OMADA_GONE_MINUTES = 10      # a phone missing from the controller this long has left (short drops don't end a session)
+OMADA_AUTHORIZED = 2         # the controller's authStatus for a guest let online through the portal
+
+
 def _omada_sync_site(site, api=None, now=None):
     """Copy each Omada guest's data usage from SafeNet's controller into their session, keep it 'online' while the
-    phone is connected, and close it when the phone has gone. Commits."""
+    phone is connected, close it when the phone has been gone a while, and open it again when the controller lets
+    the phone back online by itself (it keeps paid phones authorized, so they don't pass the login page again).
+    Commits."""
     now = now or datetime.utcnow()
-    rows = RadAcct.query.filter(RadAcct.calledstationid == f'omada-{site.id}', RadAcct.acctstoptime.is_(None)).all()
-    if not rows or not site.omada_site_id:
+    if not site.omada_site_id:
         return 0
     seen = {}
     for c in (api or _openapi()).clients(site.omada_site_id):
         mac = str(c.get('mac') or '').upper().replace(':', '-')
         if mac:
             seen[mac] = c
-    counters = {c.radacct_id: c for c in OmadaCounter.query.filter(OmadaCounter.radacct_id.in_([r.radacctid for r in rows]))}
+    station = f'omada-{site.id}'
+    rows = RadAcct.query.filter(RadAcct.calledstationid == station, RadAcct.acctstoptime.is_(None)).all()
+    open_macs = {(r.callingstationid or '').upper() for r in rows}
+
+    # back online without passing the login page: a new session on the voucher this phone last used here
+    for mac, c in seen.items():
+        if mac in open_macs or c.get('active') is False or c.get('authStatus') != OMADA_AUTHORIZED:
+            continue
+        last = RadAcct.query.filter(RadAcct.calledstationid == station, RadAcct.callingstationid == mac) \
+            .order_by(RadAcct.acctstarttime.desc()).first()
+        voucher = Voucher.query.filter_by(tenant_id=site.tenant_id, code=last.username).first() if last else None
+        if voucher is None or voucher.state != 'active':
+            continue
+        if SessionKick.query.filter(SessionKick.tenant_id == site.tenant_id, SessionKick.username == voucher.code,
+                                    SessionKick.created_at >= last.acctstarttime).first():
+            continue          # the owner disconnected this code: don't count it back
+        sid = secrets.token_hex(8)
+        row = RadAcct(acctsessionid=sid, acctuniqueid=hashlib.md5(f'omada:{site.id}:{sid}'.encode()).hexdigest(),
+                      username=voucher.code, nasipaddress=last.nasipaddress or '', groupname='', acctterminatecause='',
+                      calledstationid=station, callingstationid=mac, framedipaddress=str(c.get('ip') or '')[:15],
+                      nasporttype='Wireless-802.11', acctstarttime=now, acctupdatetime=now, acctsessiontime=0,
+                      acctinputoctets=0, acctoutputoctets=0)
+        db.session.add(row)
+        db.session.flush()
+        rows.append(row)
+        log.info('omada: %s back online on %s without the login page; session reopened', mac, voucher.code)
+
+    counters = {c.radacct_id: c for c in OmadaCounter.query.filter(OmadaCounter.radacct_id.in_([r.radacctid for r in rows]))} if rows else {}
     for row in rows:
         c = seen.get((row.callingstationid or '').upper())
         if c is None or c.get('active') is False:
-            # gone: close it (a phone that has only just logged in may not be listed yet)
-            if (now - (row.acctstarttime or now)).total_seconds() > 120:
-                row.acctstoptime = row.acctupdatetime or now
+            # not seen: only gone after a while (walking between rooms, a sleeping phone)
+            last_seen = row.acctupdatetime or row.acctstarttime or now
+            if (now - last_seen).total_seconds() > OMADA_GONE_MINUTES * 60:
+                row.acctstoptime = last_seen
                 row.acctterminatecause = 'Lost-Carrier'
             continue
         down, up = int(c.get('trafficDown') or 0), int(c.get('trafficUp') or 0)
@@ -2173,12 +2207,10 @@ def _omada_sync_site(site, api=None, now=None):
 
 
 def _omada_sync_due():
-    """Sync every hosted Omada site that has open sessions, at most once a minute across all web workers."""
+    """Sync every hosted Omada site, at most once a minute across all web workers."""
     cutoff = datetime.utcnow() - timedelta(seconds=OMADA_SYNC_SECONDS)
-    open_sites = {int(v[6:]) for (v,) in db.session.query(RadAcct.calledstationid).filter(
-        RadAcct.calledstationid.like('omada-%'), RadAcct.acctstoptime.is_(None)).distinct() if v[6:].isdigit()}
-    site_ids = [sid for (sid,) in db.session.query(Site.id).filter(
-        Site.id.in_(open_sites), Site.omada_hosted.is_(True), Site.omada_site_id.isnot(None))] if open_sites else []
+    # every hosted site (not only those with open sessions: phones the controller lets back in must be found too)
+    site_ids = [sid for (sid,) in db.session.query(Site.id).filter(Site.omada_hosted.is_(True), Site.omada_site_id.isnot(None))]
     for sid in site_ids:
         # claim the site (another worker may be doing the same)
         claimed = Site.query.filter(Site.id == sid, or_(Site.omada_synced_at.is_(None), Site.omada_synced_at < cutoff)) \
@@ -2186,10 +2218,15 @@ def _omada_sync_due():
         db.session.commit()
         if claimed:
             try:
-                _omada_sync_site(db.session.get(Site, sid))
+                site = db.session.get(Site, sid)
+                _omada_sync_site(site)
+                Site.query.filter_by(id=sid).update({'omada_checked_at': datetime.utcnow(), 'omada_error': None})
+                db.session.commit()
             except Exception as e:          # the controller may be restarting: try again next minute
                 db.session.rollback()
                 log.warning('omada usage sync for site %s failed: %s', sid, e)
+                Site.query.filter_by(id=sid).update({'omada_error': safetext.clean(f'Reading guests from the controller failed: {e}')[:255]})
+                db.session.commit()
 
 
 def _omada_sync_loop():

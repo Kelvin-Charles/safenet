@@ -75,7 +75,8 @@
                                 {% if s.omada_hosted %}
                                 <div class="d-flex flex-wrap gap-3 align-items-center mb-2">
                                     <span><i class="bi bi-cloud-check text-success"></i> {{ _('Using') }} <strong>{{ _("SafeNet's Omada Controller") }}</strong></span>
-                                    {% if s.omada_error %}<span class="small text-danger"><i class="bi bi-x-circle"></i> {{ s.omada_error }}</span>{% endif %}
+                                    {% if s.omada_error %}<span class="small text-danger"><i class="bi bi-x-circle"></i> {{ s.omada_error }}</span>
+                                    {% elif s.omada_checked_at %}<span class="small text-muted"><i class="bi bi-arrow-repeat"></i> {{ _('Guests and data read from the controller: {time} UTC', time=s.omada_checked_at.strftime('%d %b %H:%M')) }}</span>{% endif %}
                                     <form method="POST" action="{{ url_for('site_omada', site_id=s.id) }}" class="m-0" onsubmit="return confirm('{{ _('Stop using Omada at {site}?', site=s.name) }}')">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="remove">{{ _('Remove') }}</button>

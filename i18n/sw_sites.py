@@ -330,4 +330,5 @@ SW = {
     'e.g. Zulu Free WiFi': 'mfano Zulu Free WiFi',
     'Wi-Fi password (empty for an open network)': 'Nenosiri la Wi-Fi (acha wazi kama mtandao uko wazi)',
     'Print the scan-to-join Wi-Fi QR code': 'Chapisha QR ya kujiunga na Wi-Fi',
+    'Guests and data read from the controller: {time} UTC': 'Wateja na data vimesomwa kutoka controller: {time} UTC',
 }
