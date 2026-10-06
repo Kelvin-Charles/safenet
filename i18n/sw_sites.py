@@ -323,4 +323,11 @@ SW = {
     'on the Live page.': 'kwenye ukurasa wa Moja kwa moja.',
     'Works with TP-Link Omada access points: EAP225, EAP225-Outdoor, EAP245, EAP610, EAP650 and other EAP models.':
         'Inafanya kazi na vifaa vya Wi-Fi vya TP-Link Omada: EAP225, EAP225-Outdoor, EAP245, EAP610, EAP650 na modeli nyingine za EAP.',
+    'Wi-Fi QR code': 'QR ya Wi-Fi',
+    'A4 poster': 'Bango la A4',
+    'Table cards (6 per page)': 'Kadi za mezani (6 kwa ukurasa)',
+    'Guest Wi-Fi name (for the QR code)': 'Jina la Wi-Fi ya wateja (kwa QR)',
+    'e.g. Zulu Free WiFi': 'mfano Zulu Free WiFi',
+    'Wi-Fi password (empty for an open network)': 'Nenosiri la Wi-Fi (acha wazi kama mtandao uko wazi)',
+    'Print the scan-to-join Wi-Fi QR code': 'Chapisha QR ya kujiunga na Wi-Fi',
 }

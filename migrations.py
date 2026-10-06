@@ -211,6 +211,8 @@ def run():
     _add_column('sites', 'wifidog_gw_id', 'VARCHAR(64)')
     _add_column('sites', 'omada_checked_at', 'DATETIME')
     _add_column('sites', 'omada_synced_at', 'DATETIME')
+    _add_column('sites', 'wifi_ssid', 'VARCHAR(32)')
+    _add_column('sites', 'wifi_password', 'VARCHAR(63)')
     _add_column('sites', 'omada_error', 'VARCHAR(255)')
     _add_index('sites', 'uq_sites_portal_token', 'portal_token', unique=True)
     _ensure_sites()

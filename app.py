@@ -4310,9 +4310,40 @@ def edit_site(site_id):
     if name:
         site.name = name
         site.location = (request.form.get('location') or '').strip()[:128] or None
+        if 'wifi_ssid' in request.form:
+            ssid, password = request.form.get('wifi_ssid', '').strip()[:32], request.form.get('wifi_password', '')
+            if password and not 8 <= len(password) <= 63:
+                flash(tr('A Wi-Fi password has 8 to 63 characters. Leave it empty for an open network.'), 'danger')
+                return redirect(url_for('sites_page'))
+            site.wifi_ssid, site.wifi_password = ssid or None, (password[:63] if ssid else None) or None
         db.session.commit()
         flash(tr('Site "{name}" saved.', name=name), 'success')
     return redirect(url_for('sites_page'))
+
+
+def _wifi_qr_text(ssid, password=None):
+    """What phones' cameras read as 'join this Wi-Fi' (special characters escaped)."""
+    esc = lambda s: re.sub(r'([\\;,:"])', r'\\\1', s)
+    return f'WIFI:T:WPA;S:{esc(ssid)};P:{esc(password)};;' if password else f'WIFI:T:nopass;S:{esc(ssid)};;'
+
+
+@app.route('/sites/<int:site_id>/wifi-qr')
+@login_required
+@role_required('staff')
+def wifi_qr(site_id):
+    """Printable 'scan to join our Wi-Fi' QR codes for a site: an A4 poster, or table cards (?layout=cards)."""
+    site = owned_or_404(Site, site_id)
+    if not site.join_ssid:
+        flash(tr('Add the Wi-Fi name for {site} first (Rename / edit).', site=site.name), 'warning')
+        return redirect(url_for('sites_page'))
+    tenant = current_tenant()
+    cfg = portal_config(tenant)
+    hs = _hotspot_settings(tenant)
+    return render_template('wifi_qr.html', site=site, ssid=site.join_ssid, password=site.wifi_password,
+                           qr_text=_wifi_qr_text(site.join_ssid, site.wifi_password), name=hs['name'], support=hs['support'],
+                           color=portal_ui.theme(cfg)['color'], app_url=_guest_app_link(tenant),
+                           layout='cards' if request.args.get('layout') == 'cards' else 'poster',
+                           logo_url=url_for('portal_logo', slug=tenant.slug, v=cfg['logo_version']) if cfg.get('logo_version') else None)
 
 
 @app.route('/sites/<int:site_id>/delete', methods=['POST'])

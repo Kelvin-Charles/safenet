@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ _('Wi-Fi QR code') }} - {{ ssid }}</title>
+    <style>
+        @page { size: A4; margin: 12mm; }
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #0f172a; margin: 0; background: #f1f5f9; }
+        .bar { text-align: center; padding: 12px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+        .bar a, .bar button { font: inherit; font-size: 15px; padding: 8px 16px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; color: #0f172a; text-decoration: none; cursor: pointer; }
+        .bar .on { background: {{ color }}; color: #fff; border-color: {{ color }}; }
+        .sheet { width: 186mm; margin: 0 auto 20px; background: #fff; padding: 12mm; }
+        .band { background: {{ color }}; color: #fff; border-radius: 18px; padding: 8mm; text-align: center; }
+        .band img { width: 24mm; height: 24mm; object-fit: contain; background: #fff; border-radius: 14px; padding: 2mm; }
+        .band h1 { font-size: 30pt; margin: 3mm 0 1mm; }
+        .band p { margin: 0; font-size: 14pt; opacity: .95; }
+        .center { text-align: center; }
+        .qr-big { display: inline-block; margin: 9mm 0 5mm; padding: 4mm; border: 3px solid {{ color }}; border-radius: 16px; }
+        .scan { font-size: 21pt; font-weight: 800; margin: 0; }
+        .sw { color: #475569; font-weight: 500; font-size: 12pt; }
+        .net { display: inline-grid; grid-template-columns: auto auto; gap: 2mm 6mm; text-align: left; margin: 7mm 0; padding: 5mm 8mm; border-radius: 14px; background: #f1f5f9; font-size: 14pt; }
+        .net b { font-size: 17pt; letter-spacing: .3px; }
+        .app { display: flex; align-items: center; gap: 6mm; justify-content: center; margin-top: 4mm; padding-top: 6mm; border-top: 1px dashed #cbd5e1; text-align: left; font-size: 12pt; }
+        .foot { text-align: center; color: #475569; font-size: 11pt; margin-top: 6mm; }
+        /* table cards: 2 x 3 on A4, cut along the dashed lines */
+        .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+        .card { border: 1px dashed #94a3b8; padding: 6mm 5mm; text-align: center; height: 88mm; display: flex; flex-direction: column; align-items: center; justify-content: space-between; }
+        .card .top { background: {{ color }}; color: #fff; border-radius: 10px; padding: 2mm 3mm; width: 100%; font-weight: 700; font-size: 12pt; }
+        .card .qr { padding: 1.5mm; border: 2px solid {{ color }}; border-radius: 10px; }
+        .card .ssid { font-size: 12pt; }
+        .card .ssid b { font-size: 13pt; }
+        .card .hint { font-size: 9.5pt; color: #475569; }
+        @media print { body { background: #fff; } .bar { display: none; } .sheet { width: auto; margin: 0; padding: 0; } }
+    </style>
+</head>
+<body>
+    <div class="bar">
+        <a href="?layout=poster" class="{{ 'on' if layout == 'poster' }}">{{ _('A4 poster') }}</a>
+        <a href="?layout=cards" class="{{ 'on' if layout == 'cards' }}">{{ _('Table cards (6 per page)') }}</a>
+        <button onclick="window.print()">{{ _('Print') }}</button>
+    </div>
+    {% if layout == 'cards' %}
+    <div class="sheet cards">
+        {% for i in range(6) %}
+        <div class="card">
+            <div class="top">{{ name }} Wi-Fi</div>
+            <div class="qr" data-qr data-size="150"></div>
+            <div class="ssid">{{ 'Network / Mtandao' }}: <b>{{ ssid }}</b>{% if password %}<br>{{ 'Password / Nenosiri' }}: <b>{{ password }}</b>{% endif %}</div>
+            <div class="hint">Scan with your camera to join · Changanua kwa kamera kuunganishwa</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="sheet">
+        <div class="band">
+            {% if logo_url %}<img src="{{ logo_url }}" alt="">{% endif %}
+            <h1>{{ name }} Wi-Fi</h1>
+            <p>Free to join · Pay with mobile money · Bure kujiunga · Lipa kwa simu</p>
+        </div>
+        <div class="center">
+            <div class="qr-big" data-qr data-size="330"></div>
+            <p class="scan">Scan to join our Wi-Fi<br><span class="sw">Changanua kuunganishwa na Wi-Fi yetu</span></p>
+            <div class="net">
+                <span>Network / Mtandao</span><b>{{ ssid }}</b>
+                {% if password %}<span>Password / Nenosiri</span><b>{{ password }}</b>{% endif %}
+            </div>
+        </div>
+        <div class="app">
+            <div data-qr data-size="110" data-text="{{ app_url }}"></div>
+            <div><b>Get our Wi-Fi app</b> <span class="sw">· Pata app yetu ya Wi-Fi</span><br>
+                <span class="sw">See your time and data, buy more · Ona muda na data yako, nunua zaidi</span></div>
+        </div>
+        <p class="foot">{% if support %}Help / Msaada: {{ support }} · {% endif %}{{ site.name }}</p>
+    </div>
+    {% endif %}
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>
+        var joinText = {{ qr_text|tojson }};
+        document.querySelectorAll('[data-qr]').forEach(function (el) {
+            var size = parseInt(el.dataset.size, 10);
+            if (window.QRCode) new QRCode(el, { text: el.dataset.text || joinText, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
+        });
+    </script>
+</body>
+</html>

@@ -38,6 +38,7 @@
                                 </form>
                                 {% if current_user.has_role('admin') %}
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ s.id }}" title="{{ _('Rename') }}"><i class="bi bi-pencil"></i></button>
+                                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('wifi_qr', site_id=s.id) }}" target="_blank" rel="noopener" title="{{ _('Print the scan-to-join Wi-Fi QR code') }}"><i class="bi bi-qr-code"></i> QR</a>
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#omada-{{ s.id }}" title="{{ _('TP-Link Omada access points') }}"><i class="bi bi-wifi"></i> Omada</button>
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#wifidog-{{ s.id }}" title="{{ _('Ruijie RG-AP and other WiFiDog access points') }}"><i class="bi bi-broadcast-pin"></i> Ruijie</button>
                                 {% if rows|length > 1 %}
@@ -56,6 +57,10 @@
                                 <div class="col-md-5"><input name="name" class="form-control" value="{{ s.name }}" maxlength="64" required></div>
                                 <div class="col-md-5"><input name="location" class="form-control" value="{{ s.location or '' }}" maxlength="128" placeholder="{{ _('Location, e.g. Mwenge, Dar es Salaam') }}"></div>
                                 <div class="col-md-2 d-grid"><button class="btn btn-primary" type="submit">{{ _('Save') }}</button></div>
+                                <div class="col-md-5"><label class="form-label small mb-1">{{ _('Guest Wi-Fi name (for the QR code)') }}</label>
+                                    <input name="wifi_ssid" class="form-control" value="{{ s.wifi_ssid or '' }}" maxlength="32" placeholder="{{ s.omada_ssid or _('e.g. Zulu Free WiFi') }}"></div>
+                                <div class="col-md-5"><label class="form-label small mb-1">{{ _('Wi-Fi password (empty for an open network)') }}</label>
+                                    <input name="wifi_password" class="form-control" value="{{ s.wifi_password or '' }}" maxlength="63" autocomplete="off"></div>
                             </form>
                         </td></tr>
                         <tr class="collapse" id="omada-{{ s.id }}"><td colspan="7" class="bg-light">
