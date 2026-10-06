@@ -65,6 +65,7 @@ def load_user(user_id):
 
 
 app.jinja_env.globals['_'] = tr
+app.jinja_env.globals['platform_host'] = Config.PUBLIC_URL.split('://', 1)[-1]
 
 
 @app.before_request

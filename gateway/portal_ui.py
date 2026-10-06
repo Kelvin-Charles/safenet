@@ -9,6 +9,10 @@ import os
 import re
 from urllib.parse import urlencode, urlparse
 
+# The platform behind every guest page (shown as 'Powered by Safezone Tech · radius.safezonetz.com')
+PLATFORM_URL = (os.environ.get('SAFENET_PUBLIC_URL') or 'https://radius.safezonetz.com').rstrip('/')
+PLATFORM_HOST = PLATFORM_URL.split('://', 1)[-1]
+
 _CSS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'portal.css')
 with open(_CSS_PATH, encoding='utf-8') as _f:
     CSS = _f.read()
@@ -384,7 +388,7 @@ def page(th, lang, body, *, head='', lang_url='/', hero_extra=True, preview=Fals
     <div class="card">{body}</div>
     <div class="foot">
       <div class="row">{support}{terms_link}</div>
-      <div class="pw">{t(lang, 'powered')}</div>
+      <div class="pw"><a href="{e(PLATFORM_URL)}" target="_blank" rel="noopener">{t(lang, 'powered')} · {e(PLATFORM_HOST)}</a></div>
     </div>
   </main>
 </div>

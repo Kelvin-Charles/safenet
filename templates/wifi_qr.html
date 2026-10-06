@@ -33,6 +33,8 @@
         .card .ssid b { font-size: 13pt; }
         .card .hint { font-size: 9.5pt; color: #475569; }
         @media print { body { background: #fff; } .bar { display: none; } .sheet { width: auto; margin: 0; padding: 0; } }
+            .brand { text-align: center; color: #64748b; font-size: 10pt; margin-top: 5mm; letter-spacing: .3px; }
+        .card .brand { margin-top: 1mm; font-size: 8pt; }
     </style>
 </head>
 <body>
@@ -49,6 +51,7 @@
             <div class="qr" data-qr data-size="150"></div>
             <div class="ssid">{{ 'Network / Mtandao' }}: <b>{{ ssid }}</b>{% if password %}<br>{{ 'Password / Nenosiri' }}: <b>{{ password }}</b>{% endif %}</div>
             <div class="hint">Scan with your camera to join · Changanua kwa kamera kuunganishwa</div>
+            <div class="brand">Powered by Safezone Tech · {{ platform_host }}</div>
         </div>
         {% endfor %}
     </div>
@@ -73,6 +76,7 @@
                 <span class="sw">See your time and data, buy more · Ona muda na data yako, nunua zaidi</span></div>
         </div>
         <p class="foot">{% if support %}Help / Msaada: {{ support }} · {% endif %}{{ site.name }}</p>
+        <p class="brand">Powered by Safezone Tech · {{ platform_host }}</p>
     </div>
     {% endif %}
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>

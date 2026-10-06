@@ -19,6 +19,8 @@
         .foot { font-size: 11pt; color: #475569; }
         .no-print { text-align: center; padding: 12px; }
         @media print { body { background: #fff; } .no-print { display: none; } .sheet { padding: 0; min-height: 0; } }
+            .brand { text-align: center; color: #64748b; font-size: 10pt; margin-top: 5mm; letter-spacing: .3px; }
+        .card .brand { margin-top: 1mm; font-size: 8pt; }
     </style>
 </head>
 <body>
@@ -38,6 +40,7 @@
             <li>Tap "Add to home screen". <span class="sw">Bonyeza "Add to home screen".</span></li>
         </ol>
         <p class="foot">{{ app_url }}{% if support %} · Help / Msaada: {{ support }}{% endif %}</p>
+        <p class="brand">Powered by Safezone Tech · {{ platform_host }}</p>
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>if (window.QRCode) new QRCode(document.getElementById('qr'), { text: {{ app_url|tojson }}, width: 300, height: 300, correctLevel: QRCode.CorrectLevel.M });</script>

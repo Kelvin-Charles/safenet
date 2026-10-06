@@ -55,4 +55,12 @@ with app.app_context():
     o = Tenant(name='Other', slug='other', status='active'); db.session.add(o); db.session.flush()
     x = Site(tenant_id=o.id, name='X', wifi_ssid='Other'); db.session.add(x); db.session.commit(); XID = x.id
 assert c.get(f'/sites/{XID}/wifi-qr').status_code == 404
+# your brand at the bottom of the prints and the guest pages, linking to the platform
+assert 'Powered by Safezone Tech · radius.safezonetz.com' in html.unescape(c.get(f'/sites/{SID}/wifi-qr').text)
+assert html.unescape(c.get(f'/sites/{SID}/wifi-qr?layout=cards').text).count('Powered by Safezone Tech · radius.safezonetz.com') == 6
+assert 'Powered by Safezone Tech · radius.safezonetz.com' in html.unescape(c.get('/settings/portal/poster').text)
+from gateway import portal_ui as ui
+g = ui.login_page(ui.theme({}), 'en')
+assert '<a href="https://radius.safezonetz.com" target="_blank" rel="noopener">Powered by Safezone Tech · radius.safezonetz.com</a>' in g
+assert 'Inaendeshwa na Safezone Tech · radius.safezonetz.com' in ui.login_page(ui.theme({}), 'sw')
 print('WIFI QR OK')
