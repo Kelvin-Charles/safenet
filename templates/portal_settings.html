@@ -66,6 +66,23 @@
                 </form>
             </div>
         </div>
+        <div class="card" id="guest-app">
+            <div class="card-header"><i class="bi bi-phone-vibrate"></i> {{ _("Your guests' Wi-Fi app") }}</div>
+            <div class="card-body">
+                <p class="small text-muted">{{ _('Guests add it to their phone to see their time and data, buy more and buy for a friend. It opens from the connected screen after login; share the link or put the QR code poster on the wall.') }}</p>
+                <div class="d-flex gap-3 align-items-center flex-wrap">
+                    <div id="app-qr" class="border rounded p-2 bg-white" style="width: 132px; height: 132px;"></div>
+                    <div class="flex-grow-1" style="min-width: 220px">
+                        <div class="input-group mb-2">
+                            <input class="form-control" id="app-link" value="{{ app_url }}" readonly>
+                            <button class="btn btn-outline-secondary" type="button" id="app-copy"><i class="bi bi-clipboard"></i> {{ _('Copy') }}</button>
+                        </div>
+                        <a class="btn btn-primary btn-sm" href="{{ url_for('guest_app_poster') }}" target="_blank" rel="noopener"><i class="bi bi-printer"></i> {{ _('Print poster') }}</a>
+                        <a class="btn btn-outline-primary btn-sm" href="{{ app_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> {{ _('Open the app') }}</a>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
     <div class="col-xl-6">
         <div class="sticky-preview">
@@ -104,6 +121,18 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(function () {
+    const link = document.getElementById('app-link');
+    if (window.QRCode) new QRCode(document.getElementById('app-qr'), { text: link.value, width: 116, height: 116, correctLevel: QRCode.CorrectLevel.M });
+    document.getElementById('app-copy').addEventListener('click', function () {
+        link.select();
+        (navigator.clipboard ? navigator.clipboard.writeText(link.value) : Promise.reject()).catch(() => document.execCommand('copy'));
+        this.innerHTML = {{ _('Copied')|tojson }};
+    });
+})();
+</script>
 <script>
 (function () {
     const f = document.getElementById('portal-form'), frame = document.getElementById('preview');

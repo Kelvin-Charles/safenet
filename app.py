@@ -2979,7 +2979,19 @@ def portal_settings():
                            equipment=EQUIPMENT, payments_ready=paylib.is_ready(_tenant_account(tenant)), current_site=current_site(),
                            sms_on=_sms_on(tenant), sms_price=Config.SMS_PRICE,
                            package_count=scoped(Package).filter_by(is_active=True, show_on_portal=True).count(),
-                           hotspot_name=_hotspot_settings(tenant)['name'])
+                           hotspot_name=_hotspot_settings(tenant)['name'], app_url=_guest_app_link(tenant))
+
+
+@app.route('/settings/portal/poster')
+@login_required
+@role_required('staff')
+def guest_app_poster():
+    """A printable A4 poster: 'Scan to get our Wi-Fi app' with the business's QR code."""
+    tenant = current_tenant()
+    cfg = portal_config(tenant)
+    return render_template('guest_app_poster.html', name=_hotspot_settings(tenant)['name'], app_url=_guest_app_link(tenant),
+                           color=portal_ui.theme(cfg)['color'], support=_hotspot_settings(tenant)['support'],
+                           logo_url=url_for('portal_logo', slug=tenant.slug, v=cfg['logo_version']) if cfg.get('logo_version') else None)
 
 # Packages (sold on the captive portal)
 def _minutes_from(value, unit):

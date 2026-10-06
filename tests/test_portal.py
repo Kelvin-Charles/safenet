@@ -62,6 +62,12 @@ assert api.get('/api/gateway/logo').status_code == 401
 save(remove_logo='y')
 with app.app_context(): assert Tenant.query.filter_by(slug='salma').one().portal_logo_at is None
 assert login('staff1').get('/settings/portal').status_code == 302
+# the guests' app: link, QR and a printable poster for the business
+s = login('owner1').get('/settings/portal').text
+assert 'id="app-link" value="https://radius.safezonetz.com/app/salma"' in s and 'qrcode.min.js' in s
+poster = login('owner1').get('/settings/portal/poster').text
+assert 'Scan to get our Wi-Fi app' in poster and '"https://radius.safezonetz.com/app/salma"' in poster and 'Changanua' in poster
+assert app.test_client().get('/settings/portal/poster').status_code == 302          # team only
 print('PORTAL CLOUD OK')
 
 # gateway downloads and serves the logo

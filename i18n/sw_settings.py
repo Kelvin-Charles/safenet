@@ -226,4 +226,13 @@ SW = {
     'Previous': 'Iliyotangulia',
     'Next': 'Inayofuata',
     'No authentication logs found': 'Hakuna kumbukumbu za kuingia',
+    "Your guests' Wi-Fi app": 'App ya Wi-Fi ya wateja wako',
+    'Guests add it to their phone to see their time and data, buy more and buy for a friend. It opens from the connected screen after login; share the link or put the QR code poster on the wall.':
+        'Wateja wanaiweka kwenye simu kuona muda na data yao, kununua zaidi na kunulia rafiki. Inafunguka kwenye skrini ya "umeunganishwa" baada ya kuingia; shiriki kiungo au bandika bango la QR ukutani.',
+    'Copy': 'Nakili',
+    'Copied': 'Imenakiliwa',
+    'Print poster': 'Chapisha bango',
+    'Open the app': 'Fungua app',
+    'Wi-Fi app poster': 'Bango la app ya Wi-Fi',
+    'Print': 'Chapisha',
 }

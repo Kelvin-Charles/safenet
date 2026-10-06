@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ _('Wi-Fi app poster') }} - {{ name }}</title>
+    <style>
+        @page { size: A4; margin: 14mm; }
+        body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #0f172a; margin: 0; background: #f1f5f9; }
+        .sheet { max-width: 182mm; margin: 0 auto; background: #fff; padding: 14mm 12mm; text-align: center; min-height: 250mm; box-sizing: border-box; }
+        .band { background: {{ color }}; color: #fff; border-radius: 18px; padding: 10mm 8mm; }
+        .band img { width: 26mm; height: 26mm; object-fit: contain; background: #fff; border-radius: 14px; padding: 2mm; }
+        h1 { font-size: 30pt; margin: 4mm 0 2mm; }
+        .band p { font-size: 15pt; margin: 0; opacity: .95; }
+        #qr { display: inline-block; margin: 10mm 0 6mm; padding: 4mm; border: 3px solid {{ color }}; border-radius: 16px; }
+        .scan { font-size: 20pt; font-weight: 700; margin: 0 0 8mm; }
+        ol { text-align: left; display: inline-block; font-size: 13pt; line-height: 1.7; margin: 0 0 8mm; padding-left: 7mm; }
+        .sw { color: #475569; font-size: 11.5pt; }
+        .foot { font-size: 11pt; color: #475569; }
+        .no-print { text-align: center; padding: 12px; }
+        @media print { body { background: #fff; } .no-print { display: none; } .sheet { padding: 0; min-height: 0; } }
+    </style>
+</head>
+<body>
+    <div class="no-print"><button onclick="window.print()" style="font-size:16px;padding:8px 18px">{{ _('Print') }}</button></div>
+    <div class="sheet">
+        <div class="band">
+            {% if logo_url %}<img src="{{ logo_url }}" alt="">{% endif %}
+            <h1>{{ name }} Wi-Fi</h1>
+            <p>See your time and data · Buy more · Buy for a friend</p>
+            <p class="sw" style="color:#fff;opacity:.85">Ona muda na data yako · Nunua zaidi · Nunulia rafiki</p>
+        </div>
+        <div id="qr"></div>
+        <p class="scan">Scan to get our Wi-Fi app<br><span class="sw">Changanua kupata app yetu ya Wi-Fi</span></p>
+        <ol>
+            <li>Connect to our Wi-Fi. <span class="sw">Unganisha kwenye Wi-Fi yetu.</span></li>
+            <li>Scan the code with your camera and open the link. <span class="sw">Changanua kwa kamera, fungua kiungo.</span></li>
+            <li>Tap "Add to home screen". <span class="sw">Bonyeza "Add to home screen".</span></li>
+        </ol>
+        <p class="foot">{{ app_url }}{% if support %} · Help / Msaada: {{ support }}{% endif %}</p>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>if (window.QRCode) new QRCode(document.getElementById('qr'), { text: {{ app_url|tojson }}, width: 300, height: 300, correctLevel: QRCode.CorrectLevel.M });</script>
+</body>
+</html>
