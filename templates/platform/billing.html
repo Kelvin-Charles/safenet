@@ -10,6 +10,29 @@
     <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value">{{ plans|selectattr('is_active')|list|length }}</div><div class="stat-label">Plans on sale {% if not payments_ready %}<span class="text-danger">(ClickPesa not set up)</span>{% endif %}</div></div></div>
 </div>
 
+<div class="card" id="platform-settings">
+    <div class="card-header"><i class="bi bi-sliders"></i> Platform settings</div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('platform_settings_save') }}" class="row g-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% for key, label, value, default, decimal in knobs %}
+            <div class="col-md-4 col-sm-6">
+                <label class="form-label small mb-1" for="{{ key }}">{{ label }}</label>
+                <input class="form-control" type="number" id="{{ key }}" name="{{ key }}" min="0" step="{{ '0.1' if decimal else '1' }}"
+                       value="{{ '{:g}'.format(value) if decimal else value }}" required>
+                <small class="text-muted">Server default: {{ '{:g}'.format(default) if decimal else '{:,}'.format(default) }}</small>
+            </div>
+            {% endfor %}
+            <div class="col-12">
+                <p class="small text-muted mb-2">The trial applies to businesses that sign up from now on (current trials keep their end date).
+                    The fee applies to new sales of businesses on SafeNet Pay without their own fee (set a business's own fee on Platform: Tenants).
+                    The SMS price applies to SMS sent from now on. Plan prices are in <a href="#plans">Plans tenants can buy</a> below.</p>
+                <button class="btn btn-primary" type="submit"><i class="bi bi-check-circle"></i> Save platform settings</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-header"><i class="bi bi-phone"></i> SafeNet Pay: mobile-money provider</div>
     <div class="card-body">
@@ -58,7 +81,7 @@
     </div>
 </div>
 
-<div class="card">
+<div class="card" id="plans">
     <div class="card-header"><i class="bi bi-tags"></i> Plans tenants can buy (price per 30 days)</div>
     <div class="card-body">
         <div class="table-responsive">

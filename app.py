@@ -66,6 +66,43 @@ def load_user(user_id):
 
 
 app.jinja_env.globals['_'] = tr
+
+# Platform numbers the platform admin changes in Platform: Billing (saved as PlatformSetting 'cfg:<NAME>');
+# without a saved value, the server's .env value applies.
+PLATFORM_KNOBS = (
+    ('TRIAL_DAYS', 'Free trial for new businesses (days)', int, 0, 365),
+    ('PLATFORM_FEE_PERCENT', 'SafeNet Pay fee on sales (%)', float, 0, 50),
+    ('SMS_PRICE', 'Price of one SMS to guests (TZS)', int, 0, 1000),
+    ('MIN_WITHDRAWAL', 'Minimum withdrawal (TZS)', int, 0, 10_000_000),
+    ('BILLING_GRACE_DAYS', 'Days Wi-Fi keeps working after a subscription ends', int, 0, 60),
+)
+_KNOB_DEFAULTS = {key: getattr(Config, key) for key, *_ in PLATFORM_KNOBS}
+_knobs_loaded_at = [0.0]
+
+
+def _apply_platform_settings(force=False):
+    """Use the saved platform numbers (re-read at most every 30 s per worker, so every worker follows a change)."""
+    if not force and time.time() - _knobs_loaded_at[0] < 30:
+        return
+    _knobs_loaded_at[0] = time.time()
+    try:
+        rows = {r.key: r.value for r in PlatformSetting.query.filter(PlatformSetting.key.in_([f'cfg:{k}' for k, *_ in PLATFORM_KNOBS]))}
+    except Exception:
+        db.session.rollback()
+        return
+    for key, _label, kind, _lo, _hi in PLATFORM_KNOBS:
+        raw = rows.get(f'cfg:{key}')
+        try:
+            value = kind(raw) if raw not in (None, '') else _KNOB_DEFAULTS[key]
+        except ValueError:
+            value = _KNOB_DEFAULTS[key]
+        setattr(Config, key, value)
+        app.config[key] = value
+
+
+@app.before_request
+def platform_settings_current():
+    _apply_platform_settings()
 app.jinja_env.globals['platform_host'] = Config.PUBLIC_URL.split('://', 1)[-1]
 
 
@@ -3361,6 +3398,7 @@ def _daily_summary_loop():
         time.sleep(300)
         try:
             with app.app_context():
+                _apply_platform_settings()
                 _send_daily_summaries()
         except Exception:
             log.exception('daily summaries failed')
@@ -5481,7 +5519,9 @@ def platform_billing():
                            provider_ready={p: paylib.is_ready(_platform_account(p)) for p in paylib.PROVIDERS},
                            snippe_webhook_ready=bool(_platform_snippe_creds().webhook_key), fee_percent=Config.PLATFORM_FEE_PERCENT,
                            snippe_saved=bool(_setting_secret('snippe_api_key')), snippe_env=bool(Config.SNIPPE_API_KEY),
-                           snippe_webhook_url=_link('snippe_webhook'))
+                           snippe_webhook_url=_link('snippe_webhook'),
+                           knobs=[(key, label, getattr(Config, key), _KNOB_DEFAULTS[key], kind is float)
+                                  for key, label, kind, _lo, _hi in PLATFORM_KNOBS])
 
 
 @app.route('/platform/payment-provider', methods=['POST'])
@@ -5503,6 +5543,34 @@ def platform_payment_provider():
     log.info('SafeNet Pay provider switched to %s by %s', provider, current_user.username)
     flash(f'SafeNet Pay now uses {paylib.PROVIDERS[provider]} for new payments.', 'success')
     return redirect(url_for('platform_billing'))
+
+
+@app.route('/platform/settings', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_settings_save():
+    """Trial length, SafeNet Pay fee, SMS price, minimum withdrawal and grace days."""
+    _check_csrf()
+    values = {}
+    for key, label, kind, lo, hi in PLATFORM_KNOBS:
+        raw = (request.form.get(key) or '').strip().replace(',', '')
+        try:
+            value = kind(raw)
+        except ValueError:
+            flash(f'{label}: enter a number.', 'danger')
+            return redirect(url_for('platform_billing') + '#platform-settings')
+        if not lo <= value <= hi:
+            flash(f'{label}: between {lo:,} and {hi:,}.', 'danger')
+            return redirect(url_for('platform_billing') + '#platform-settings')
+        values[key] = value
+    for key, value in values.items():
+        row = db.session.get(PlatformSetting, f'cfg:{key}') or PlatformSetting(key=f'cfg:{key}')
+        row.value = f'{value:g}' if isinstance(value, float) else str(value)
+        db.session.add(row)
+    db.session.commit()
+    _apply_platform_settings(force=True)
+    flash('Platform settings saved. New trials, fees and SMS use them from now on.', 'success')
+    return redirect(url_for('platform_billing') + '#platform-settings')
 
 
 @app.route('/platform/billing/snippe', methods=['POST'])
