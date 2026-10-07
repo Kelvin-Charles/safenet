@@ -4359,6 +4359,9 @@ def edit_site(site_id):
     return redirect(url_for('sites_page'))
 
 
+PAPER_SIZES = {'A5': (148, 210), 'A4': (210, 297), 'A3': (297, 420), 'A2': (420, 594), 'Letter': (216, 279)}   # mm, portrait
+
+
 def _wifi_qr_text(ssid, password=None):
     """What phones' cameras read as 'join this Wi-Fi' (special characters escaped)."""
     esc = lambda s: re.sub(r'([\\;,:"])', r'\\\1', s)
@@ -4377,10 +4380,21 @@ def wifi_qr(site_id):
     tenant = current_tenant()
     cfg = portal_config(tenant)
     hs = _hotspot_settings(tenant)
+    th = portal_ui.theme(cfg)
+    packages = [{'name': p.name, 'price': f'{p.currency} {p.price:,.0f}', 'validity': format_minutes(p.validity_minutes),
+                 'description': p.description or '', 'amount': p.price}
+                for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True), site.id)
+                .order_by(Package.sort_order, Package.price).limit(9)] if paylib.is_ready(_tenant_account(tenant)) else []
+    networks = [{'name': n['name'], 'logo': url_for('static', filename='img/' + portal_ui.NETWORKS[n['id']]['logo']) + f'?v={portal_ui.LOGOS_VERSION}'}
+                for n in payment_networks(tenant) if n['id'] in portal_ui.NETWORKS]
+    size = request.args.get('size') if request.args.get('size') in PAPER_SIZES else 'A4'
     return render_template('wifi_qr.html', site=site, ssid=site.join_ssid, password=site.wifi_password,
                            qr_text=_wifi_qr_text(site.join_ssid, site.wifi_password), name=hs['name'], support=hs['support'],
-                           color=portal_ui.theme(cfg)['color'], app_url=_guest_app_link(tenant),
+                           color=th['color'], dark=th['dark'], app_url=_guest_app_link(tenant),
                            layout='cards' if request.args.get('layout') == 'cards' else 'poster',
+                           packages=packages if request.args.get('packages') != '0' else [], has_packages=bool(packages),
+                           networks=networks, size=size, paper=PAPER_SIZES[size], sizes=PAPER_SIZES,
+                           from_price=min(packages, key=lambda p: p['amount'])['price'] if packages else None,
                            logo_url=url_for('portal_logo', slug=tenant.slug, v=cfg['logo_version']) if cfg.get('logo_version') else None)
 
 

@@ -39,7 +39,7 @@ c.post(f'/sites/{SID}/edit', data={'csrf_token': tok(p), 'name': 'Main site', 'w
 with app.app_context():
     s = db.session.get(Site, SID); assert s.wifi_ssid == 'Zulu Free WiFi' and s.wifi_password is None and s.join_ssid == 'Zulu Free WiFi'
 q = html.unescape(c.get(f'/sites/{SID}/wifi-qr').text)
-assert '"WIFI:T:nopass;S:Zulu Free WiFi;;"' in q and 'Scan to join our Wi-Fi' in q and 'Changanua' in q and 'Zulu Connect Wi-Fi' in q
+assert '"WIFI:T:nopass;S:Zulu Free WiFi;;"' in q and 'Scan to join our Wi-Fi' in q and 'Changanua' in q and 'Zulu Connect Wi-Fi' in q and '@page { size: A4 portrait' in q
 assert '"https://radius.safezonetz.com/app/zulu-connect"' in q and 'qrcode.min.js' in q and 'Password / Nenosiri' not in q
 cards = html.unescape(c.get(f'/sites/{SID}/wifi-qr?layout=cards').text)
 assert cards.count('class="card"') == 6 and 'Zulu Free WiFi' in cards
@@ -63,4 +63,23 @@ from gateway import portal_ui as ui
 g = ui.login_page(ui.theme({}), 'en')
 assert '<a href="https://radius.safezonetz.com" target="_blank" rel="noopener">Powered by Safezone Tech · radius.safezonetz.com</a>' in g
 assert 'Inaendeshwa na Safezone Tech · radius.safezonetz.com' in ui.login_page(ui.theme({}), 'sw')
+# paper sizes, and the price list when the business sells packages
+for size, mm in (('A3', '297mm'), ('A5', '148mm'), ('A2', '420mm'), ('Letter', '216mm')):
+    q = c.get(f'/sites/{SID}/wifi-qr?size={size}').text
+    assert f'width: {mm}' in q and ('size: letter portrait' if size == 'Letter' else f'size: {size} portrait') in q, size
+assert '@page { size: A4 portrait' in c.get(f'/sites/{SID}/wifi-qr?size=B9').text          # unknown: A4
+assert 'class="tile"' not in c.get(f'/sites/{SID}/wifi-qr').text                           # no payments set up: no price list
+# with payments set up: the price list (cheapest 'from' price on the cards), or hidden on request
+import app as appmod
+from decimal import Decimal
+from models import Package
+appmod.paylib.is_ready = lambda account: True
+with app.app_context():
+    db.session.add_all([Package(tenant_id=TID, name='1 Day', price=Decimal(1000), validity_minutes=1440, sort_order=0),
+                        Package(tenant_id=TID, name='Saa 2', price=Decimal(300), validity_minutes=120, sort_order=1, description='Up to 5 Mb/s')])
+    db.session.commit()
+q = html.unescape(c.get(f'/sites/{SID}/wifi-qr').text)
+assert q.count('class="tile"') == 2 and 'TZS 1,000' in q and 'Up to 5 Mb/s' in q and 'Packages <span class="sw">Vifurushi</span>' in q
+assert 'From / Kuanzia TZS 300' in c.get(f'/sites/{SID}/wifi-qr?layout=cards').text
+assert 'class="tile"' not in c.get(f'/sites/{SID}/wifi-qr?packages=0').text
 print('WIFI QR OK')

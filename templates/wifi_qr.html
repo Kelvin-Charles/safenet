@@ -5,87 +5,168 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ _('Wi-Fi QR code') }} - {{ ssid }}</title>
     <style>
-        @page { size: A4; margin: 12mm; }
-        * { box-sizing: border-box; }
-        body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #0f172a; margin: 0; background: #f1f5f9; }
-        .bar { text-align: center; padding: 12px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-        .bar a, .bar button { font: inherit; font-size: 15px; padding: 8px 16px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; color: #0f172a; text-decoration: none; cursor: pointer; }
+        /* Sizes are in "u": 1u = 1mm on A4, scaled with the paper width, so every size keeps the same look. */
+        @page { size: {{ 'letter' if size == 'Letter' else size }} portrait; margin: 0; }
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #0f172a; margin: 0; background: #e2e8f0; }
+        .bar { position: sticky; top: 0; z-index: 5; background: #fff; border-bottom: 1px solid #cbd5e1; padding: 10px; display: flex; gap: 8px;
+               justify-content: center; align-items: center; flex-wrap: wrap; font-size: 14px; }
+        .bar a, .bar button, .bar select { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; color: #0f172a; text-decoration: none; cursor: pointer; }
         .bar .on { background: {{ color }}; color: #fff; border-color: {{ color }}; }
-        .sheet { width: 186mm; margin: 0 auto 20px; background: #fff; padding: 12mm; }
-        .band { background: {{ color }}; color: #fff; border-radius: 18px; padding: 8mm; text-align: center; }
-        .band img { width: 24mm; height: 24mm; object-fit: contain; background: #fff; border-radius: 14px; padding: 2mm; }
-        .band h1 { font-size: 30pt; margin: 3mm 0 1mm; }
-        .band p { margin: 0; font-size: 14pt; opacity: .95; }
-        .center { text-align: center; }
-        .qr-big { display: inline-block; margin: 9mm 0 5mm; padding: 4mm; border: 3px solid {{ color }}; border-radius: 16px; }
-        .scan { font-size: 21pt; font-weight: 800; margin: 0; }
-        .sw { color: #475569; font-weight: 500; font-size: 12pt; }
-        .net { display: inline-grid; grid-template-columns: auto auto; gap: 2mm 6mm; text-align: left; margin: 7mm 0; padding: 5mm 8mm; border-radius: 14px; background: #f1f5f9; font-size: 14pt; }
-        .net b { font-size: 17pt; letter-spacing: .3px; }
-        .app { display: flex; align-items: center; gap: 6mm; justify-content: center; margin-top: 4mm; padding-top: 6mm; border-top: 1px dashed #cbd5e1; text-align: left; font-size: 12pt; }
-        .foot { text-align: center; color: #475569; font-size: 11pt; margin-top: 6mm; }
-        /* table cards: 2 x 3 on A4, cut along the dashed lines */
-        .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
-        .card { border: 1px dashed #94a3b8; padding: 6mm 5mm; text-align: center; height: 88mm; display: flex; flex-direction: column; align-items: center; justify-content: space-between; }
-        .card .top { background: {{ color }}; color: #fff; border-radius: 10px; padding: 2mm 3mm; width: 100%; font-weight: 700; font-size: 12pt; }
-        .card .qr { padding: 1.5mm; border: 2px solid {{ color }}; border-radius: 10px; }
-        .card .ssid { font-size: 12pt; }
-        .card .ssid b { font-size: 13pt; }
-        .card .hint { font-size: 9.5pt; color: #475569; }
-        @media print { body { background: #fff; } .bar { display: none; } .sheet { width: auto; margin: 0; padding: 0; } }
-            .brand { text-align: center; color: #64748b; font-size: 10pt; margin-top: 5mm; letter-spacing: .3px; }
-        .card .brand { margin-top: 1mm; font-size: 8pt; }
+        .bar label { display: inline-flex; gap: 6px; align-items: center; }
+        .stage { padding: 20px 0; display: flex; justify-content: center; }
+        .sheet { --u: calc(1mm * {{ paper[0] }} / 210); width: {{ paper[0] }}mm; min-height: {{ paper[1] }}mm; background: #fff;
+                 padding: calc(var(--u) * 11); display: flex; flex-direction: column; gap: calc(var(--u) * 6); box-shadow: 0 10px 40px rgba(15,23,42,.18); }
+        .sheet.cards { padding: calc(var(--u) * 8); }
+        .qr img { display: none !important; }
+        .qr canvas { display: block !important; width: 100% !important; height: auto !important; image-rendering: pixelated; }
+
+        /* poster */
+        .band { background: linear-gradient(135deg, {{ color }}, {{ dark }}); color: #fff; border-radius: calc(var(--u) * 6);
+                padding: calc(var(--u) * 8) calc(var(--u) * 9); display: flex; align-items: center; gap: calc(var(--u) * 6); position: relative; overflow: hidden; }
+        .band::after { content: ""; position: absolute; right: calc(var(--u) * -20); top: calc(var(--u) * -20); width: calc(var(--u) * 80); height: calc(var(--u) * 80);
+                       border-radius: 50%; border: calc(var(--u) * 8) solid rgba(255,255,255,.08); }
+        .band img { width: calc(var(--u) * 24); height: calc(var(--u) * 24); object-fit: contain; background: #fff; border-radius: calc(var(--u) * 5); padding: calc(var(--u) * 2); flex: none; }
+        .band .wifi { width: calc(var(--u) * 22); height: calc(var(--u) * 22); flex: none; }
+        .band h1 { font-size: calc(var(--u) * 12.5); line-height: 1.05; margin: 0 0 calc(var(--u) * 2); letter-spacing: -.02em; }
+        .band p { margin: 0; font-size: calc(var(--u) * 4.6); opacity: .92; }
+        .join { display: grid; grid-template-columns: calc(var(--u) * 78) 1fr; gap: calc(var(--u) * 8); align-items: center; }
+        .join .qr { padding: calc(var(--u) * 3.5); border: calc(var(--u) * 1.1) solid {{ color }}; border-radius: calc(var(--u) * 6); background: #fff; }
+        .join h2 { font-size: calc(var(--u) * 9.5); margin: 0; line-height: 1.1; letter-spacing: -.01em; }
+        .sw { color: #475569; font-weight: 500; }
+        .join h2 .sw { display: block; font-size: calc(var(--u) * 5); margin-top: calc(var(--u) * 1); }
+        .net { margin: calc(var(--u) * 5) 0; padding: calc(var(--u) * 4) calc(var(--u) * 5); border-radius: calc(var(--u) * 4); background: #f1f5f9; font-size: calc(var(--u) * 4.2); }
+        .net div + div { margin-top: calc(var(--u) * 2); }
+        .net b { display: block; font-size: calc(var(--u) * 7); letter-spacing: .01em; color: {{ color }}; word-break: break-word; }
+        .steps { margin: 0; padding: 0; list-style: none; font-size: calc(var(--u) * 4); }
+        .steps li { display: flex; gap: calc(var(--u) * 3); align-items: baseline; margin-top: calc(var(--u) * 2.2); }
+        .steps li > span:first-child { flex: none; width: calc(var(--u) * 6.5); height: calc(var(--u) * 6.5); border-radius: 50%; background: {{ color }}; color: #fff;
+                                     display: inline-grid; place-items: center; font-weight: 700; font-size: calc(var(--u) * 3.6); }
+        .steps .sw { display: block; font-size: calc(var(--u) * 3.4); }
+        .packs h3 { font-size: calc(var(--u) * 7); margin: 0 0 calc(var(--u) * 3.5); display: flex; align-items: baseline; gap: calc(var(--u) * 3); }
+        .packs h3 .sw { font-size: calc(var(--u) * 4.5); }
+        .tiles { display: grid; grid-template-columns: repeat({{ 3 if packages|length > 4 else 2 }}, 1fr); gap: calc(var(--u) * 3.5); }
+        .tile { border: calc(var(--u) * .5) solid #e2e8f0; border-radius: calc(var(--u) * 4); padding: calc(var(--u) * 4) calc(var(--u) * 4.5); position: relative; overflow: hidden; }
+        .tile::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--u) * 1.6); background: {{ color }}; }
+        .tile .n { font-weight: 700; font-size: calc(var(--u) * 4.6); }
+        .tile .p { font-weight: 800; font-size: calc(var(--u) * 7.2); color: {{ color }}; margin: calc(var(--u) * 1) 0; letter-spacing: -.01em; }
+        .tile .v { font-size: calc(var(--u) * 3.6); color: #475569; }
+        .tile .d { font-size: calc(var(--u) * 3.2); color: #64748b; margin-top: calc(var(--u) * 1); }
+        .pay { display: flex; align-items: center; gap: calc(var(--u) * 3); flex-wrap: wrap; margin-top: calc(var(--u) * 4); font-size: calc(var(--u) * 3.8); color: #334155; }
+        .pay img { height: calc(var(--u) * 9); width: auto; border-radius: calc(var(--u) * 1.5); background: #fff; border: calc(var(--u) * .3) solid #e2e8f0; padding: calc(var(--u) * .6); }
+        .foot { margin-top: auto; display: flex; align-items: center; gap: calc(var(--u) * 5); padding-top: calc(var(--u) * 5); border-top: calc(var(--u) * .4) dashed #cbd5e1; }
+        .foot .qr { width: calc(var(--u) * 24); flex: none; }
+        .foot .t { font-size: calc(var(--u) * 3.6); line-height: 1.5; flex: 1; }
+        .foot .t b { font-size: calc(var(--u) * 4.4); }
+        .brand { font-size: calc(var(--u) * 3); color: #64748b; letter-spacing: .03em; text-align: center; }
+
+        /* table cards: 2 x 3 per sheet, cut along the dashed lines */
+        .cards .grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, 1fr); flex: 1; }
+        .card { border: calc(var(--u) * .3) dashed #94a3b8; padding: calc(var(--u) * 5) calc(var(--u) * 4.5); display: flex; flex-direction: column; align-items: center;
+                justify-content: space-between; text-align: center; gap: calc(var(--u) * 2); }
+        .card .top { background: linear-gradient(135deg, {{ color }}, {{ dark }}); color: #fff; border-radius: calc(var(--u) * 3); padding: calc(var(--u) * 2) calc(var(--u) * 3);
+                     width: 100%; font-weight: 800; font-size: calc(var(--u) * 4.4); }
+        .card .qr { width: calc(var(--u) * 42); padding: calc(var(--u) * 1.5); border: calc(var(--u) * .7) solid {{ color }}; border-radius: calc(var(--u) * 3); }
+        .card .ssid { font-size: calc(var(--u) * 3.6); }
+        .card .ssid b { font-size: calc(var(--u) * 4.4); color: {{ color }}; }
+        .card .hint { font-size: calc(var(--u) * 3); color: #475569; }
+        .card .from { font-size: calc(var(--u) * 3.2); font-weight: 700; }
+        .card .brand { font-size: calc(var(--u) * 2.4); }
+
+        @media screen { .sheet { zoom: var(--fit, 1); } }
+        @media print { body { background: #fff; } .bar { display: none; } .stage { padding: 0; display: block; } .sheet { box-shadow: none; zoom: 1; height: {{ paper[1] }}mm; overflow: hidden; } }
     </style>
 </head>
 <body>
-    <div class="bar">
-        <a href="?layout=poster" class="{{ 'on' if layout == 'poster' }}">{{ _('A4 poster') }}</a>
-        <a href="?layout=cards" class="{{ 'on' if layout == 'cards' }}">{{ _('Table cards (6 per page)') }}</a>
-        <button onclick="window.print()">{{ _('Print') }}</button>
-    </div>
+    <form class="bar" method="get">
+        <a href="?layout=poster&size={{ size }}" class="{{ 'on' if layout == 'poster' }}">{{ _('Poster') }}</a>
+        <a href="?layout=cards&size={{ size }}" class="{{ 'on' if layout == 'cards' }}">{{ _('Table cards (6 per page)') }}</a>
+        <input type="hidden" name="layout" value="{{ layout }}">
+        <label>{{ _('Paper') }}
+            <select name="size" onchange="this.form.submit()">
+                {% for key, mm in sizes.items() %}<option value="{{ key }}" {{ 'selected' if key == size }}>{{ key }} ({{ mm[0] }} × {{ mm[1] }} mm)</option>{% endfor %}
+            </select></label>
+        {% if layout == 'poster' and has_packages %}
+        <label><input type="checkbox" name="packages" value="0" {{ 'checked' if not packages }} onchange="this.form.submit()"> {{ _('Hide packages') }}</label>
+        {% endif %}
+        <button type="button" onclick="window.print()">{{ _('Print') }}</button>
+    </form>
+    <div class="stage">
     {% if layout == 'cards' %}
     <div class="sheet cards">
-        {% for i in range(6) %}
-        <div class="card">
-            <div class="top">{{ name }} Wi-Fi</div>
-            <div class="qr" data-qr data-size="150"></div>
-            <div class="ssid">{{ 'Network / Mtandao' }}: <b>{{ ssid }}</b>{% if password %}<br>{{ 'Password / Nenosiri' }}: <b>{{ password }}</b>{% endif %}</div>
-            <div class="hint">Scan with your camera to join · Changanua kwa kamera kuunganishwa</div>
-            <div class="brand">Powered by Safezone Tech · {{ platform_host }}</div>
+        <div class="grid">
+            {% for i in range(6) %}
+            <div class="card">
+                <div class="top">{{ name }} Wi-Fi</div>
+                <div class="qr" data-qr></div>
+                <div class="ssid">Network / Mtandao: <b>{{ ssid }}</b>{% if password %}<br>Password / Nenosiri: <b>{{ password }}</b>{% endif %}</div>
+                {% if from_price %}<div class="from">From / Kuanzia {{ from_price }}</div>{% endif %}
+                <div class="hint">Scan with your camera to join · Changanua kwa kamera kuunganishwa</div>
+                <div class="brand">Powered by Safezone Tech · {{ platform_host }}</div>
+            </div>
+            {% endfor %}
         </div>
-        {% endfor %}
     </div>
     {% else %}
     <div class="sheet">
         <div class="band">
-            {% if logo_url %}<img src="{{ logo_url }}" alt="">{% endif %}
-            <h1>{{ name }} Wi-Fi</h1>
-            <p>Free to join · Pay with mobile money · Bure kujiunga · Lipa kwa simu</p>
-        </div>
-        <div class="center">
-            <div class="qr-big" data-qr data-size="330"></div>
-            <p class="scan">Scan to join our Wi-Fi<br><span class="sw">Changanua kuunganishwa na Wi-Fi yetu</span></p>
-            <div class="net">
-                <span>Network / Mtandao</span><b>{{ ssid }}</b>
-                {% if password %}<span>Password / Nenosiri</span><b>{{ password }}</b>{% endif %}
+            {% if logo_url %}<img src="{{ logo_url }}" alt="">{% else %}
+            <svg class="wifi" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M2 9a15 15 0 0 1 20 0"/><circle cx="12" cy="19.5" r="1.2" fill="#fff"/></svg>{% endif %}
+            <div>
+                <h1>{{ name }} Wi-Fi</h1>
+                <p>Fast internet · Pay with mobile money</p>
+                <p>Intaneti ya kasi · Lipa kwa simu</p>
             </div>
         </div>
-        <div class="app">
-            <div data-qr data-size="110" data-text="{{ app_url }}"></div>
-            <div><b>Get our Wi-Fi app</b> <span class="sw">· Pata app yetu ya Wi-Fi</span><br>
-                <span class="sw">See your time and data, buy more · Ona muda na data yako, nunua zaidi</span></div>
+        <div class="join">
+            <div class="qr" data-qr></div>
+            <div>
+                <h2>Scan to join our Wi-Fi<span class="sw">Changanua kuunganishwa na Wi-Fi yetu</span></h2>
+                <div class="net">
+                    <div>Network / Mtandao<b>{{ ssid }}</b></div>
+                    {% if password %}<div>Password / Nenosiri<b>{{ password }}</b></div>{% endif %}
+                </div>
+                <ol class="steps">
+                    <li><span>1</span><span>Scan the code with your camera.<span class="sw">Changanua kwa kamera ya simu.</span></span></li>
+                    <li><span>2</span><span>Tap "Join network".<span class="sw">Bonyeza "Join network".</span></span></li>
+                    <li><span>3</span><span>{{ 'Buy a package or enter your voucher.' if has_packages else 'Enter your voucher code.' }}<span class="sw">{{ 'Nunua kifurushi au weka vocha yako.' if has_packages else 'Weka namba ya vocha yako.' }}</span></span></li>
+                </ol>
+            </div>
         </div>
-        <p class="foot">{% if support %}Help / Msaada: {{ support }} · {% endif %}{{ site.name }}</p>
-        <p class="brand">Powered by Safezone Tech · {{ platform_host }}</p>
+        {% if packages %}
+        <div class="packs">
+            <h3>Packages <span class="sw">Vifurushi</span></h3>
+            <div class="tiles">
+                {% for p in packages %}
+                <div class="tile"><div class="n">{{ p.name }}</div><div class="p">{{ p.price }}</div><div class="v">{{ p.validity }}</div>
+                    {% if p.description %}<div class="d">{{ p.description }}</div>{% endif %}</div>
+                {% endfor %}
+            </div>
+            {% if networks %}
+            <div class="pay"><span>Pay with / Lipa kwa:</span>{% for n in networks %}<img src="{{ n.logo }}" alt="{{ n.name }}" title="{{ n.name }}">{% endfor %}</div>
+            {% endif %}
+        </div>
+        {% endif %}
+        <div class="foot">
+            <div class="qr" data-qr data-text="{{ app_url }}"></div>
+            <div class="t"><b>Get our Wi-Fi app</b> <span class="sw">· Pata app yetu ya Wi-Fi</span><br>
+                See your time and data, buy more <span class="sw">· Ona muda na data yako, nunua zaidi</span><br>
+                {% if support %}Help / Msaada: <b>{{ support }}</b>{% endif %}</div>
+        </div>
+        <div class="brand">Powered by Safezone Tech · {{ platform_host }}</div>
     </div>
     {% endif %}
+    </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>
         var joinText = {{ qr_text|tojson }};
         document.querySelectorAll('[data-qr]').forEach(function (el) {
-            var size = parseInt(el.dataset.size, 10);
-            if (window.QRCode) new QRCode(el, { text: el.dataset.text || joinText, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
+            if (window.QRCode) new QRCode(el, { text: el.dataset.text || joinText, width: 640, height: 640, correctLevel: QRCode.CorrectLevel.M });
         });
+        // on screen, fit the sheet to the window (printing uses the real paper size)
+        function fit() { var s = document.querySelector('.sheet'); s.style.setProperty('--fit', 1);
+            var w = s.getBoundingClientRect().width; s.style.setProperty('--fit', Math.min(1, (window.innerWidth - 40) / w)); }
+        window.addEventListener('resize', fit); fit();
     </script>
 </body>
 </html>
