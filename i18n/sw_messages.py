@@ -254,4 +254,5 @@ SW = {
     "Set up your access points on SafeNet's Omada Controller first.": 'Kwanza weka vifaa vyako vya Wi-Fi kwenye Omada Controller ya SafeNet.',
     "The Omada Controller didn't accept this: {error}": 'Omada Controller haikukubali: {error}',
     'Your Omada login is ready. Keep the password private.': 'Akaunti yako ya Omada iko tayari. Weka nenosiri kwa siri.',
+    'Omada logins for businesses are not switched on yet. The SafeNet team has to connect the controller first.': 'Akaunti za Omada kwa biashara bado hazijawashwa. Timu ya SafeNet inahitaji kuunganisha controller kwanza.',
 }

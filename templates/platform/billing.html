@@ -81,6 +81,32 @@
     </div>
 </div>
 
+{% if omada_hosted %}
+<div class="card" id="omada-admin">
+    <div class="card-header"><i class="bi bi-wifi"></i> Omada controller admin access (for business logins)</div>
+    <div class="card-body">
+        <p class="small text-muted">Businesses can get their own login to your Omada Controller, limited to their sites (Sites → Advanced). The controller only lets an
+            administrator create those logins, through an Open API app in <strong>Authorization Code</strong> mode.
+            {% if omada_admin_user %}<span class="badge bg-success">Connected as {{ omada_admin_user }}</span>{% else %}<span class="badge bg-light text-dark border">Not connected</span>{% endif %}</p>
+        <ol class="small text-muted">
+            <li>In the controller: Settings → Platform Integration → Open API → <em>Add New App</em>, mode <strong>Authorization Code</strong>, role Administrator; copy its Client ID and Secret.</li>
+            <li>Enter them below with a controller administrator's username and password (a dedicated admin account is best). Leave the app fields empty to try SafeNet's existing app.</li>
+        </ol>
+        <form method="POST" action="{{ url_for('platform_omada_admin') }}" class="row g-2" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-6"><label class="form-label small mb-1">Administrator username</label><input class="form-control" name="username" value="{{ omada_admin_user or '' }}" autocomplete="off"></div>
+            <div class="col-md-6"><label class="form-label small mb-1">Administrator password</label><input class="form-control" type="password" name="password" placeholder="{{ '•••••••• saved' if omada_admin_user else '' }}" autocomplete="new-password"></div>
+            <div class="col-md-6"><label class="form-label small mb-1">Authorization Code app: Client ID</label><input class="form-control" name="client_id" placeholder="{{ 'saved' if omada_ac_app else 'empty: use the existing app' }}" autocomplete="off"></div>
+            <div class="col-md-6"><label class="form-label small mb-1">Authorization Code app: Client Secret</label><input class="form-control" type="password" name="client_secret" placeholder="{{ '•••••••• saved' if omada_ac_app else '' }}" autocomplete="new-password"></div>
+            <div class="col-12">
+                <button class="btn btn-primary" type="submit">Check and save</button>
+                {% if omada_admin_user %}<button class="btn btn-outline-danger" type="submit" name="action" value="remove" onclick="return confirm('Remove the controller administrator access?');">Remove</button>{% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
 <div class="card" id="plans">
     <div class="card-header"><i class="bi bi-tags"></i> Plans tenants can buy (price per 30 days)</div>
     <div class="card-body">

@@ -401,3 +401,55 @@ class OpenApi:
 
     def unauth(self, site_id, client_mac):
         self._call('POST', f'/sites/{site_id}/hotspot/clients/{self.mac(client_mac)}/unauth')
+
+
+class OpenApiAdmin(OpenApi):
+    """The same Open API, signed in as a controller administrator (authorization code mode). The controller only
+    lets this mode manage its users, e.g. a business's own login. Flow: /openapi/authorize/login (username,
+    password) -> /openapi/authorize/code (with that session) -> /openapi/authorize/token (code, app id and secret)."""
+
+    def __init__(self, url, client_id, client_secret, username, password, verify_tls=False, timeout=15):
+        super().__init__(url, client_id, client_secret, verify_tls=verify_tls, timeout=timeout)
+        self.username, self.password = username or '', password or ''
+
+    def _post(self, path, body=None, headers=None):
+        req = urllib.request.Request(self.web.base + path, data=json.dumps(body or {}).encode(), method='POST')
+        req.add_header('Content-Type', 'application/json')
+        req.add_header('Accept', 'application/json')
+        for key, value in (headers or {}).items():
+            req.add_header(key, value)
+        name = path.split('?')[0]
+        try:
+            with self.web.opener.open(req, timeout=self.web.timeout) as resp:
+                reply = json.loads(resp.read() or b'{}')
+        except urllib.error.HTTPError as e:
+            raise OmadaError(f'controller answered HTTP {e.code} for {name}') from e
+        except (urllib.error.URLError, OSError) as e:
+            raise OmadaError(f"can't reach the controller ({getattr(e, 'reason', e)})") from e
+        except ValueError as e:
+            raise OmadaError(f'controller sent something that is not JSON for {name}') from e
+        if reply.get('errorCode', 0) != 0:
+            raise OmadaError(f"controller refused {name}: {reply.get('msg') or reply.get('errorCode')}")
+        return reply.get('result')
+
+    def _authorize(self):
+        import time as _time
+        from urllib.parse import quote
+        if self._token and _time.time() < self._token_until:
+            return self._token
+        if not (self.username and self.password):
+            raise OmadaError('no controller administrator login is set')
+        query = f'client_id={quote(self.client_id)}&omadac_id={quote(self._cid())}'
+        login = self._post(f'/openapi/authorize/login?{query}', {'username': self.username, 'password': self.password}) or {}
+        code = self._post(f'/openapi/authorize/code?{query}&response_type=code', None,
+                          {'Csrf-Token': str(login.get('csrfToken') or ''), 'Cookie': f"TPOMADA_SESSIONID={login.get('sessionId') or ''}"})
+        if not code:
+            raise OmadaError('the controller gave no authorization code')
+        result = self._post(f'/openapi/authorize/token?grant_type=authorization_code&code={quote(str(code))}',
+                            {'client_id': self.client_id, 'client_secret': self.client_secret}) or {}
+        token = result.get('accessToken')
+        if not token:
+            raise OmadaError('the controller gave no access token for the administrator login')
+        self._token, self._token_until = token, _time.time() + max(60, int(result.get('expiresIn') or 3600) - 60)
+        return token
+

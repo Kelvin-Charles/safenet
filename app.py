@@ -2283,6 +2283,22 @@ def start_background_jobs():
     threading.Thread(target=_daily_summary_loop, name='daily-summary', daemon=True).start()
 
 
+def _openapi_admin():
+    """SafeNet's controller signed in as an administrator (Platform: Billing -> Omada controller admin access),
+    needed for business logins. None until that's set."""
+    user = db.session.get(PlatformSetting, 'omada_admin_user')
+    password = _setting_secret('omada_admin_password')
+    if not (user and user.value and password and Config.OMADA_HOSTED_URL):
+        return None
+    app_id = db.session.get(PlatformSetting, 'omada_ac_client_id')
+    client_id = app_id.value if app_id and app_id.value else Config.OMADA_OPENAPI_CLIENT_ID
+    secret = _setting_secret('omada_ac_client_secret') or Config.OMADA_OPENAPI_CLIENT_SECRET
+    key = (Config.OMADA_HOSTED_URL, client_id, secret, user.value, password)
+    if key not in _openapi_clients:
+        _openapi_clients[key] = omada.OpenApiAdmin(*key)
+    return _openapi_clients[key]
+
+
 def _omada_site_name(site, tenant):
     many = Site.query.filter_by(tenant_id=tenant.id).count() > 1
     return (f'{tenant.name} - {site.name}' if many else tenant.name)[:64]
@@ -2315,7 +2331,7 @@ def _omada_provision(site, tenant, wifi_name):
     site.omada_checked_at, site.omada_error = datetime.utcnow(), None
     if tenant.omada_user_id:      # the business's own controller login sees this new site too
         try:
-            _omada_login_sync(tenant, api)
+            _omada_login_sync(tenant)
         except omada.OmadaError as e:
             log.warning('omada: could not add site %s to the login of tenant %s: %s', site.id, tenant.id, e)
 
@@ -4448,7 +4464,9 @@ def _omada_tenant_site_ids(tenant):
 
 def _omada_login_sync(tenant, api=None, password=None):
     """Give the business's controller login exactly its own sites (and a new password if given)."""
-    api = api or _openapi()
+    api = api or _openapi_admin()
+    if api is None:
+        raise omada.OmadaError('controller administrator access is not set')
     api.update_business_user(tenant.omada_user_id, tenant.omada_login, api.ensure_business_role(),
                              _omada_tenant_site_ids(tenant), password=password)
 
@@ -4465,9 +4483,12 @@ def omada_login_setting():
     if not site_ids or not _omada_hosted_available():
         flash(tr('Set up your access points on SafeNet\'s Omada Controller first.'), 'warning')
         return back
+    api = _openapi_admin()
+    if api is None:
+        flash(tr('Omada logins for businesses are not switched on yet. The SafeNet team has to connect the controller first.'), 'warning')
+        return back
     password = omada.business_password()
     try:
-        api = _openapi()
         if tenant.omada_user_id:
             _omada_login_sync(tenant, api, password=password)
         else:
@@ -5576,6 +5597,9 @@ def platform_billing():
                            snippe_webhook_ready=bool(_platform_snippe_creds().webhook_key), fee_percent=Config.PLATFORM_FEE_PERCENT,
                            snippe_saved=bool(_setting_secret('snippe_api_key')), snippe_env=bool(Config.SNIPPE_API_KEY),
                            snippe_webhook_url=_link('snippe_webhook'),
+                           omada_admin_user=(db.session.get(PlatformSetting, 'omada_admin_user') or PlatformSetting()).value,
+                           omada_ac_app=bool((db.session.get(PlatformSetting, 'omada_ac_client_id') or PlatformSetting()).value),
+                           omada_hosted=_omada_hosted_available(),
                            knobs=[(key, label, getattr(Config, key), _KNOB_DEFAULTS[key], kind is float)
                                   for key, label, kind, _lo, _hi in PLATFORM_KNOBS])
 
@@ -5627,6 +5651,51 @@ def platform_settings_save():
     _apply_platform_settings(force=True)
     flash('Platform settings saved. New trials, fees and SMS use them from now on.', 'success')
     return redirect(url_for('platform_billing') + '#platform-settings')
+
+
+@app.route('/platform/omada-admin', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_omada_admin():
+    """Controller administrator access (authorization code mode) so businesses can get their own Omada login."""
+    _check_csrf()
+    back = redirect(url_for('platform_billing') + '#omada-admin')
+    if request.form.get('action') == 'remove':
+        for key in ('omada_admin_user', 'omada_admin_password', 'omada_ac_client_id', 'omada_ac_client_secret'):
+            row = db.session.get(PlatformSetting, key)
+            if row:
+                db.session.delete(row)
+        db.session.commit()
+        _openapi_clients.clear()
+        flash('Controller administrator access removed.', 'success')
+        return back
+    fields = {'omada_admin_user': (request.form.get('username') or '').strip()[:128],
+              'omada_admin_password': request.form.get('password') or '',
+              'omada_ac_client_id': (request.form.get('client_id') or '').strip()[:128],
+              'omada_ac_client_secret': (request.form.get('client_secret') or '').strip()}
+    for key, value in fields.items():
+        if not value:
+            continue                       # empty: keep what's saved
+        row = db.session.get(PlatformSetting, key) or PlatformSetting(key=key)
+        row.value = secretbox.encrypt(value) if key in ('omada_admin_password', 'omada_ac_client_secret') else value
+        db.session.add(row)
+    db.session.flush()
+    _openapi_clients.clear()
+    api = _openapi_admin()
+    if api is None:
+        db.session.rollback()
+        flash('Enter the controller administrator username and password.', 'danger')
+        return back
+    try:
+        api.ensure_business_role()         # signs in and checks it may manage roles and users
+    except omada.OmadaError as e:
+        db.session.rollback()
+        _openapi_clients.clear()
+        flash(safetext.clean(f'The controller refused the administrator access: {e}'), 'danger')
+        return back
+    db.session.commit()
+    flash('Controller administrator access works. Businesses can now create their own Omada login (Sites page).', 'success')
+    return back
 
 
 @app.route('/platform/billing/snippe', methods=['POST'])
