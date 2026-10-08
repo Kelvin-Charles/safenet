@@ -2313,6 +2313,11 @@ def _omada_provision(site, tenant, wifi_name):
                              others[0] if others else site.omada_site_id)
     site.omada_ssid = wifi_name[:32]
     site.omada_checked_at, site.omada_error = datetime.utcnow(), None
+    if tenant.omada_user_id:      # the business's own controller login sees this new site too
+        try:
+            _omada_login_sync(tenant, api)
+        except omada.OmadaError as e:
+            log.warning('omada: could not add site %s to the login of tenant %s: %s', site.id, tenant.id, e)
 
 
 def _omada_rate_async(site, mac, upload, download):
@@ -4350,7 +4355,8 @@ def sites_page():
                                func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime) >= datetime.utcnow() - timedelta(minutes=LIVE_STALE_MINUTES))).count(),
                      'today': _collected(tid, site, midnight), 'month': _collected(tid, site, month_start)})
     plan = current_tenant().billing_plan
-    return render_template('sites.html', rows=rows, currency=current_tenant().currency,
+    return render_template('sites.html', omada_dashboard_url=Config.OMADA_DASHBOARD_URL,
+                           omada_password=secretbox.decrypt(current_tenant().omada_password_enc) if current_tenant().omada_password_enc and current_user.has_role('admin') else '', rows=rows, currency=current_tenant().currency,
                            limit=plan.max_sites if plan else None, omada_hosted=_omada_hosted_available(),
                            omada_host=Config.OMADA_HOSTED_HOST, wifidog_base=Config.WIFIDOG_BASE,
                            omada_openapi=_omada_openapi_available(),
@@ -4434,6 +4440,56 @@ def wifi_qr(site_id):
                            networks=networks, size=size, paper=PAPER_SIZES[size], sizes=PAPER_SIZES,
                            from_price=min(packages, key=lambda p: p['amount'])['price'] if packages else None,
                            logo_url=url_for('portal_logo', slug=tenant.slug, v=cfg['logo_version']) if cfg.get('logo_version') else None)
+
+
+def _omada_tenant_site_ids(tenant):
+    return [s.omada_site_id for s in Site.query.filter(Site.tenant_id == tenant.id, Site.omada_hosted.is_(True), Site.omada_site_id.isnot(None))]
+
+
+def _omada_login_sync(tenant, api=None, password=None):
+    """Give the business's controller login exactly its own sites (and a new password if given)."""
+    api = api or _openapi()
+    api.update_business_user(tenant.omada_user_id, tenant.omada_login, api.ensure_business_role(),
+                             _omada_tenant_site_ids(tenant), password=password)
+
+
+@app.route('/sites/omada-login', methods=['POST'])
+@login_required
+@role_required('admin')
+def omada_login_setting():
+    """Advanced: the business's own login to SafeNet's Omada Controller (its sites only): create it or set a new password."""
+    _check_csrf()
+    tenant = current_tenant()
+    back = redirect(url_for('sites_page') + '#omada-dashboard')
+    site_ids = _omada_tenant_site_ids(tenant)
+    if not site_ids or not _omada_hosted_available():
+        flash(tr('Set up your access points on SafeNet\'s Omada Controller first.'), 'warning')
+        return back
+    password = omada.business_password()
+    try:
+        api = _openapi()
+        if tenant.omada_user_id:
+            _omada_login_sync(tenant, api, password=password)
+        else:
+            role_id = api.ensure_business_role()
+            base = re.sub(r'[^a-z0-9-]', '', f'sn-{tenant.slug}'.lower())[:40] or f'sn-{tenant.id}'
+            for name in (base, f'{base}-{secrets.token_hex(2)}'):
+                try:
+                    user_id = api.create_business_user(name, password, role_id, site_ids)
+                    break
+                except omada.OmadaError as e:
+                    if name != base:
+                        raise
+                    log.info('omada: login %s not created (%s), trying another name', name, e)
+            tenant.omada_login, tenant.omada_user_id = name, user_id
+    except omada.OmadaError as e:
+        db.session.rollback()
+        flash(tr("The Omada Controller didn't accept this: {error}", error=str(e)), 'danger')
+        return back
+    tenant.omada_password_enc = secretbox.encrypt(password)
+    db.session.commit()
+    flash(tr('Your Omada login is ready. Keep the password private.'), 'success')
+    return back
 
 
 @app.route('/sites/<int:site_id>/delete', methods=['POST'])

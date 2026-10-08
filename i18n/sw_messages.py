@@ -251,4 +251,7 @@ SW = {
     'Data cap counter reset for {name}.': 'Kihesabu cha kikomo cha data cha {name} kimeanza upya.',
     'A Wi-Fi password has 8 to 63 characters. Leave it empty for an open network.': 'Nenosiri la Wi-Fi lina herufi 8 hadi 63. Liache wazi kama mtandao uko wazi.',
     'Add the Wi-Fi name for {site} first (Rename / edit).': 'Weka kwanza jina la Wi-Fi la {site} (Hariri).',
+    "Set up your access points on SafeNet's Omada Controller first.": 'Kwanza weka vifaa vyako vya Wi-Fi kwenye Omada Controller ya SafeNet.',
+    "The Omada Controller didn't accept this: {error}": 'Omada Controller haikukubali: {error}',
+    'Your Omada login is ready. Keep the password private.': 'Akaunti yako ya Omada iko tayari. Weka nenosiri kwa siri.',
 }

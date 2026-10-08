@@ -217,6 +217,32 @@ write</pre>
                 </ol>
             </div>
         </div>
+        {% if rows|selectattr('site.omada_site_id')|selectattr('site.omada_hosted')|list %}
+        <div class="card" id="omada-dashboard">
+            <div class="card-header"><i class="bi bi-gear-wide-connected"></i> {{ _('Advanced: your Omada dashboard') }}</div>
+            <div class="card-body small">
+                <p class="text-muted">{{ _('For people who know TP-Link Omada: sign in to SafeNet\'s Omada Controller to see your access points, clients and statistics, adopt or restart devices. You only see your own sites.') }}
+                    {{ _('Network and hotspot settings are view-only, so the guest login page SafeNet set up keeps working: change Wi-Fi and portal settings here in SafeNet.') }}</p>
+                {% if tenant.omada_user_id %}
+                <div class="mb-2"><span class="text-muted">{{ _('Username') }}:</span> <code id="om-user">{{ tenant.omada_login }}</code></div>
+                <div class="mb-2"><span class="text-muted">{{ _('Password') }}:</span>
+                    <code id="om-pass" data-pass="{{ omada_password }}">••••••••••••</code>
+                    <button type="button" class="btn btn-link btn-sm p-0 ms-1" onclick="var c=document.getElementById('om-pass');c.textContent=c.textContent.indexOf('•')===0?c.dataset.pass:'••••••••••••';">{{ _('Show') }}</button>
+                    · <button type="button" class="btn btn-link btn-sm p-0" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('om-pass').dataset.pass);this.textContent={{ _('Copied')|tojson|forceescape }};">{{ _('Copy') }}</button></div>
+                <a class="btn btn-primary btn-sm" href="{{ omada_dashboard_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> {{ _('Open Omada dashboard') }}</a>
+                <form method="POST" action="{{ url_for('omada_login_setting') }}" class="d-inline" onsubmit="return confirm({{ _('Set a new password for your Omada login?')|tojson|forceescape }});">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">{{ _('New password') }}</button>
+                </form>
+                {% else %}
+                <form method="POST" action="{{ url_for('omada_login_setting') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-outline-primary btn-sm" type="submit"><i class="bi bi-person-plus"></i> {{ _('Create my Omada login') }}</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
         {% endif %}
     </div>
 </div>

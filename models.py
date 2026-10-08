@@ -37,6 +37,10 @@ class Tenant(db.Model):
     notify_daily_sms = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     notify_daily_email = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     summary_sent_on = db.Column(db.Date)                 # last day the daily summary went out
+    # The business's own login to SafeNet's Omada Controller (advanced users; only its sites)
+    omada_login = db.Column(db.String(64))
+    omada_user_id = db.Column(db.String(64))
+    omada_password_enc = db.Column(db.Text)
     snippe_api_key_enc = db.Column(db.Text)           # secretbox-encrypted
     snippe_webhook_key_enc = db.Column(db.Text)       # secretbox-encrypted
     fee_percent = db.Column(db.Numeric(5, 2))         # platform fee; NULL = PLATFORM_FEE_PERCENT

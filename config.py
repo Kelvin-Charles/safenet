@@ -75,6 +75,7 @@ class Config:
     OMADA_HOSTED_USER = os.getenv('OMADA_HOSTED_USER', '')
     OMADA_HOSTED_PASSWORD = os.getenv('OMADA_HOSTED_PASSWORD', '')
     OMADA_HOSTED_HOST = os.getenv('OMADA_HOSTED_HOST', '') or WG_ENDPOINT    # what access points are told to use
+    OMADA_DASHBOARD_URL = os.getenv('OMADA_DASHBOARD_URL', 'https://omada.safezonetz.com').rstrip('/')   # where people sign in
     # Open API app on SafeNet's controller: lets tenants add access points from SafeNet alone
     OMADA_OPENAPI_CLIENT_ID = os.getenv('OMADA_OPENAPI_CLIENT_ID', '')
     OMADA_OPENAPI_CLIENT_SECRET = os.getenv('OMADA_OPENAPI_CLIENT_SECRET', '')

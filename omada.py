@@ -50,6 +50,33 @@ def public_address_problem(url):
     return None
 
 
+# A business's own login to SafeNet's controller ("advanced" users): only its own sites, and view-only for the
+# settings SafeNet manages (network, hotspot/portal), so the guest login page can't be broken by accident.
+BUSINESS_ROLE = 'SafeNet business'
+_BLOCK, _VIEW, _MODIFY = 0, 1, 2
+BUSINESS_PRIVILEGE = {
+    # controller-wide: nothing
+    'license': _BLOCK, 'globalDashboard': _BLOCK, 'globalLog': _BLOCK, 'licenseBind': _BLOCK, 'users': _BLOCK, 'roles': _BLOCK,
+    'samlUsers': _BLOCK, 'samlRoles': _BLOCK, 'samlSsos': _BLOCK, 'globalSetting': _BLOCK, 'globalExportData': _BLOCK,
+    'exportGlobalLog': _BLOCK, 'globalCluster': _BLOCK, 'anomaly': _BLOCK, 'analyze': _BLOCK, 'globalSecurity': _BLOCK,
+    'globalWebhook': _BLOCK, 'globalMapToken': _BLOCK, 'siteTemplate': _BLOCK, 'firmwareManager': _BLOCK, 'sdWan': _BLOCK,
+    # their own site
+    'siteHome': _VIEW, 'dashboard': _VIEW, 'statics': _VIEW, 'insight': _VIEW, 'report': _VIEW, 'log': _VIEW, 'siteAnalyze': _VIEW,
+    'devices': _MODIFY, 'adopt': _MODIFY, 'addDevices': _MODIFY, 'addAdoptDevice': _MODIFY, 'manualUpgrade': _MODIFY,
+    'clients': _MODIFY, 'map': _MODIFY, 'exportData': _MODIFY,
+    'network': _VIEW, 'hotspot': _VIEW, 'deviceAccount': _BLOCK, 'deviceRecovery': _BLOCK,
+}
+
+
+def business_password(length=16):
+    """A password the controller accepts: upper, lower, digit and symbol (no quote, space or '?')."""
+    import secrets
+    groups = ('ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!#$%&*@^')
+    chars = [secrets.choice(g) for g in groups] + [secrets.choice(''.join(groups)) for _ in range(length - 4)]
+    secrets.SystemRandom().shuffle(chars)
+    return ''.join(chars)
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise urllib.error.HTTPError(req.full_url, code, 'redirects are not followed', headers, fp)
@@ -225,6 +252,28 @@ class OpenApi:
     def _pages(self, path, key='data'):
         result = self._call('GET', f'{path}{"&" if "?" in path else "?"}page=1&pageSize=1000') or {}
         return result.get(key, []) if isinstance(result, dict) else result
+
+    # -- a business's own controller login -------------------------------
+    def ensure_business_role(self):
+        """The 'SafeNet business' role's id (created the first time)."""
+        roles = self._call('GET', '/roles') or []
+        if isinstance(roles, dict):
+            roles = roles.get('data') or []
+        for role in roles:
+            if role.get('name') == BUSINESS_ROLE:
+                return role['id']
+        return (self._call('POST', '/roles', {'name': BUSINESS_ROLE, 'privilege': BUSINESS_PRIVILEGE}) or {})['roleId']
+
+    def create_business_user(self, name, password, role_id, site_ids):
+        result = self._call('POST', '/users', {'type': 0, 'name': name, 'password': password, 'roleId': role_id,
+                                               'allSite': False, 'sites': list(site_ids)}) or {}
+        return result.get('userId')
+
+    def update_business_user(self, user_id, name, role_id, site_ids, password=None):
+        body = {'name': name, 'roleId': role_id, 'allSite': False, 'sites': list(site_ids)}
+        if password:
+            body['password'] = password
+        self._call('PUT', f'/users/{user_id}', body)
 
     # -- clients ---------------------------------------------------------
     def clients(self, site_id):
