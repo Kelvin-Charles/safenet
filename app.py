@@ -411,6 +411,7 @@ def docs(slug='start'):
 @login_required
 def dashboard():
     tid, tenant, site = tenant_id(), current_tenant(), current_site()
+    _omada_sync_soon()
     view = _site_filters(tid, site)
     now = datetime.utcnow()
     midnight = _local_midnight_utc()
@@ -2184,37 +2185,68 @@ def _omada_sync_site(site, api=None, now=None):
     now = now or datetime.utcnow()
     if not site.omada_site_id:
         return 0
+    api = api or _openapi()
     seen = {}
-    for c in (api or _openapi()).clients(site.omada_site_id):
+    for c in api.clients(site.omada_site_id):
         mac = str(c.get('mac') or '').upper().replace(':', '-')
         if mac:
             seen[mac] = c
     station = f'omada-{site.id}'
     rows = RadAcct.query.filter(RadAcct.calledstationid == station, RadAcct.acctstoptime.is_(None)).all()
+    authorized = lambda c: c is not None and c.get('active') is not False and c.get('authStatus') == OMADA_AUTHORIZED
+
+    done = set()
+
+    def cut_off(mac, why):
+        """The controller keeps phones in for its own portal time (a day): end it when SafeNet's time is up."""
+        if mac.upper() in done:
+            return
+        done.add(mac.upper())
+        try:
+            api.unauth(site.omada_site_id, mac)
+            log.info('omada: site %s: cut off %s (%s)', site.id, mac, why)
+        except omada.OmadaError as e:
+            log.warning('omada: site %s: could not cut off %s: %s', site.id, mac, e)
+
+    # sessions whose voucher has ended (time up or disabled): close them and take the phone offline
+    for row in list(rows):
+        voucher = Voucher.query.filter_by(tenant_id=site.tenant_id, code=row.username).first()
+        if voucher is not None and voucher.state in ('expired', 'disabled'):
+            row.acctstoptime, row.acctterminatecause = now, 'Session-Timeout' if voucher.state == 'expired' else 'Admin-Reset'
+            rows.remove(row)
+            if authorized(seen.get((row.callingstationid or '').upper())):
+                cut_off(row.callingstationid, f'voucher {voucher.code} {voucher.state}')
     open_macs = {(r.callingstationid or '').upper() for r in rows}
 
-    # back online without passing the login page: a new session on the voucher this phone last used here
+    # online through the portal but without an open session: count it on a valid voucher or account, else cut it off
     for mac, c in seen.items():
-        if mac in open_macs or c.get('active') is False or c.get('authStatus') != OMADA_AUTHORIZED:
+        if mac in open_macs or mac in done or not authorized(c):
             continue
         last = RadAcct.query.filter(RadAcct.calledstationid == station, RadAcct.callingstationid == mac) \
             .order_by(RadAcct.acctstarttime.desc()).first()
-        voucher = Voucher.query.filter_by(tenant_id=site.tenant_id, code=last.username).first() if last else None
-        if voucher is None or voucher.state != 'active':
+        username = None
+        account = RadUser.query.filter_by(tenant_id=site.tenant_id, username=last.username).first() if last else None
+        if account is not None:
+            if account.is_active and not (account.expires_at and account.expires_at <= now):
+                username = account.username
+        else:
+            code = _returning_code(site.tenant_id, mac)        # a voucher this phone may still use (any of the business's sites)
+            voucher = Voucher.query.filter_by(tenant_id=site.tenant_id, code=code).first() if code else None
+            if voucher is not None and voucher.state == 'active':
+                username = voucher.code
+        if username is None:
+            cut_off(mac, 'no valid voucher')
             continue
-        if SessionKick.query.filter(SessionKick.tenant_id == site.tenant_id, SessionKick.username == voucher.code,
-                                    SessionKick.created_at >= last.acctstarttime).first():
-            continue          # the owner disconnected this code: don't count it back
         sid = secrets.token_hex(8)
         row = RadAcct(acctsessionid=sid, acctuniqueid=hashlib.md5(f'omada:{site.id}:{sid}'.encode()).hexdigest(),
-                      username=voucher.code, nasipaddress=last.nasipaddress or '', groupname='', acctterminatecause='',
+                      username=username, nasipaddress=(last.nasipaddress if last else '') or '', groupname='', acctterminatecause='',
                       calledstationid=station, callingstationid=mac, framedipaddress=str(c.get('ip') or '')[:15],
                       nasporttype='Wireless-802.11', acctstarttime=now, acctupdatetime=now, acctsessiontime=0,
                       acctinputoctets=0, acctoutputoctets=0)
         db.session.add(row)
         db.session.flush()
         rows.append(row)
-        log.info('omada: %s back online on %s without the login page; session reopened', mac, voucher.code)
+        log.info('omada: %s online on %s without the login page; session opened', mac, username)
 
     counters = {c.radacct_id: c for c in OmadaCounter.query.filter(OmadaCounter.radacct_id.in_([r.radacctid for r in rows]))} if rows else {}
     for row in rows:
@@ -2264,6 +2296,27 @@ def _omada_sync_due():
                 log.warning('omada usage sync for site %s failed: %s', sid, e)
                 Site.query.filter_by(id=sid).update({'omada_error': safetext.clean(f'Reading guests from the controller failed: {e}')[:255]})
                 db.session.commit()
+
+
+_omada_kicked_at = [0.0]
+
+
+def _omada_sync_soon():
+    """Also check Omada sites while someone watches Live or the dashboard (not only from the background job):
+    at most every 30 s per worker, in the background so the page stays fast."""
+    if not (Config.OMADA_OPENAPI_CLIENT_ID and Config.OMADA_HOSTED_URL) or app.config.get('TESTING'):
+        return
+    if time.time() - _omada_kicked_at[0] < 30:
+        return
+    _omada_kicked_at[0] = time.time()
+
+    def run():
+        try:
+            with app.app_context():
+                _omada_sync_due()
+        except Exception:
+            log.exception('omada usage sync failed')
+    threading.Thread(target=run, daemon=True).start()
 
 
 def _omada_sync_loop():
@@ -3987,6 +4040,7 @@ def live_disconnect():
 @login_required
 def api_live():
     now = datetime.utcnow()
+    _omada_sync_soon()
     midnight = _local_midnight_utc()
     cutoff = now - timedelta(minutes=LIVE_STALE_MINUTES)
     last_seen = func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime)

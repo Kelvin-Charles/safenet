@@ -10,7 +10,8 @@ import migrations
 from models import Tenant, Site, RadAcct
 
 class FakeApi:
-    def __init__(self): self.calls, self.clients_now = 0, []
+    def __init__(self): self.calls, self.clients_now, self.cut = 0, [], []
+    def unauth(self, site_id, mac): self.cut.append(mac)
     def clients(self, site_id):
         assert site_id == 'ctl-site-1'
         self.calls += 1
@@ -119,10 +120,43 @@ sync([on('AA-BB-CC-00-00-11'), on('AA-BB-CC-00-00-12'), on('AA-BB-CC-00-00-13'),
 with app.app_context():
     for mac in ('AA-BB-CC-00-00-13', 'AA-BB-CC-00-00-14', 'AA-BB-CC-00-00-15', 'AA-BB-CC-00-00-16'):
         assert RadAcct.query.filter(RadAcct.callingstationid == mac, RadAcct.acctstoptime.is_(None)).count() == 0, mac
+# ...and the controller is told to take them offline (it would keep them in for its own day-long portal time);
+# a phone still at the login page (authStatus 1) is left alone
+assert {'AA-BB-CC-00-00-13', 'AA-BB-CC-00-00-14', 'AA-BB-CC-00-00-15'} <= set(api.cut) and 'AA-BB-CC-00-00-16' not in api.cut
+assert 'AA-BB-CC-00-00-11' not in api.cut and 'AA-BB-CC-00-00-12' not in api.cut
+with app.app_context():
     s = db.session.get(Site, SITE); assert s.omada_checked_at and s.omada_error is None
 # the controller doesn't answer: shown on the site
 def broken(site_id): raise appmod.omada.OmadaError("can't reach the controller")
 api.clients = broken
 sync([])
 with app.app_context(): assert 'Reading guests from the controller failed' in db.session.get(Site, SITE).omada_error
+
+# time up while online: the session ends and the phone is taken offline at once
+api.clients = FakeApi.clients.__get__(api)
+api.cut.clear()
+with app.app_context():
+    Voucher.query.filter_by(code='30304040').update({'expires_at': datetime.utcnow() - timedelta(minutes=1)}); db.session.commit()
+sync([on('AA-BB-CC-00-00-11'), on('AA-BB-CC-00-00-12')])
+with app.app_context():
+    ended = RadAcct.query.filter_by(username='30304040').order_by(RadAcct.radacctid.desc()).first()
+    assert ended.acctstoptime is not None and ended.acctterminatecause == 'Session-Timeout'
+assert api.cut == ['AA-BB-CC-00-00-11']
+# a phone with a valid voucher from another of the business's sites keeps going (counted here), and a
+# customer account (username/password) that's still valid is counted, not cut off
+from models import RadUser
+with app.app_context():
+    other = Site(tenant_id=TENANT, name='Block B'); db.session.add(other); db.session.flush()
+    db.session.add(Voucher(tenant_id=TENANT, code='12121212', validity_minutes=600, batch='x', status='active', first_mac='aa:bb:cc:00:00:21',
+                           first_used_at=now - timedelta(minutes=5), expires_at=now + timedelta(hours=9)))
+    db.session.add(RadUser(tenant_id=TENANT, username='mary', is_active=True))
+    db.session.add(session('acc', 'AA-BB-CC-00-00-22', now - timedelta(hours=3)))
+    db.session.commit()
+    RadAcct.query.filter_by(acctsessionid='acc').update({'username': 'mary', 'acctstoptime': now - timedelta(hours=2)}); db.session.commit()
+api.cut.clear()
+sync([on('AA-BB-CC-00-00-12'), on('AA-BB-CC-00-00-21'), on('AA-BB-CC-00-00-22')])
+with app.app_context():
+    assert RadAcct.query.filter(RadAcct.callingstationid == 'AA-BB-CC-00-00-21', RadAcct.acctstoptime.is_(None)).one().username == '12121212'
+    assert RadAcct.query.filter(RadAcct.callingstationid == 'AA-BB-CC-00-00-22', RadAcct.acctstoptime.is_(None)).one().username == 'mary'
+assert api.cut == []
 print('OMADA USAGE OK')
