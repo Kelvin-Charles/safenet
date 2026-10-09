@@ -80,10 +80,25 @@
         {% endif %}
 
         {% if pagination.items %}
+        <form method="POST" action="{{ url_for('bulk_vouchers') }}" id="bulk-form" class="m-0">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="batch" value="{{ batch }}"><input type="hidden" name="state" value="{{ state }}"><input type="hidden" name="search" value="{{ search }}">
+            <input type="hidden" name="scope" id="bulk-scope" value="ticked">
+            <div id="bulk-bar" class="alert alert-primary d-none d-flex flex-wrap gap-2 align-items-center justify-content-between py-2">
+                <span><strong id="bulk-count">0</strong> {{ _('selected') }}
+                    {% if pagination.total > pagination.items|length %}· <a href="#" id="bulk-all">{{ _('Select all {n} vouchers matching this list', n='{:,}'.format(pagination.total)) }}</a>{% endif %}</span>
+                <span class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-warning" type="submit" name="action" value="disable" data-confirm="{{ _('Disable these vouchers? Phones using them are disconnected.') }}"><i class="bi bi-slash-circle"></i> {{ _('Disable') }}</button>
+                    <button class="btn btn-sm btn-outline-success" type="submit" name="action" value="enable" data-confirm="{{ _('Enable these vouchers?') }}"><i class="bi bi-check-circle"></i> {{ _('Enable') }}</button>
+                    <button class="btn btn-sm btn-outline-danger" type="submit" name="action" value="delete" data-confirm="{{ _('Delete these vouchers for good? Phones using them are disconnected.') }}"><i class="bi bi-trash"></i> {{ _('Delete') }}</button>
+                </span>
+            </div>
+        </form>
         <div class="table-responsive">
             <table class="table table-hover align-middle">
                 <thead>
                     <tr>
+                        <th style="width:32px"><input type="checkbox" class="form-check-input" id="bulk-page" title="{{ _('Select all on this page') }}"></th>
                         <th>{{ _('Code') }}</th>
                         <th>{{ _('Plan') }}</th>
                         <th>{{ _('Validity') }}</th>
@@ -97,6 +112,7 @@
                     {% for v in pagination.items %}
                     {% set st = v.state %}
                     <tr>
+                        <td><input type="checkbox" class="form-check-input bulk-pick" name="ids" value="{{ v.id }}" form="bulk-form" aria-label="{{ v.code }}"></td>
                         <td><strong class="font-monospace">{{ v.code }}</strong></td>
                         <td>
                             {% if v.plan %}<span class="badge vendor-badge bg-info">{{ v.plan.name }}</span>
@@ -165,4 +181,30 @@
         {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const bar = document.getElementById('bulk-bar'), count = document.getElementById('bulk-count'), scope = document.getElementById('bulk-scope');
+    const page = document.getElementById('bulk-page'), all = document.getElementById('bulk-all');
+    if (!bar) return;
+    const picks = () => Array.from(document.querySelectorAll('.bulk-pick'));
+    const total = {{ pagination.total }};
+    function update() {
+        const n = picks().filter(x => x.checked).length;
+        if (scope.value === 'all') { count.textContent = total.toLocaleString(); }
+        else { count.textContent = n; }
+        bar.classList.toggle('d-none', n === 0 && scope.value !== 'all');
+        page.checked = n > 0 && n === picks().length;
+    }
+    picks().forEach(x => x.addEventListener('change', () => { scope.value = 'ticked'; update(); }));
+    page.addEventListener('change', () => { picks().forEach(x => x.checked = page.checked); scope.value = 'ticked'; update(); });
+    if (all) all.addEventListener('click', e => { e.preventDefault(); picks().forEach(x => x.checked = true); scope.value = 'all'; update(); });
+    document.getElementById('bulk-form').addEventListener('submit', e => {
+        const msg = e.submitter && e.submitter.dataset.confirm;
+        if (msg && !confirm(count.textContent + ' · ' + msg)) e.preventDefault();
+    });
+})();
+</script>
 {% endblock %}

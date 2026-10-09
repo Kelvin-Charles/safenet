@@ -222,4 +222,10 @@ SW = {
     'Please try again.': 'Tafadhali jaribu tena.',
     "Still waiting. If you've paid, this page will update, or check Billing later.":
         'Bado tunasubiri. Kama umelipa, ukurasa huu utajisasisha, au angalia Ada ya SafeNet baadaye.',
+    'selected': 'zimechaguliwa',
+    'Select all {n} vouchers matching this list': 'Chagua vocha zote {n} za orodha hii',
+    'Disable these vouchers? Phones using them are disconnected.': 'Zima vocha hizi? Simu zinazozitumia zitatenganishwa.',
+    'Enable these vouchers?': 'Washa vocha hizi?',
+    'Delete these vouchers for good? Phones using them are disconnected.': 'Futa vocha hizi kabisa? Simu zinazozitumia zitatenganishwa.',
+    'Select all on this page': 'Chagua zote kwenye ukurasa huu',
 }

@@ -1435,14 +1435,8 @@ def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_device
     return created
 
 
-@app.route('/vouchers')
-@login_required
-def vouchers():
-    page = request.args.get('page', 1, type=int)
-    batch = request.args.get('batch', '', type=str)
-    state = request.args.get('state', '', type=str)
-    search = request.args.get('search', '', type=str).strip()
-
+def _voucher_query(batch='', state='', search=''):
+    """The vouchers the list shows for these filters (this business, the selected site)."""
     now = datetime.utcnow()
     query = _site_filters(tenant_id(), current_site())['vouchers'](scoped(Voucher))
     if batch:
@@ -1457,6 +1451,19 @@ def vouchers():
         query = query.filter(Voucher.status != 'disabled', Voucher.expires_at <= now)
     elif state == 'disabled':
         query = query.filter(Voucher.status == 'disabled')
+    return query
+
+
+@app.route('/vouchers')
+@login_required
+def vouchers():
+    page = request.args.get('page', 1, type=int)
+    batch = request.args.get('batch', '', type=str)
+    state = request.args.get('state', '', type=str)
+    search = request.args.get('search', '', type=str).strip()
+
+    now = datetime.utcnow()
+    query = _voucher_query(batch, state, search)
 
     pagination = query.order_by(Voucher.created_at.desc(), Voucher.id.desc()).paginate(
         page=page, per_page=Config.ITEMS_PER_PAGE, error_out=False
@@ -1595,6 +1602,62 @@ def delete_voucher(voucher_id):
     db.session.commit()
     flash(tr('Voucher {code} deleted.', code=code), 'success')
     return redirect(request.referrer or url_for('vouchers'))
+
+
+@app.route('/vouchers/bulk', methods=['POST'])
+@login_required
+def bulk_vouchers():
+    """Disable, enable or delete the ticked vouchers, or every voucher matching the list's filters."""
+    _check_csrf()
+    batch, state, search = request.form.get('batch', ''), request.form.get('state', ''), request.form.get('search', '').strip()
+    back = redirect(url_for('vouchers', batch=batch or None, state=state or None, search=search or None))
+    action = request.form.get('action')
+    if action not in ('disable', 'enable', 'delete'):
+        flash(tr('Choose what to do with the vouchers.'), 'warning')
+        return back
+    if request.form.get('scope') == 'all':
+        items = _voucher_query(batch, state, search).all()
+    else:
+        ids = [int(x) for x in request.form.getlist('ids') if x.isdigit()]
+        items = _voucher_query().filter(Voucher.id.in_(ids)).all() if ids else []
+    if not items:
+        flash(tr('No vouchers selected.'), 'warning')
+        return back
+    now = datetime.utcnow()
+    in_use = lambda v: v.status == 'active' and v.expires_at and v.expires_at > now
+    changed = 0
+    if action == 'disable':
+        for v in items:
+            if v.status != 'disabled':
+                if in_use(v):
+                    disconnect_subscriber(v.tenant_id, v.code)
+                v.status = 'disabled'
+                changed += 1
+        db.session.commit()
+        flash(tr('{n} vouchers disabled (phones using them were disconnected).', n=changed), 'success')
+    elif action == 'enable':
+        for v in items:
+            if v.status == 'disabled':
+                v.status = 'active' if v.first_used_at else 'unused'
+                changed += 1
+        db.session.commit()
+        flash(tr('{n} vouchers enabled.', n=changed), 'success')
+    else:
+        for v in items:
+            if in_use(v):
+                disconnect_subscriber(v.tenant_id, v.code)
+        codes = [v.code for v in items]
+        for chunk in range(0, len(codes), 500):
+            part = codes[chunk:chunk + 500]
+            RadCheck.query.filter(RadCheck.username.in_(part)).delete(synchronize_session=False)
+            RadReply.query.filter(RadReply.username.in_(part)).delete(synchronize_session=False)
+            RadUserGroup.query.filter(RadUserGroup.username.in_(part)).delete(synchronize_session=False)
+        ids = [v.id for v in items]
+        for chunk in range(0, len(ids), 500):
+            Voucher.query.filter(Voucher.id.in_(ids[chunk:chunk + 500])).delete(synchronize_session=False)
+        db.session.commit()
+        flash(tr('{n} vouchers deleted.', n=len(codes)), 'success')
+    return back
 
 
 @app.route('/vouchers/delete-unused', methods=['POST'])

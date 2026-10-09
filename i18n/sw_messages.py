@@ -259,4 +259,9 @@ SW = {
     'At the login page': 'Kwenye ukurasa wa kuingia',
     'Logged in': 'Imeingia',
     'No login needed': 'Haihitaji kuingia',
+    'Choose what to do with the vouchers.': 'Chagua cha kufanya na vocha.',
+    'No vouchers selected.': 'Hakuna vocha zilizochaguliwa.',
+    '{n} vouchers disabled (phones using them were disconnected).': 'Vocha {n} zimezimwa (simu zilizokuwa zikizitumia zimetenganishwa).',
+    '{n} vouchers enabled.': 'Vocha {n} zimewashwa.',
+    '{n} vouchers deleted.': 'Vocha {n} zimefutwa.',
 }
