@@ -94,6 +94,39 @@
                 {% endif %}
             </div>
         </div>
+
+        {% if site.omada_site_id %}
+        <div class="card" id="guests">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-people"></i> {{ _('Guests on the Wi-Fi now') }} <small class="text-muted">({{ guests|length }})</small></span>
+                <a href="{{ url_for('site_wifi', site_id=site.id) }}#guests" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-clockwise"></i> {{ _('Refresh') }}</a>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted">{{ _('What the controller sees, checked against your vouchers. Phones logged in without a valid voucher are taken offline by SafeNet within a minute and see the login page again.') }}</p>
+                {% if guests %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead><tr><th>{{ _('Phone') }}</th><th>{{ _('Controller') }}</th><th>{{ _('Voucher') }}</th><th>{{ _('SafeNet') }}</th></tr></thead>
+                        <tbody>
+                            {% for g in guests %}
+                            <tr>
+                                <td>{{ g.name }}<small class="d-block text-muted">{{ g.mac }} · {{ g.ip }}</small></td>
+                                <td><span class="badge bg-{{ g.color }}">{{ g.state }}</span></td>
+                                <td>{% if g.code %}<code>{{ g.code }}</code>{% if g.left %}<small class="d-block text-muted">{{ _('{time} left', time=g.left) }}</small>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                                <td>{% if g.username %}<span class="text-success"><i class="bi bi-check-circle"></i> {{ _('Valid') }}</span>
+                                    {% elif g.authorized %}<span class="text-danger"><i class="bi bi-x-circle"></i> {{ _('No valid voucher: taken offline') }}</span><small class="d-block text-muted">{{ g.why }}</small>
+                                    {% else %}<span class="text-muted">{{ _('Not online yet') }}</span>{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">{{ _('No phones on the Wi-Fi right now.') }}</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
     </div>
     <div class="col-xl-4">
         <div class="card">

@@ -2173,7 +2173,32 @@ def _openapi():
 OMADA_SYNC_SECONDS = 60      # how often guests' data usage is read from SafeNet's controller
 
 
-OMADA_GONE_MINUTES = 10      # a phone missing from the controller this long has left (short drops don't end a session)
+def _omada_guest_check(site, mac, now=None):
+    """What SafeNet knows about a phone the controller shows at this site: (username or None, what it is, why).
+    username is the valid voucher code or customer account it may use; None means it has no valid voucher."""
+    now = now or datetime.utcnow()
+    mac = (mac or '').upper().replace(':', '-')
+    station = f'omada-{site.id}'
+    last = RadAcct.query.filter(RadAcct.calledstationid == station, RadAcct.callingstationid == mac) \
+        .order_by(RadAcct.acctstarttime.desc()).first()
+    account = RadUser.query.filter_by(tenant_id=site.tenant_id, username=last.username).first() if last else None
+    if account is not None:
+        if account.is_active and not (account.expires_at and account.expires_at <= now):
+            return account.username, account, 'customer account'
+        return None, account, 'customer account disabled or expired'
+    code = _returning_code(site.tenant_id, mac)            # a voucher this phone may still use (any of the business's sites)
+    voucher = Voucher.query.filter_by(tenant_id=site.tenant_id, code=code).first() if code else None
+    if voucher is not None and voucher.state == 'active':
+        return voucher.code, voucher, 'voucher'
+    previous = Voucher.query.filter_by(tenant_id=site.tenant_id, code=last.username).first() if last else None
+    if previous is not None:
+        return None, previous, f'voucher {previous.state}'
+    return None, None, 'no voucher known for this phone'
+
+
+OMADA_GONE_MINUTES = 10
+OMADA_GUEST_STATES = {0: ('Connected', 'secondary'), 1: ('At the login page', 'warning'), 2: ('Logged in', 'success'),
+                      3: ('No login needed', 'info')}      # a phone missing from the controller this long has left (short drops don't end a session)
 OMADA_AUTHORIZED = 2         # the controller's authStatus for a guest let online through the portal
 
 
@@ -2222,21 +2247,12 @@ def _omada_sync_site(site, api=None, now=None):
     for mac, c in seen.items():
         if mac in open_macs or mac in done or not authorized(c):
             continue
+        username, _thing, why = _omada_guest_check(site, mac, now)
+        if username is None:
+            cut_off(mac, why)
+            continue
         last = RadAcct.query.filter(RadAcct.calledstationid == station, RadAcct.callingstationid == mac) \
             .order_by(RadAcct.acctstarttime.desc()).first()
-        username = None
-        account = RadUser.query.filter_by(tenant_id=site.tenant_id, username=last.username).first() if last else None
-        if account is not None:
-            if account.is_active and not (account.expires_at and account.expires_at <= now):
-                username = account.username
-        else:
-            code = _returning_code(site.tenant_id, mac)        # a voucher this phone may still use (any of the business's sites)
-            voucher = Voucher.query.filter_by(tenant_id=site.tenant_id, code=code).first() if code else None
-            if voucher is not None and voucher.state == 'active':
-                username = voucher.code
-        if username is None:
-            cut_off(mac, 'no valid voucher')
-            continue
         sid = secrets.token_hex(8)
         row = RadAcct(acctsessionid=sid, acctuniqueid=hashlib.md5(f'omada:{site.id}:{sid}'.encode()).hexdigest(),
                       username=username, nasipaddress=(last.nasipaddress if last else '') or '', groupname='', acctterminatecause='',
@@ -2435,7 +2451,26 @@ def site_wifi(site_id):
     for d in devices:
         label, color = OMADA_STATUS.get(d.get('status'), ('Unknown', 'secondary'))
         d['label'], d['color'] = tr(OMADA_DETAIL.get(d.get('detailStatus'), label)), color
-    return render_template('sites_wifi.html', site=site, devices=devices, error=error,
+    guests = []
+    if site.omada_site_id and not error:
+        try:
+            clients = _openapi().clients(site.omada_site_id)
+        except omada.OmadaError as e:
+            clients, error = [], str(e)
+        now = datetime.utcnow()
+        for c in clients:
+            if c.get('active') is False:
+                continue
+            mac = str(c.get('mac') or '').upper().replace(':', '-')
+            state = OMADA_GUEST_STATES.get(c.get('authStatus'), ('?', 'secondary'))
+            username, thing, why = _omada_guest_check(site, mac, now)
+            left = int((thing.expires_at - now).total_seconds()) if isinstance(thing, Voucher) and thing.expires_at else None
+            guests.append({'name': c.get('name') or mac, 'mac': mac, 'ip': c.get('ip') or '', 'state': tr(state[0]), 'color': state[1],
+                           'authorized': c.get('authStatus') == OMADA_AUTHORIZED, 'username': username,
+                           'code': thing.code if isinstance(thing, Voucher) else (thing.username if thing is not None else ''),
+                           'left': format_minutes(left // 60) if left and left > 0 else '', 'why': why})
+        guests.sort(key=lambda g: (not g['authorized'], g['username'] is not None, g['name']))
+    return render_template('sites_wifi.html', site=site, devices=devices, error=error, guests=guests,
                            omada_host=Config.OMADA_HOSTED_HOST)
 
 
