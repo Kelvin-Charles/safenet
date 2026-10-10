@@ -8,6 +8,10 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
 
+# Newer Docker Compose builds with "bake", which stops at a question for builds that use the host network
+# (ours do: DNS while installing packages). The classic builder needs no question.
+export COMPOSE_BAKE="${COMPOSE_BAKE:-false}"
+
 if [ -f "$PROJECT_DIR/.env" ]; then
     set -a
     # shellcheck disable=SC1091
