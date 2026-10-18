@@ -23,6 +23,7 @@
                             <td><strong>{{ s.name }}</strong>{% if loop.first %} <span class="badge bg-light text-dark border">{{ _('Main') }}</span>{% endif %}
                                 {% if s.omada_ready %}<span class="badge {{ 'bg-danger' if s.omada_error else 'bg-success' }}" title="{{ s.omada_error or _('TP-Link Omada connected') }}">Omada</span>{% endif %}
                                 {% if s.wifidog_enabled %}<span class="badge bg-success">Ruijie</span>{% endif %}
+                                {% if s.ruijie_ready %}<span class="badge {{ 'bg-danger' if s.ruijie_error else 'bg-success' }}" title="{{ s.ruijie_error or _('Ruijie Cloud vouchers') }}">Reyee</span>{% endif %}
                                 {% if s.location %}<small class="d-block text-muted">{{ s.location }}</small>{% endif %}</td>
                             <td>{{ _('{n} gateway', n=r.gateways) if r.gateways == 1 else _('{n} gateways', n=r.gateways) }} · {{ _('{n} router', n=r.routers) if r.routers == 1 else _('{n} routers', n=r.routers) }}</td>
                             <td>{{ r.packages }}</td>
@@ -41,6 +42,7 @@
                                 <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('wifi_qr', site_id=s.id) }}" target="_blank" rel="noopener" title="{{ _('Print the scan-to-join Wi-Fi QR code') }}"><i class="bi bi-qr-code"></i> QR</a>
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#omada-{{ s.id }}" title="{{ _('TP-Link Omada access points') }}"><i class="bi bi-wifi"></i> Omada</button>
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#wifidog-{{ s.id }}" title="{{ _('Ruijie RG-AP and other WiFiDog access points') }}"><i class="bi bi-broadcast-pin"></i> Ruijie</button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#ruijie-{{ s.id }}" title="{{ _('Reyee access points through Ruijie Cloud vouchers') }}"><i class="bi bi-cloud"></i> Reyee</button>
                                 {% if rows|length > 1 %}
                                 <form method="POST" action="{{ url_for('delete_site', site_id=s.id) }}" style="display:inline;" onsubmit="return confirm('{{ _('Delete {site}? Its devices, packages and sales move to {other}.', site=s.name, other=(rows[1] if loop.first else rows[0]).site.name) }}');">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -180,6 +182,58 @@ wlansec 1
  end
 write</pre>
                                 </div>
+                                {% endif %}
+                            </div>
+                        </td></tr>
+                        <tr class="collapse{{ ' show' if request.args.get('open') == 'ruijie-%d'|format(s.id) }}" id="ruijie-{{ s.id }}"><td colspan="7" class="bg-light">
+                            <div class="p-2">
+                                <h6 class="mb-1"><i class="bi bi-cloud"></i> {{ _('Ruijie Cloud vouchers at {site}', site=s.name) }}</h6>
+                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='ruijie') }}#cloud" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Step-by-step guide') }}</a> · {{ _("For Reyee access points (RG-RAP…) that only show Ruijie's own voucher login page. Guests buy on SafeNet, and SafeNet creates the same code on Ruijie Cloud, so it works on Ruijie's page. Just the access point and internet.") }}</p>
+                                {% set rj = r.ruijie %}
+                                {% if s.ruijie_error %}<div class="alert alert-danger py-2 small mb-2">{{ s.ruijie_error }}</div>{% endif %}
+                                <form method="POST" action="{{ url_for('site_ruijie_cloud', site_id=s.id) }}" class="row g-2 mb-3" autocomplete="off">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <div class="col-md-4"><label class="form-label small mb-1">{{ _('Ruijie Cloud server') }}</label>
+                                        <select name="cloud" class="form-select form-select-sm">
+                                            {% for url, label in ruijie_clouds.items() %}<option value="{{ url }}"{{ ' selected' if s.ruijie_cloud_url == url }}>{{ label }}</option>{% endfor %}
+                                        </select></div>
+                                    <div class="col-md-3"><label class="form-label small mb-1">{{ _('App ID') }}</label><input name="appid" class="form-control form-control-sm" value="{{ s.ruijie_appid or '' }}" maxlength="128" required></div>
+                                    <div class="col-md-3"><label class="form-label small mb-1">{{ _('App secret') }}</label><input name="secret" type="password" class="form-control form-control-sm" placeholder="{{ _('(saved, leave empty to keep)') if s.ruijie_secret_enc else '' }}"{{ '' if s.ruijie_secret_enc else ' required' }}></div>
+                                    <div class="col-md-2 d-grid align-self-end"><button class="btn btn-primary btn-sm" type="submit" name="action" value="save">{{ _('Connect') }}</button></div>
+                                </form>
+                                {% if rj %}
+                                {% if rj.projects|length > 1 or (rj.projects and not s.ruijie_group_id) %}
+                                <form method="POST" action="{{ url_for('site_ruijie_cloud', site_id=s.id) }}" class="row g-2 mb-3">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <div class="col-md-6"><label class="form-label small mb-1">{{ _('Ruijie Cloud project with these access points') }}</label>
+                                        <select name="group_id" class="form-select form-select-sm">
+                                            {% for gid, gname in rj.projects %}<option value="{{ gid }}"{{ ' selected' if s.ruijie_group_id == gid }}>{{ gname }}</option>{% endfor %}
+                                        </select></div>
+                                    <div class="col-md-2 d-grid align-self-end"><button class="btn btn-outline-primary btn-sm" type="submit" name="action" value="project">{{ _('Use this project') }}</button></div>
+                                </form>
+                                {% endif %}
+                                {% if s.ruijie_group_id %}
+                                <div class="small">
+                                    <p class="mb-1"><i class="bi bi-check-circle text-success"></i> {{ _('Project: {name}', name=s.ruijie_group_name or s.ruijie_group_id) }} · {{ _('{ok} codes made on Ruijie Cloud, {waiting} waiting, {failed} failed', ok=rj.ok, waiting=rj.waiting, failed=rj.failed) }}</p>
+                                    <p class="mb-1"><strong>{{ _('Ruijie packages:') }}</strong>
+                                        {% for p in rj.packages %}<span class="badge bg-white text-dark border me-1">{{ p.name }} · {{ p.label }}</span>{% else %}<span class="text-danger">{{ _('none yet') }}</span>{% endfor %}</p>
+                                    {% if rj.unmatched %}<div class="alert alert-warning py-2 mb-2">{{ _('These SafeNet packages have no Ruijie package with the same duration, so their codes would not work on Ruijie\'s page:') }}
+                                        {% for p in rj.unmatched %}<strong>{{ p.name }}</strong> ({{ p.validity_label }}){{ ', ' if not loop.last }}{% endfor %}. {{ _('Create matching packages in Ruijie Cloud, then press Read packages.') }}</div>{% endif %}
+                                    <table class="table table-sm table-bordered bg-white mt-2 mb-2" style="max-width: 720px">
+                                        <tr><th style="width: 220px">{{ _('Link for the Ruijie login page') }}</th><td><code class="user-select-all">{{ rj.buy_url }}</code></td></tr>
+                                        <tr><th>{{ _('Allowed domain (walled garden)') }}</th><td><code class="user-select-all">{{ request.host }}</code></td></tr>
+                                    </table>
+                                    <form method="POST" action="{{ url_for('site_ruijie_cloud', site_id=s.id) }}" class="d-inline">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-outline-secondary btn-sm" type="submit" name="action" value="read"><i class="bi bi-arrow-repeat"></i> {{ _('Read packages') }}</button>
+                                        {% if rj.failed %}<button class="btn btn-outline-secondary btn-sm" type="submit" name="action" value="retry">{{ _('Try failed codes again') }}</button>{% endif %}
+                                    </form>
+                                </div>
+                                {% endif %}
+                                <form method="POST" action="{{ url_for('site_ruijie_cloud', site_id=s.id) }}" class="mt-2" onsubmit="return confirm('{{ _('Stop making codes on Ruijie Cloud for this site?') }}');">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="remove">{{ _('Remove Ruijie Cloud') }}</button>
+                                </form>
                                 {% endif %}
                             </div>
                         </td></tr>

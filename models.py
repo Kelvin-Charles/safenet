@@ -110,7 +110,20 @@ class Site(db.Model):
     wifi_ssid = db.Column(db.String(32))
     wifi_password = db.Column(db.String(63))            # empty: an open network (usual for hotspots)
     omada_error = db.Column(db.String(255))
+    # Ruijie Cloud (Reyee RG-RAP access points showing Ruijie's own voucher page): SafeNet creates each code it sells
+    # here as a Ruijie voucher too, in the package with the same duration (see ruijie.py)
+    ruijie_cloud_url = db.Column(db.String(64))
+    ruijie_appid = db.Column(db.String(128))
+    ruijie_secret_enc = db.Column(db.Text)              # secretbox
+    ruijie_group_id = db.Column(db.String(32))           # the Ruijie Cloud project with this site's access points
+    ruijie_group_name = db.Column(db.String(128))
+    ruijie_packages = db.Column(db.Text)                 # JSON: the project's voucher packages, read when saved
+    ruijie_error = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def ruijie_ready(self):
+        return bool(self.ruijie_cloud_url and self.ruijie_appid and self.ruijie_secret_enc and self.ruijie_group_id)
 
     @property
     def join_ssid(self):
@@ -430,6 +443,7 @@ class Voucher(db.Model):
     max_devices = db.Column(db.Integer, nullable=False, default=1, server_default='1')   # devices online at once
     is_free = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())  # marketing free trial
     first_mac = db.Column(db.String(17))    # device that first used it (one free trial per phone)
+    ruijie_state = db.Column(db.String(8))   # Ruijie Cloud copy: pending, ok, failed (None: not needed)
     status = db.Column(db.String(16), nullable=False, default='unused')  # unused, active, disabled
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     first_used_at = db.Column(db.DateTime)

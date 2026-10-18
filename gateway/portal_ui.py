@@ -701,6 +701,8 @@ APP_T = {
         'no_buy': 'Buying in the app is not available here. Ask at the counter.', 'another': 'Add another code', 'refresh': 'Refresh',
         'updated': 'Updated {time}', 'offline_note': 'No internet: showing the last figures.', 'devices': 'devices', 'cancel': 'Cancel',
         'active': 'Active', 'unused': 'Not started', 'expired_s': 'Finished', 'disabled': 'Disabled', 'none': 'No packages yet.',
+        'buy_pkg': 'Buy a package', 'have_code': 'I have a code', 'done': 'Done',
+        'paid_ruijie': 'Paid! Your code is below. Go back to the Wi-Fi login page and enter it to connect. We also keep it here.',
     },
     'sw': {
         'title': 'Wi-Fi Yangu', 'add_code': 'Weka namba ya vocha yako', 'add_lead': 'Andika namba uliyotumia kuunganishwa. Simu yako inaihifadhi, hivyo app itafunguka moja kwa moja wakati ujao.',
@@ -715,6 +717,8 @@ APP_T = {
         'no_buy': 'Kununua kwenye app hakupatikani hapa. Uliza kaunta.', 'another': 'Weka namba nyingine', 'refresh': 'Sasisha',
         'updated': 'Imesasishwa {time}', 'offline_note': 'Hakuna intaneti: tunaonyesha takwimu za mwisho.', 'devices': 'vifaa', 'cancel': 'Ghairi',
         'active': 'Inatumika', 'unused': 'Haijaanza', 'expired_s': 'Imeisha', 'disabled': 'Imezimwa', 'none': 'Bado hakuna vifurushi.',
+        'buy_pkg': 'Nunua kifurushi', 'have_code': 'Nina namba ya vocha', 'done': 'Sawa',
+        'paid_ruijie': 'Umelipa! Namba yako iko hapa chini. Rudi kwenye ukurasa wa kuingia wa Wi-Fi na uiweke ili uunganishwe. Tunaihifadhi hapa pia.',
     },
 }
 
@@ -737,6 +741,7 @@ function el(tag,cls,text){var x=document.createElement(tag);if(cls)x.className=c
 function load(){try{return JSON.parse(localStorage.getItem(KEY)||'{}')}catch(e){return {}}}
 function save(s){try{localStorage.setItem(KEY,JSON.stringify(s))}catch(e){}}
 var st=load(); st.tokens=st.tokens||[];
+var SITE=(location.search.match(/[?&]s=([\w-]+)/)||[])[1]||'';   // the site in the link (e.g. from a Ruijie login page)
 function api(path,body){return fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json'},
   body:body===undefined?undefined:JSON.stringify(body)}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.status);return j;});});}
 function money(c,a){return c+' '+Number(a).toLocaleString('en-US');}
@@ -746,7 +751,7 @@ function bytes(n){return n>=1e9?(n/1e9).toFixed(2)+' GB':n>=1e6?(n/1e6).toFixed(
 // a code in the link (#code=...) from the connected screen
 var m=location.hash.match(/code=([0-9A-Za-z]+)/);
 if(m){history.replaceState(null,'',location.pathname+location.search);link(m[1]);}
-else if(st.tokens.length){refresh();}else{showAdd();}
+else if(st.tokens.length||SITE){refresh();}else{showAdd();}
 function link(code,err){box.replaceChildren(el('p','muted',tt('adding')));
   api('/api/link',{code:code}).then(function(j){if(st.tokens.indexOf(j.token)<0)st.tokens.push(j.token);save(st);refresh();})
   .catch(function(e){showAdd(e.message);});}
@@ -755,12 +760,13 @@ function showAdd(err){var f=el('form');f.append(el('h2',null,tt('add_code')),el(
   var i=el('input','input code');i.inputMode='numeric';i.placeholder='12345678';i.required=true;i.autocomplete='one-time-code';
   var b=el('button','btn',tt('add'));b.type='submit';f.append(i,b);
   if(st.tokens.length){var c=el('button','btn ghost',tt('cancel'));c.type='button';c.onclick=refresh;f.append(c);}
+  else if(st.last&&st.last.can_buy){var bb=el('button','btn ghost',tt('buy_pkg'));bb.type='button';bb.onclick=function(){buy(st.last,false);};f.append(bb);}
   f.onsubmit=function(ev){ev.preventDefault();link(i.value.replace(/\s+/g,''));};box.replaceChildren(f);i.focus();}
-function refresh(){api('/api/me',{tokens:st.tokens}).then(function(d){st.tokens=d.tokens.length?d.tokens:st.tokens;st.last=d;st.at=Date.now();save(st);show(d);})
+function refresh(){api('/api/me',{tokens:st.tokens,site:SITE}).then(function(d){st.tokens=d.tokens.length?d.tokens:st.tokens;st.last=d;st.at=Date.now();save(st);show(d);})
   .catch(function(){if(st.last)show(st.last,true);else showAdd();});}
 function show(d,stale){var v=d.vouchers[0];box.replaceChildren();
   if(stale)box.append(el('div','alert',tt('offline_note')));
-  if(!v){showAdd();return;}
+  if(!v){if(d.can_buy&&SITE){buy(d,false);return;}showAdd();return;}
   var top=el('div','center');var on=el('p','lead');var dot=el('span','dot'+(v.online?' on':''));on.append(dot,v.online?tt('online'):tt('offline'));
   var left=v.state==='active'?dur(v.seconds_left):v.state==='unused'?'—':'0m';
   top.append(on,el('div','big',left),el('p','muted',v.state==='unused'?tt('not_started'):v.state==='active'?tt('left'):tt('expired')));box.append(top);
@@ -783,7 +789,7 @@ function hist(d){box.replaceChildren(el('h2',null,tt('history')));
     document.createTextNode(v.code+(v.bought?' · '+v.bought.slice(0,10):'')));
     r.append(a,el('span','pill',tt({active:'active',unused:'unused',expired:'expired_s',disabled:'disabled'}[v.state]||v.state)));box.append(r);});
   var b=el('button','btn ghost sec',tt('cancel'));b.type='button';b.onclick=function(){show(d);};box.append(b);}
-function buy(d,gift){var f=el('form');f.append(el('h2',null,gift?tt('buy_friend'):tt('buy_more')),el('p','lead',tt('choose')));
+function buy(d,gift){var f=el('form');f.append(el('h2',null,gift?tt('buy_friend'):d.vouchers.length?tt('buy_more'):tt('buy_pkg')),el('p','lead',tt('choose')));
   var err=el('div','alert hidden');f.append(err);var pk=el('div','pkgs');
   d.packages.forEach(function(p,i){var l=el('label','pkg'+(i?'':' on'));var r=el('input');r.type='radio';r.name='package_id';r.value=p.id;r.checked=!i;
     r.onchange=function(){pk.querySelectorAll('.pkg').forEach(function(x){x.classList.toggle('on',x.contains(r));});pay.textContent=tt('pay',{price:money(p.currency,p.price)});};
@@ -796,17 +802,20 @@ function buy(d,gift){var f=el('form');f.append(el('h2',null,gift?tt('buy_friend'
   var gp=null;if(gift){gp=el('input','input');gp.type='tel';gp.inputMode='tel';gp.placeholder='07XX XXX XXX';gp.required=true;
     var gf=el('div','field');gf.append(el('label',null,tt('friend_phone')),gp);f.append(gf);}
   var p0=d.packages[0];var pay=el('button','btn',p0?tt('pay',{price:money(p0.currency,p0.price)}):'');pay.type='submit';
-  var cancel=el('button','btn ghost',tt('cancel'));cancel.type='button';cancel.onclick=function(){show(d);};f.append(pay,cancel);
+  var cancel=el('button','btn ghost',d.vouchers.length?tt('cancel'):tt('have_code'));cancel.type='button';
+  cancel.onclick=function(){if(d.vouchers.length)show(d);else showAdd();};f.append(pay,cancel);
   f.onsubmit=function(ev){ev.preventDefault();pay.disabled=true;err.classList.add('hidden');
     var sel=f.querySelector('input[name=package_id]:checked');
-    api('/api/buy',{tokens:st.tokens,package_id:sel&&sel.value,phone:ph.value,network:net&&net.value,gift:!!gift,gift_phone:gp&&gp.value})
+    api('/api/buy',{tokens:st.tokens,site:SITE,package_id:sel&&sel.value,phone:ph.value,network:net&&net.value,gift:!!gift,gift_phone:gp&&gp.value})
     .then(function(j){wait(j);}).catch(function(e){err.textContent=e.message;err.classList.remove('hidden');pay.disabled=false;});};
   box.replaceChildren(f);}
 function wait(j){box.replaceChildren(el('h2',null,tt('waiting')),el('p','lead',tt('check_phone',{amount:money(j.currency,j.amount)})));
   var n=0,timer=setInterval(function(){n++;api('/api/pay/'+j.reference).then(function(p){
     if(p.status==='paid'){clearInterval(timer);if(p.token&&st.tokens.indexOf(p.token)<0){st.tokens.push(p.token);save(st);}
-      var a=el('div','alert ok');a.textContent=p.gift_phone?tt('paid_friend',{code:p.code,phone:p.gift_phone}):tt('paid_me',{code:p.code});
-      box.replaceChildren(a);setTimeout(refresh,4000);}
+      var a=el('div','alert ok');a.textContent=p.gift_phone?tt('paid_friend',{code:p.code,phone:p.gift_phone}):p.ruijie?tt('paid_ruijie'):tt('paid_me',{code:p.code});
+      box.replaceChildren(a);
+      if(p.ruijie&&!p.gift_phone){var c=el('div','big center',p.code);c.style.userSelect='all';var ok=el('button','btn',tt('done'));ok.type='button';ok.onclick=refresh;box.append(c,ok);}
+      else setTimeout(refresh,4000);}
     else if(p.status==='failed'||p.status==='review'){clearInterval(timer);var a2=el('div','alert');a2.textContent=tt('failed',{reason:p.message||''});
       box.replaceChildren(a2);var b=el('button','btn ghost',tt('cancel'));b.onclick=refresh;box.append(b);}
     }).catch(function(){});if(n>60)clearInterval(timer);},3000);}

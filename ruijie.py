@@ -1,0 +1,125 @@
+"""Minimal Ruijie Cloud Open API client, for Reyee access points (RG-RAP...) that only show Ruijie's own
+login page: SafeNet sells the package, then creates the same code on Ruijie Cloud as a voucher, and the
+guest types it on Ruijie's page. Standard library only.
+
+Ruijie Cloud API Reference Manual V2.0.3 (apply for an App ID and secret through Ruijie support):
+  POST /service/api/oauth20/client/access_token?token=<fixed>    body {appid, secret} -> accessToken
+  GET  /service/api/group/single/tree?depth=BUILDING             projects (network groups) -> groupId
+  GET  /service/api/intl/usergroup/list/{groupId}                 user groups = voucher packages (timePeriod in minutes)
+  POST /service/api/open/auth/voucher/customerCreate/{groupId}/{code}   body {profile, userGroupId}
+Every call carries ?access_token=...; an expired token answers code 4 or "Login timeout".
+"""
+import json
+import re
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+import safetext
+
+# Ruijie Cloud's regional servers
+CLOUDS = {
+    'https://cloud-as.ruijienetworks.com': 'Asia / Africa (cloud-as)',
+    'https://cloud.ruijienetworks.com': 'Global (cloud)',
+    'https://cloud-eu.ruijienetworks.com': 'Europe (cloud-eu)',
+    'https://cloud-us.ruijienetworks.com': 'Americas (cloud-us)',
+}
+TOKEN_PARAM = 'd63dss0a81e4415a889ac5b78fsc904a'     # fixed value from Ruijie's manual
+TOKEN_SECONDS = 20 * 60
+
+
+class RuijieError(Exception):
+    """Message is cleaned of keys and IDs before anyone can see it."""
+    def __init__(self, message=''):
+        super().__init__(safetext.clean(message))
+
+
+def valid_cloud(url):
+    """Only Ruijie's own HTTPS servers (the App secret is sent there)."""
+    return bool(re.fullmatch(r'https://[a-z0-9-]+\.ruijienetworks\.com', (url or '').rstrip('/')))
+
+
+class Cloud:
+    def __init__(self, base, appid, secret):
+        if not valid_cloud(base):
+            raise RuijieError('Choose a Ruijie Cloud server.')
+        self.base, self.appid, self.secret = base.rstrip('/'), appid, secret
+        self._token, self._token_at = None, 0.0
+
+    def _http(self, method, url, body=None, timeout=20):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(url, data=data, method=method,
+                                     headers={'Accept': 'application/json', 'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read() or b'null') or {}
+        except urllib.error.HTTPError as e:
+            raise RuijieError(f'Ruijie Cloud answered {e.code}: {e.read().decode("utf-8", "replace")[:200]}') from None
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            raise RuijieError(f'Ruijie Cloud could not be reached: {e}') from None
+
+    def token(self, force=False):
+        if self._token and not force and time.time() - self._token_at < TOKEN_SECONDS:
+            return self._token
+        reply = self._http('POST', f'{self.base}/service/api/oauth20/client/access_token?token={TOKEN_PARAM}',
+                           {'appid': self.appid, 'secret': self.secret})
+        if reply.get('code') != 0 or not reply.get('accessToken'):
+            raise RuijieError(f'Ruijie Cloud refused the App ID or secret: {reply.get("msg") or reply.get("code")}')
+        self._token, self._token_at = reply['accessToken'], time.time()
+        return self._token
+
+    def call(self, method, path, query=None, body=None, inner=None):
+        """The reply's data; raises RuijieError when Ruijie says it failed."""
+        for attempt in (0, 1):
+            qs = urllib.parse.urlencode({**(query or {}), 'access_token': self.token(force=attempt == 1)})
+            reply = self._http(method, f'{self.base}/service/api/{path}?{qs}', body if method == 'POST' else None)
+            if (reply.get('code') == 4 or str(reply.get('msg', '')).lower() == 'login timeout') and attempt == 0:
+                continue
+            break
+        if reply.get('code') != 0:
+            raise RuijieError(f'Ruijie Cloud: {reply.get("msg") or reply.get("code")}')
+        data = reply.get(inner) if inner else reply
+        if isinstance(data, dict) and data.get('code') not in (None, 0):
+            raise RuijieError(f'Ruijie Cloud: {data.get("msg") or data.get("code")}')
+        return data if data is not None else {}
+
+    def projects(self):
+        """[(groupId, name)] of the account's projects (where the access points are)."""
+        data = self.call('GET', 'group/single/tree', {'depth': 'BUILDING'})
+        out = []
+
+        def walk(node):
+            if isinstance(node, list):
+                for n in node:
+                    walk(n)
+            elif isinstance(node, dict):
+                if node.get('groupId') is not None and str(node.get('type', 'BUILDING')).upper() == 'BUILDING':
+                    out.append((str(node['groupId']), str(node.get('name') or node['groupId'])))
+                walk(node.get('subGroups') or node.get('children') or [])
+        walk(data.get('groups') or data.get('group') or data.get('data') or [])
+        return out
+
+    def packages(self, group_id):
+        """Voucher packages (user groups) of a project: [{user_group, profile, name, minutes}]."""
+        data = self.call('GET', f'intl/usergroup/list/{group_id}', {'pageIndex': 0, 'pageSize': 100})
+        items = data.get('list') or data.get('userGroups') or data.get('data') or []
+        out = []
+        for p in items if isinstance(items, list) else []:
+            user_group = p.get('userGroupId') if p.get('userGroupId') not in (None, '') else p.get('id')
+            profile = next((p[k] for k in ('authprofileid', 'authProfileId', 'uuid', 'profileId', 'packageId', 'id')
+                            if p.get(k) not in (None, '')), None)
+            if user_group in (None, '') or profile is None:
+                continue
+            try:
+                minutes = int(float(p.get('timePeriod') or 0))
+            except (TypeError, ValueError):
+                minutes = 0
+            out.append({'user_group': str(user_group), 'profile': str(profile), 'minutes': minutes,
+                        'name': str(p.get('packageName') or p.get('profileName') or p.get('userGroupName') or p.get('name') or user_group)})
+        return out
+
+    def create_voucher(self, group_id, code, package):
+        """Make `code` a voucher of `package` (one of packages()) in the project."""
+        self.call('POST', f'open/auth/voucher/customerCreate/{group_id}/{urllib.parse.quote(code, safe="")}',
+                  body={'profile': package['profile'], 'userGroupId': package['user_group']}, inner='voucherData')

@@ -22,6 +22,7 @@ import math
 import os
 import secretbox
 import omada
+import ruijie
 import migrations
 from mailer import send_mail
 from tenancy import (current_tenant, tenant_id, scoped, owned_or_404, tenant_usernames, role_required, superadmin_required,
@@ -1420,13 +1421,15 @@ def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_device
     # Codes double as RADIUS usernames, so avoid clashes with both tables.
     taken = {c for (c,) in db.session.query(Voucher.code)}
     taken |= {u for (u,) in db.session.query(RadCheck.username).distinct()}
+    site = db.session.get(Site, site_id) if site_id else None
+    ruijie_state = 'pending' if site is not None and site.ruijie_ready else None    # also made on Ruijie Cloud
     created = []
     for _ in range(count):
         code = _new_voucher_code(taken)
         voucher = Voucher(tenant_id=tenant if tenant is not None else tenant_id(),
                           code=code, plan_id=plan.id if plan else None, batch=batch,
                           validity_minutes=minutes, price=None if is_free else price,
-                          max_devices=max_devices or 1, is_free=bool(is_free), site_id=site_id)
+                          max_devices=max_devices or 1, is_free=bool(is_free), site_id=site_id, ruijie_state=ruijie_state)
         db.session.add(voucher)
         db.session.add(RadCheck(username=code, attribute='Cleartext-Password', op=':=', value=code))
         if plan:
@@ -1552,6 +1555,7 @@ def generate_vouchers():
         _create_vouchers(form.count.data, plan, minutes, price, batch, max_devices=form.max_devices.data,
                          is_free=form.is_free.data, site_id=site_for_new_things().id)
         db.session.commit()
+        _ruijie_push_soon()
 
         flash(tr('{n} vouchers created in batch "{batch}".', n=form.count.data, batch=batch), 'success')
         return redirect(url_for('vouchers', batch=batch))
@@ -2413,6 +2417,7 @@ def start_background_jobs():
     if Config.OMADA_OPENAPI_CLIENT_ID and Config.OMADA_HOSTED_URL:
         threading.Thread(target=_omada_sync_loop, name='omada-usage', daemon=True).start()
     threading.Thread(target=_daily_summary_loop, name='daily-summary', daemon=True).start()
+    threading.Thread(target=_ruijie_loop, name='ruijie-cloud', daemon=True).start()
 
 
 def _openapi_admin():
@@ -2932,6 +2937,190 @@ def site_wifidog(site_id):
     return redirect(url_for('sites_page'))
 
 
+# ---------------------------------------------------------------------------
+# Ruijie Cloud: Reyee access points (RG-RAP...) without WiFiDog show Ruijie's own voucher page. Guests buy on
+# SafeNet (the guest app, /app/<slug>?s=<site token>, linked from that page), and SafeNet creates each code
+# for the site on Ruijie Cloud too, in the Ruijie package with the same duration.
+# ---------------------------------------------------------------------------
+RUIJIE_BATCH = 50              # codes copied per site per run (each one is an API call)
+_ruijie_clients = {}
+
+
+def _ruijie_cloud(site):
+    key = (site.ruijie_cloud_url, site.ruijie_appid, site.ruijie_secret_enc)
+    if key not in _ruijie_clients:
+        _ruijie_clients[key] = ruijie.Cloud(site.ruijie_cloud_url, site.ruijie_appid, secretbox.decrypt(site.ruijie_secret_enc))
+    return _ruijie_clients[key]
+
+
+def _ruijie_info(site):
+    try:
+        return json.loads(site.ruijie_packages or '{}')
+    except ValueError:
+        return {}
+
+
+def _ruijie_package(site, minutes):
+    return next((p for p in _ruijie_info(site).get('packages', []) if p.get('minutes') == minutes), None)
+
+
+def _ruijie_push_site(site):
+    """Copy this site's waiting codes to Ruijie Cloud. A code whose duration has no Ruijie package is marked failed."""
+    cloud = _ruijie_cloud(site)
+    missing = set()
+    for vid in [i for (i,) in db.session.query(Voucher.id).filter_by(site_id=site.id, ruijie_state='pending').order_by(Voucher.id).limit(RUIJIE_BATCH)]:
+        # claim it (another web worker may be copying too)
+        if not Voucher.query.filter_by(id=vid, ruijie_state='pending').update({'ruijie_state': 'sending'}, synchronize_session=False):
+            db.session.commit()
+            continue
+        db.session.commit()
+        voucher = db.session.get(Voucher, vid)
+        package = _ruijie_package(site, voucher.validity_minutes)
+        if package is None:
+            voucher.ruijie_state = 'failed'
+            missing.add(voucher.validity_minutes)
+            db.session.commit()
+            continue
+        try:
+            cloud.create_voucher(site.ruijie_group_id, voucher.code, package)
+            voucher.ruijie_state = 'ok'
+            db.session.commit()
+        except ruijie.RuijieError as e:
+            if 'exist' in str(e).lower():          # already made (a retry after a timeout)
+                voucher.ruijie_state = 'ok'
+                db.session.commit()
+                continue
+            voucher.ruijie_state = 'pending'      # try again next time
+            db.session.commit()
+            raise
+    if missing:
+        raise ruijie.RuijieError(tr('No Ruijie package lasts {d}. Create one in Ruijie Cloud, then press Read packages again.',
+                                    d=', '.join(format_minutes(m) for m in sorted(missing))))
+
+
+def _ruijie_push_due():
+    for sid in [i for (i,) in db.session.query(Voucher.site_id).filter_by(ruijie_state='pending').distinct()]:
+        site = db.session.get(Site, sid) if sid else None
+        if site is None or not site.ruijie_ready:
+            continue
+        try:
+            _ruijie_push_site(site)
+            if site.ruijie_error:
+                site.ruijie_error = None
+                db.session.commit()
+        except Exception as e:                    # Ruijie Cloud down or keys changed: the codes wait
+            db.session.rollback()
+            log.warning('ruijie cloud copy for site %s failed: %s', sid, e)
+            Site.query.filter_by(id=sid).update({'ruijie_error': safetext.clean(str(e))[:255]})
+            db.session.commit()
+
+
+def _ruijie_push_soon(delay=0):
+    """Copy waiting codes now, in the background (a guest who just paid is about to type theirs)."""
+    if app.config.get('TESTING'):
+        return
+
+    def run():
+        time.sleep(delay)
+        try:
+            with app.app_context():
+                _ruijie_push_due()
+        except Exception:
+            log.exception('ruijie cloud copy failed')
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _ruijie_loop():
+    while True:
+        time.sleep(60)
+        try:
+            with app.app_context():
+                _ruijie_push_due()
+        except Exception:
+            log.exception('ruijie cloud copy failed')
+
+
+def _ruijie_read(site, cloud):
+    """Read the account's projects, choose this site's (the only one, or the one picked), and its packages."""
+    info = {'projects': cloud.projects(), 'packages': []}
+    ids = [p[0] for p in info['projects']]
+    if site.ruijie_group_id not in ids:
+        site.ruijie_group_id = ids[0] if len(ids) == 1 else None
+    site.ruijie_group_name = dict(info['projects']).get(site.ruijie_group_id)
+    if site.ruijie_group_id:
+        info['packages'] = cloud.packages(site.ruijie_group_id)
+    site.ruijie_packages = json.dumps(info)
+
+
+def _ruijie_status(site):
+    """What the Sites page shows: projects, packages, codes copied, and SafeNet packages with no Ruijie package to match."""
+    info = _ruijie_info(site)
+    counts = dict(db.session.query(Voucher.ruijie_state, func.count(Voucher.id)).filter(Voucher.site_id == site.id,
+                  Voucher.ruijie_state.isnot(None)).group_by(Voucher.ruijie_state).all())
+    have = {p.get('minutes') for p in info.get('packages', [])}
+    sold = _site_packages(Package.query.filter_by(tenant_id=site.tenant_id, is_active=True), site.id).all()
+    return {'projects': info.get('projects', []),
+            'packages': [{**p, 'label': format_minutes(p['minutes']) if p.get('minutes') else '?'} for p in info.get('packages', [])],
+            'ok': counts.get('ok', 0), 'waiting': counts.get('pending', 0) + counts.get('sending', 0), 'failed': counts.get('failed', 0),
+            'unmatched': [p for p in sold if p.validity_minutes not in have],
+            'buy_url': url_for('guest_app', slug=db.session.get(Tenant, site.tenant_id).slug, s=site.portal_token, _external=True)
+                       if site.portal_token else ''}
+
+
+@app.route('/sites/<int:site_id>/ruijie-cloud', methods=['POST'])
+@login_required
+@role_required('admin')
+def site_ruijie_cloud(site_id):
+    _check_csrf()
+    site = owned_or_404(Site, site_id)
+    action = request.form.get('action')
+    back = redirect(url_for('sites_page', open=f'ruijie-{site.id}'))
+    if action == 'remove':
+        site.ruijie_cloud_url = site.ruijie_appid = site.ruijie_secret_enc = None
+        site.ruijie_group_id = site.ruijie_group_name = site.ruijie_packages = site.ruijie_error = None
+        Voucher.query.filter(Voucher.site_id == site.id, Voucher.ruijie_state.in_(('pending', 'sending'))).update({'ruijie_state': None}, synchronize_session=False)
+        db.session.commit()
+        flash(tr('Ruijie Cloud removed from "{site}".', site=site.name), 'success')
+        return back
+    if action == 'save':
+        cloud_url = request.form.get('cloud', '')
+        appid = request.form.get('appid', '').strip()[:128]
+        secret = request.form.get('secret', '').strip()
+        if cloud_url not in ruijie.CLOUDS or not appid or not (secret or site.ruijie_secret_enc):
+            flash(tr('Choose the Ruijie Cloud server and enter the App ID and App secret.'), 'warning')
+            return back
+        site.ruijie_cloud_url, site.ruijie_appid = cloud_url, appid
+        if secret:
+            site.ruijie_secret_enc = secretbox.encrypt(secret)
+    elif action == 'project':
+        site.ruijie_group_id = request.form.get('group_id', '')[:32] or None
+    elif action == 'retry':
+        Voucher.query.filter(Voucher.site_id == site.id, Voucher.ruijie_state.in_(('failed', 'sending'))).update({'ruijie_state': 'pending'}, synchronize_session=False)
+    elif action != 'read':
+        abort(400)
+    if not (site.ruijie_cloud_url and site.ruijie_appid and site.ruijie_secret_enc):
+        abort(400)
+    if not site.portal_token:
+        site.portal_token = secrets.token_urlsafe(12)[:16]
+    try:
+        _ruijie_read(site, _ruijie_cloud(site))
+        site.ruijie_error = None
+    except ruijie.RuijieError as e:
+        site.ruijie_error = str(e)[:255]
+        db.session.commit()
+        flash(tr('Ruijie Cloud: {error}', error=str(e)), 'danger')
+        return back
+    db.session.commit()
+    if not site.ruijie_group_id:
+        flash(tr('Connected to Ruijie Cloud. Choose the project with the access points of "{site}".', site=site.name), 'info')
+    elif not _ruijie_info(site).get('packages'):
+        flash(tr('Connected, but the project has no voucher packages yet. Create them in Ruijie Cloud, then press Read packages.'), 'warning')
+    else:
+        flash(tr('Ruijie Cloud connected: codes sold at "{site}" are now made on Ruijie Cloud too.', site=site.name), 'success')
+        _ruijie_push_soon()
+    return back
+
+
 @app.route('/sites/<int:site_id>/omada', methods=['POST'])
 @login_required
 @role_required('admin')
@@ -3107,15 +3296,26 @@ def guest_app_link(slug):
     return jsonify(token=_guest_token(tenant, voucher.code), voucher=_guest_voucher_json(voucher))
 
 
+def _guest_app_site(tenant, data, mine):
+    """The site the app sells for: the one in its link (?s=<site token>, e.g. from a Ruijie login page),
+    else where the guest's codes were bought, else the main site."""
+    token = str(data.get('site') or '')[:24]
+    site = Site.query.filter_by(tenant_id=tenant.id, portal_token=token).first() if token else None
+    if site is not None:
+        return site.id
+    return next((v.site_id for v in mine if v.site_id), None) or tenant_sites(tenant.id)[0].id
+
+
 @app.route('/app/<slug>/api/me', methods=['POST'])
 def guest_app_me(slug):
     """Everything the app shows: the guest's vouchers (current first), packages to buy, how to pay."""
     tenant = _guest_app_tenant(slug)
-    tokens = (request.get_json(silent=True) or {}).get('tokens') or []
-    vouchers = [_guest_voucher_json(v) for v in _guest_app_vouchers(tenant, tokens)]
+    data = request.get_json(silent=True) or {}
+    mine = _guest_app_vouchers(tenant, data.get('tokens') or [])
+    vouchers = [_guest_voucher_json(v) for v in mine]
     rank = {'active': 0, 'unused': 1, 'expired': 2, 'disabled': 3}
     vouchers.sort(key=lambda v: (rank.get(v['state'], 9), -v['seconds_left'] if v['state'] == 'active' else 0, v['bought'] or ''))
-    site_id = next((v['site_id'] for v in vouchers if v['site_id']), None) or tenant_sites(tenant.id)[0].id
+    site_id = _guest_app_site(tenant, data, mine)
     packages = [{'id': p.id, 'name': p.name, 'description': p.description or '', 'price': f'{p.price:.0f}', 'currency': p.currency,
                  'validity_minutes': p.validity_minutes}
                 for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True), site_id)
@@ -3123,7 +3323,8 @@ def guest_app_me(slug):
     hs = _hotspot_settings(tenant)
     return jsonify(vouchers=vouchers, packages=packages, networks=payment_networks(tenant),
                    can_buy=paylib.is_ready(_tenant_account(tenant)) and bool(packages), can_gift=_sms_on(tenant),
-                   support=hs['support'], name=hs['name'], tokens=[_guest_token(tenant, v['code']) for v in vouchers])
+                   support=hs['support'], name=hs['name'], tokens=[_guest_token(tenant, v['code']) for v in vouchers],
+                   ruijie=db.session.get(Site, site_id).ruijie_ready)
 
 
 @app.route('/app/<slug>/api/buy', methods=['POST'])
@@ -3134,7 +3335,7 @@ def guest_app_buy(slug):
     if _rate_limited('appbuy', f'ip:{_client_ip()}', 6, 10):
         return jsonify(error='Too many payment requests. Please wait a few minutes.'), 429
     mine = _guest_app_vouchers(tenant, data.get('tokens') or [])
-    site_id = next((v.site_id for v in mine if v.site_id), None) or tenant_sites(tenant.id)[0].id
+    site_id = _guest_app_site(tenant, data, mine)
     package = _site_packages(Package.query.filter_by(id=data.get('package_id'), tenant_id=tenant.id, is_active=True,
                                                      show_on_portal=True), site_id).first()
     if package is None:
@@ -3164,6 +3365,7 @@ def guest_app_payment(slug, reference):
     out = {'status': payment.status, 'message': payment.message or '', 'gift_phone': payment.gift_phone or ''}
     if payment.status == 'paid' and payment.voucher:
         out['code'] = payment.voucher.code
+        out['ruijie'] = payment.voucher.ruijie_state is not None      # typed on Ruijie's login page
         if not payment.gift_phone:
             out['token'] = _guest_token(tenant, payment.voucher.code)
     return jsonify(out)
@@ -3614,6 +3816,8 @@ def _fulfil_payment(payment):
     payment.paid_at = datetime.utcnow()
     log.info('payment %s paid: voucher %s', payment.reference, voucher.code)
     _sale_alert(payment)
+    if voucher.ruijie_state:
+        _ruijie_push_soon(delay=1)       # after this payment is committed
     if payment.client_mac and not payment.gift_phone:
         voucher.first_mac = _mac_key(payment.client_mac)     # waits for this phone (see _returning_code)
     if not _sms_on(payment.tenant):
@@ -4521,14 +4725,15 @@ def sites_page():
                      'packages': scoped(Package).filter_by(site_id=site.id).count(),
                      'online': view['sessions'](RadAcct.query.filter(RadAcct.acctstoptime.is_(None),
                                func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime) >= datetime.utcnow() - timedelta(minutes=LIVE_STALE_MINUTES))).count(),
-                     'today': _collected(tid, site, midnight), 'month': _collected(tid, site, month_start)})
+                     'today': _collected(tid, site, midnight), 'month': _collected(tid, site, month_start),
+                     'ruijie': _ruijie_status(site) if site.ruijie_cloud_url else None})
     plan = current_tenant().billing_plan
     return render_template('sites.html', omada_dashboard_url=Config.OMADA_DASHBOARD_URL,
                            omada_password=secretbox.decrypt(current_tenant().omada_password_enc) if current_tenant().omada_password_enc and current_user.has_role('admin') else '', rows=rows, currency=current_tenant().currency,
                            limit=plan.max_sites if plan else None, omada_hosted=_omada_hosted_available(),
                            omada_host=Config.OMADA_HOSTED_HOST, wifidog_base=Config.WIFIDOG_BASE,
                            omada_openapi=_omada_openapi_available(),
-                           server_ip=_server_ip(), now=datetime.utcnow())
+                           server_ip=_server_ip(), now=datetime.utcnow(), ruijie_clouds=ruijie.CLOUDS)
 
 
 @app.route('/sites/add', methods=['POST'])

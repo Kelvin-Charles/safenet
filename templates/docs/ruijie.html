@@ -18,11 +18,11 @@
     <tbody>
         <tr><td><strong>Ruijie enterprise access points</strong>: RG-AP820-L(V2), RG-AP820-L(V3), RG-AP840-L, RG-AP880 and other <code>RG-AP…</code> models</td><td>✅ Yes, just the access point and internet</td></tr>
         <tr><td><strong>Reyee gateway routers</strong>: <code>RG-EG…</code> models, with any Reyee access point</td><td>✅ Yes, through the router's WiFiDog setting</td></tr>
-        <tr><td><strong>Reyee access points</strong>: RG-RAP6262 and other <code>RG-RAP…</code> models on firmware <strong>ReyeeOS 2.385 or newer</strong></td><td>✅ Yes, after a firmware update. Ruijie added third-party WiFiDog servers in ReyeeOS 2.385 (February 2026). See <a href="#reyee">Reyee access points</a> below.</td></tr>
-        <tr><td><strong>Reyee access points</strong> on older firmware that can't be updated</td><td>❌ No. They only offer Ruijie's own login page. Add a Reyee gateway router, or use a <a href="{{ url_for('docs', slug='gateway') }}">SafeNet gateway box</a>.</td></tr>
+        <tr><td><strong>Reyee access points</strong>: RG-RAP6262 and other <code>RG-RAP…</code> models whose firmware offers a <strong>third-party WiFiDog server</strong></td><td>✅ Yes, the same way as above. See <a href="#reyee">Reyee with WiFiDog</a>.</td></tr>
+        <tr><td><strong>Reyee access points</strong> that only offer Ruijie's own login page</td><td>✅ Yes, with <a href="#cloud">Ruijie Cloud vouchers</a>: guests buy on SafeNet and type the code on Ruijie's page. Just the access point and internet.</td></tr>
     </tbody>
 </table></div>
-<div class="note tip"><i class="bi bi-lightbulb"></i><p><strong>Buying new?</strong> RG-AP820-L(V3) (indoor, Wi-Fi 6) and RG-RAP6262 (outdoor) both work with no extra box. For other Reyee models, check that ReyeeOS 2.385 or newer is offered for that model before you buy.</p></div>
+<div class="note tip"><i class="bi bi-lightbulb"></i><p><strong>Buying new?</strong> Ruijie RG-AP models (for example RG-AP820-L(V3)) give the fullest SafeNet features: live view, data usage and Disconnect. Reyee RG-RAP models work too, with fewer features when they only use Ruijie's own login page.</p></div>
 
 <h2 id="safenet">1. Switch it on in SafeNet</h2>
 <ol class="steps">
@@ -55,15 +55,32 @@ write</code></pre>
 </ol>
 <div class="note warn"><i class="bi bi-exclamation-triangle"></i><p><strong>Managed by Ruijie Cloud?</strong> Ruijie Cloud may overwrite settings made on the access point itself. Either remove the access point from Ruijie Cloud, or set the same values in Ruijie Cloud's captive portal settings (policy mode <strong>External</strong>, the authentication server URL above as the portal server URL, and the portal server IP). Firmware menus differ between models; if yours looks different, contact support with a screenshot.</p></div>
 
-<h2 id="reyee">Reyee access points (RG-RAP6262 and others)</h2>
-<p>Reyee access points are set up in their web page (eWeb) or the Ruijie Cloud app instead of the command line above.</p>
+<h2 id="reyee">Reyee with WiFiDog</h2>
+<p>Ruijie added third-party WiFiDog servers to some Reyee firmware (for example ReyeeOS 2.385 for the RG-RAP6262). If yours offers it, this is the best way: it works exactly like the Ruijie access points above.</p>
 <ol class="steps">
-    <li><strong>Update the firmware</strong>Open the access point's web page (or Ruijie Cloud) and check the version under <em>System → Upgrade</em>. It needs <strong>ReyeeOS 2.385 or newer</strong>; update it online, or download the file for your model from Ruijie's Reyee website.</li>
-    <li><strong>Create the guest Wi-Fi</strong>Make your guest Wi-Fi <strong>open (no password)</strong>.</li>
-    <li><strong>Point the login page at SafeNet</strong>Open the captive portal (authentication) settings, choose the <strong>third-party WiFiDog server</strong> option and enter the <strong>Authentication server URL</strong> from your Sites page. If it asks for a server IP, enter <code>{{ server_ip or 'the portal server IP from your Sites page' }}</code>. Apply it to your guest Wi-Fi.</li>
-    <li><strong>Check it is talking to SafeNet</strong>Within a few minutes the Sites page shows <strong>Access point last heard … min ago</strong>.</li>
+    <li><strong>Update the firmware</strong>In the access point's web page or Ruijie Cloud, update to the newest firmware for your model.</li>
+    <li><strong>Look for WiFiDog</strong>Open the captive portal (authentication) settings. If you can choose a <strong>third-party WiFiDog server</strong>, enter the <strong>Authentication server URL</strong> from the <strong>Ruijie</strong> box on your Sites page, and the portal server IP if asked. Make the guest Wi-Fi open (no password).</li>
+    <li><strong>No WiFiDog option?</strong>Use <a href="#cloud">Ruijie Cloud vouchers</a> below instead.</li>
 </ol>
-<div class="note warn"><i class="bi bi-exclamation-triangle"></i><p>Menu names differ between firmware versions. If you can't find the WiFiDog option after updating, or the access point never shows as heard, send support a screenshot of the authentication page.</p></div>
+
+<h2 id="cloud">Ruijie Cloud vouchers (Reyee without WiFiDog)</h2>
+<div class="flow" aria-label="How it works">
+    <div class="box">Guest joins the Wi-Fi</div><span class="arr">→</span>
+    <div class="box">Ruijie's login page<small>"Buy a code" link</small></div><span class="arr">→</span>
+    <div class="box hl">SafeNet<small>pays by mobile money</small></div><span class="arr">→</span>
+    <div class="box">Code typed on Ruijie's page</div>
+</div>
+<p>The access point keeps showing Ruijie's own voucher login page. It links to your SafeNet page, where guests pay by mobile money and get a code. SafeNet creates the same code on Ruijie Cloud straight away, so it works on Ruijie's page. Codes you generate in SafeNet for this site are copied too, so printed vouchers work as well.</p>
+<ol class="steps">
+    <li><strong>Get Ruijie Cloud API access</strong>Ruijie gives an <strong>App ID</strong> and <strong>App secret</strong> on request. Email Ruijie support (service_rj@ruijienetworks.com) or ask your Ruijie distributor, saying it is for creating vouchers from your billing system. This can take a few days.</li>
+    <li><strong>Create voucher packages in Ruijie Cloud</strong>In your Ruijie Cloud project, open <em>Authentication → Voucher</em> and create one package for each SafeNet package, with the <strong>same duration</strong> (for example 1 hour, 1 day, 7 days). Speed limits go here too.</li>
+    <li><strong>Turn on the voucher login page</strong>In Ruijie Cloud's captive portal settings, choose <strong>Voucher</strong> login for your guest Wi-Fi (open, no password).</li>
+    <li><strong>Connect SafeNet</strong>In SafeNet open <strong>Sites</strong>, click <strong>Reyee</strong> next to the site, choose your Ruijie Cloud server, enter the App ID and secret and click <strong>Connect</strong>. SafeNet reads your projects and packages, and warns you about any SafeNet package without a Ruijie package of the same duration.</li>
+    <li><strong>Add the "Buy a code" link</strong>Edit the text of Ruijie's login page and add the <strong>Link for the Ruijie login page</strong> shown in the Reyee box, for example: <em>"No code? Buy one here: …"</em>.</li>
+    <li><strong>Allow your SafeNet page before login</strong>In the captive portal's allowlist (walled garden), add the domain shown in the Reyee box (<code>{{ request.host }}</code>). Mobile money payments use a PIN prompt on the phone, so no payment website needs to be allowed.</li>
+    <li><strong>Test it</strong>Join the Wi-Fi with a phone, tap the link, buy the cheapest package, then enter the code on Ruijie's page.</li>
+</ol>
+<div class="note warn"><i class="bi bi-exclamation-triangle"></i><p><strong>What you don't get this way:</strong> Ruijie Cloud decides when time runs out, so these guests don't appear on SafeNet's Live page with data usage, and <strong>Disconnect</strong> or disabling a voucher in SafeNet doesn't reach Ruijie. Manage a guest who is online in Ruijie Cloud. If you can, use <a href="#reyee">WiFiDog</a> instead.</p></div>
 
 <h2 id="test">3. Test it</h2>
 <ol class="steps">
