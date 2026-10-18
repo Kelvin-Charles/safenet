@@ -18,10 +18,11 @@
     <tbody>
         <tr><td><strong>Ruijie enterprise access points</strong>: RG-AP820-L(V2), RG-AP820-L(V3), RG-AP840-L, RG-AP880 and other <code>RG-AP…</code> models</td><td>✅ Yes, just the access point and internet</td></tr>
         <tr><td><strong>Reyee gateway routers</strong>: <code>RG-EG…</code> models, with any Reyee access point</td><td>✅ Yes, through the router's WiFiDog setting</td></tr>
-        <tr><td><strong>Reyee access points</strong>: <code>RG-RAP…</code> models on their own</td><td>❌ No. Reyee access points only offer Ruijie's own login page. Add a Reyee gateway router, or use a <a href="{{ url_for('docs', slug='gateway') }}">SafeNet gateway box</a>.</td></tr>
+        <tr><td><strong>Reyee access points</strong>: RG-RAP6262 and other <code>RG-RAP…</code> models on firmware <strong>ReyeeOS 2.385 or newer</strong></td><td>✅ Yes, after a firmware update. Ruijie added third-party WiFiDog servers in ReyeeOS 2.385 (February 2026). See <a href="#reyee">Reyee access points</a> below.</td></tr>
+        <tr><td><strong>Reyee access points</strong> on older firmware that can't be updated</td><td>❌ No. They only offer Ruijie's own login page. Add a Reyee gateway router, or use a <a href="{{ url_for('docs', slug='gateway') }}">SafeNet gateway box</a>.</td></tr>
     </tbody>
 </table></div>
-<div class="note tip"><i class="bi bi-lightbulb"></i><p><strong>Buying new?</strong> Choose <strong>RG-AP820-L(V3)</strong> (indoor, Wi-Fi 6) rather than Reyee RG-RAP models if you want no extra box.</p></div>
+<div class="note tip"><i class="bi bi-lightbulb"></i><p><strong>Buying new?</strong> RG-AP820-L(V3) (indoor, Wi-Fi 6) and RG-RAP6262 (outdoor) both work with no extra box. For other Reyee models, check that ReyeeOS 2.385 or newer is offered for that model before you buy.</p></div>
 
 <h2 id="safenet">1. Switch it on in SafeNet</h2>
 <ol class="steps">
@@ -53,6 +54,16 @@ write</code></pre>
     <li><strong>Check it is talking to SafeNet</strong>Within a few minutes the Sites page shows <strong>Access point last heard … min ago</strong>, and the dashboard lists it under devices.</li>
 </ol>
 <div class="note warn"><i class="bi bi-exclamation-triangle"></i><p><strong>Managed by Ruijie Cloud?</strong> Ruijie Cloud may overwrite settings made on the access point itself. Either remove the access point from Ruijie Cloud, or set the same values in Ruijie Cloud's captive portal settings (policy mode <strong>External</strong>, the authentication server URL above as the portal server URL, and the portal server IP). Firmware menus differ between models; if yours looks different, contact support with a screenshot.</p></div>
+
+<h2 id="reyee">Reyee access points (RG-RAP6262 and others)</h2>
+<p>Reyee access points are set up in their web page (eWeb) or the Ruijie Cloud app instead of the command line above.</p>
+<ol class="steps">
+    <li><strong>Update the firmware</strong>Open the access point's web page (or Ruijie Cloud) and check the version under <em>System → Upgrade</em>. It needs <strong>ReyeeOS 2.385 or newer</strong>; update it online, or download the file for your model from Ruijie's Reyee website.</li>
+    <li><strong>Create the guest Wi-Fi</strong>Make your guest Wi-Fi <strong>open (no password)</strong>.</li>
+    <li><strong>Point the login page at SafeNet</strong>Open the captive portal (authentication) settings, choose the <strong>third-party WiFiDog server</strong> option and enter the <strong>Authentication server URL</strong> from your Sites page. If it asks for a server IP, enter <code>{{ server_ip or 'the portal server IP from your Sites page' }}</code>. Apply it to your guest Wi-Fi.</li>
+    <li><strong>Check it is talking to SafeNet</strong>Within a few minutes the Sites page shows <strong>Access point last heard … min ago</strong>.</li>
+</ol>
+<div class="note warn"><i class="bi bi-exclamation-triangle"></i><p>Menu names differ between firmware versions. If you can't find the WiFiDog option after updating, or the access point never shows as heard, send support a screenshot of the authentication page.</p></div>
 
 <h2 id="test">3. Test it</h2>
 <ol class="steps">

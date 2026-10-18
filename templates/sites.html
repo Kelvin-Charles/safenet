@@ -145,7 +145,7 @@
                         <tr class="collapse" id="wifidog-{{ s.id }}"><td colspan="7" class="bg-light">
                             <div class="p-2">
                                 <h6 class="mb-1"><i class="bi bi-broadcast-pin"></i> {{ _('Ruijie access points at {site}', site=s.name) }}</h6>
-                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='ruijie') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Step-by-step guide') }}</a> · {{ _("For Ruijie enterprise access points (RG-AP820-L, RG-AP840-L, RG-AP880…) and other devices with WiFiDog web authentication. Just the access point and internet: guests get SafeNet's login page with your packages and mobile money.") }}</p>
+                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='ruijie') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Step-by-step guide') }}</a> · {{ _("For Ruijie access points (RG-AP820-L, RG-AP840-L, RG-AP880…), Reyee access points on firmware ReyeeOS 2.385 or newer (RG-RAP6262…) and other devices with WiFiDog web authentication. Just the access point and internet: guests get SafeNet's login page with your packages and mobile money.") }}</p>
                                 <form method="POST" action="{{ url_for('site_wifidog', site_id=s.id) }}" class="mb-3">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     {% if s.wifidog_enabled %}
@@ -167,6 +167,7 @@
                                         <tr><th>{{ _('Protocol') }}</th><td>WiFiDog</td></tr>
                                         <tr><th>{{ _('Wi-Fi security') }}</th><td>{{ _('Open (no password), web authentication on') }}</td></tr>
                                     </table>
+                                    <p class="mb-1"><strong>{{ _('Reyee (RG-RAP…):') }}</strong> {{ _("in the access point's web page or Ruijie Cloud, open the captive portal settings, choose a third-party WiFiDog server and enter the authentication server URL above.") }}</p>
                                     <p class="mb-1">{{ _('Ruijie access point command line (replace') }} <code>1</code> {{ _("with your Wi-Fi's WLAN ID):") }}</p>
 <pre class="bg-dark text-light p-2 rounded small mb-0">config
 web-auth template safenet

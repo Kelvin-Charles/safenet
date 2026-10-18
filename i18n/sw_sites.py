@@ -239,8 +239,8 @@ SW = {
     "The controller must be reachable from the internet at the address above (forward port 8043 on the site's router if it is on a local PC or OC200).":
         'Controller lazima ifikike kutoka intaneti kwa anwani iliyo juu (fungua port 8043 kwenye ruta ya eneo kama iko kwenye kompyuta ya hapo au OC200).',
     'Ruijie access points at {site}': 'Vifaa vya Wi-Fi vya Ruijie katika {site}',
-    "For Ruijie enterprise access points (RG-AP820-L, RG-AP840-L, RG-AP880…) and other devices with WiFiDog web authentication. Just the access point and internet: guests get SafeNet's login page with your packages and mobile money.":
-        'Kwa vifaa vya Wi-Fi vya Ruijie (RG-AP820-L, RG-AP840-L, RG-AP880…) na vifaa vingine vyenye uthibitisho wa wavuti wa WiFiDog. Kifaa cha Wi-Fi na intaneti tu: wateja wanapata ukurasa wa kuingia wa SafeNet wenye vifurushi vyako na pesa kwa simu.',
+    "For Ruijie access points (RG-AP820-L, RG-AP840-L, RG-AP880…), Reyee access points on firmware ReyeeOS 2.385 or newer (RG-RAP6262…) and other devices with WiFiDog web authentication. Just the access point and internet: guests get SafeNet's login page with your packages and mobile money.":
+        'Kwa vifaa vya Wi-Fi vya Ruijie (RG-AP820-L, RG-AP840-L, RG-AP880…), vifaa vya Reyee vyenye firmware ReyeeOS 2.385 au mpya zaidi (RG-RAP6262…) na vifaa vingine vyenye uthibitisho wa wavuti wa WiFiDog. Kifaa cha Wi-Fi na intaneti tu: wateja wanapata ukurasa wa kuingia wa SafeNet wenye vifurushi vyako na pesa kwa simu.',
     'Switched on': 'Imewashwa',
     'Access point last heard {n} min ago': 'Kifaa cha Wi-Fi kilisikika mwisho dakika {n} zilizopita',
     'No access point has contacted SafeNet yet': 'Bado hakuna kifaa cha Wi-Fi kilichowasiliana na SafeNet',
@@ -253,6 +253,9 @@ SW = {
     'Protocol': 'Itifaki',
     'Wi-Fi security': 'Usalama wa Wi-Fi',
     'Open (no password), web authentication on': 'Wazi (bila nenosiri), uthibitisho wa wavuti umewashwa',
+    'Reyee (RG-RAP…):': 'Reyee (RG-RAP…):',
+    "in the access point's web page or Ruijie Cloud, open the captive portal settings, choose a third-party WiFiDog server and enter the authentication server URL above.":
+        'kwenye ukurasa wa wavuti wa kifaa cha Wi-Fi au Ruijie Cloud, fungua mipangilio ya captive portal, chagua seva ya WiFiDog ya nje (third-party) na uweke URL ya seva ya uthibitisho iliyo juu.',
     'Ruijie access point command line (replace': 'Amri za kifaa cha Wi-Fi cha Ruijie (badilisha',
     "with your Wi-Fi's WLAN ID):": 'kwa WLAN ID ya Wi-Fi yako):',
     'Add a site': 'Ongeza eneo',
