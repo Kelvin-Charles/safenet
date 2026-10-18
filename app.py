@@ -73,6 +73,7 @@ app.jinja_env.globals['_'] = tr
 PLATFORM_KNOBS = (
     ('TRIAL_DAYS', 'Free trial for new businesses (days)', int, 0, 365),
     ('PLATFORM_FEE_PERCENT', 'SafeNet Pay fee on sales (%)', float, 0, 50),
+    ('SNIPPE_FEE_PERCENT', "Snippe fee added to guests' payments (%)", float, 0, 10),
     ('SMS_PRICE', 'Price of one SMS to guests (TZS)', int, 0, 1000),
     ('MIN_WITHDRAWAL', 'Minimum withdrawal (TZS)', int, 0, 10_000_000),
     ('BILLING_GRACE_DAYS', 'Days Wi-Fi keeps working after a subscription ends', int, 0, 60),
@@ -2206,7 +2207,7 @@ def omada_wait(token):
         return _omada_page(site, tenant, error=f"Payment not completed: {payment.message or 'The payment was not completed.'}", tab='buy')
     timed_out = (datetime.utcnow() - payment.created_at).total_seconds() > 120 and not request.args.get('again')
     return _omada_page(site, tenant, view='wait', ref=ref, timed_out=timed_out,
-                       info={'amount': f'{payment.amount:.0f}', 'currency': payment.currency, 'phone': payment.phone,
+                       info={'amount': f'{payment.charged:.0f}', 'currency': payment.currency, 'phone': payment.phone,
                              'package': payment.package_name, 'gift_phone': payment.gift_phone or ''})
 
 
@@ -2918,7 +2919,7 @@ def wifidog_wait(token):
         return _hotspot_page(site, tenant, base, error=f"Payment not completed: {payment.message or 'The payment was not completed.'}", tab='buy')
     timed_out = (datetime.utcnow() - payment.created_at).total_seconds() > 120 and not request.args.get('again')
     return _hotspot_page(site, tenant, base, view='wait', ref=ref, timed_out=timed_out,
-                         info={'amount': f'{payment.amount:.0f}', 'currency': payment.currency, 'phone': payment.phone,
+                         info={'amount': f'{payment.charged:.0f}', 'currency': payment.currency, 'phone': payment.phone,
                                'package': payment.package_name, 'gift_phone': payment.gift_phone or ''})
 
 
@@ -3352,7 +3353,7 @@ def guest_app_buy(slug):
                                              mac=mac, nas='guest-app', gift_phone=gift)
     if error:
         return jsonify(error=error), status
-    return jsonify(reference=payment.reference, amount=f'{payment.amount:.0f}', currency=payment.currency, phone=payment.phone,
+    return jsonify(reference=payment.reference, amount=f'{payment.charged:.0f}', currency=payment.currency, phone=payment.phone,
                    package=payment.package_name, gift_phone=payment.gift_phone or '')
 
 
@@ -3829,10 +3830,10 @@ def _fulfil_payment(payment):
     if payment.gift_phone:
         _guest_sms(payment, payment.gift_phone, f'{brand["name"]}: 0{payment.phone[3:]} bought you {payment.package_name} WiFi. '
                                                 f'Code {voucher.code}, valid {valid} from first login.' + help_line, 'gift')
-        _guest_sms(payment, payment.phone, f'{brand["name"]}: {payment.currency} {payment.amount:,.0f} received. '
+        _guest_sms(payment, payment.phone, f'{brand["name"]}: {payment.currency} {payment.charged:,.0f} received. '
                                            f'Code {voucher.code} sent to 0{payment.gift_phone[3:]}.', 'receipt')
         return
-    _guest_sms(payment, payment.phone, f'{brand["name"]}: {payment.currency} {payment.amount:,.0f} received. '
+    _guest_sms(payment, payment.phone, f'{brand["name"]}: {payment.currency} {payment.charged:,.0f} received. '
                                        f'WiFi code {voucher.code}, valid {valid} from first login. '
                                        f'Keep it to reconnect.' + help_line, 'voucher')
 
@@ -3859,9 +3860,9 @@ def _refresh_payment(reference, force=False):
             payment.message = (result.get('message') or payment.message or '')[:255] or None
             if result['state'] == 'paid':
                 collected = result.get('amount')
-                if collected is not None and collected < payment.amount:
+                if collected is not None and collected < payment.charged:
                     payment.status = 'review'
-                    payment.message = f'Collected {collected}, expected {payment.amount}'
+                    payment.message = f'Collected {collected}, expected {payment.charged}'
                 else:
                     _fulfil_payment(payment)
             elif result['state'] == 'failed':
@@ -3971,7 +3972,7 @@ def _payment_json(payment):
         'reference': payment.reference,
         'status': payment.status,
         'package': payment.package_name,
-        'amount': f'{payment.amount:.0f}',
+        'amount': f'{payment.charged:.0f}',
         'currency': payment.currency,
         'phone': payment.phone,
         'gift_phone': payment.gift_phone or '',
@@ -4001,6 +4002,15 @@ def _gift_phone_field():
     if not request.form.get('gift'):
         return None
     return (request.form.get('gift_phone') or '').strip()[:20] or ''
+
+
+def _customer_fee(account, price):
+    """Snippe keeps a share of each payment: the guest pays it on top, so the business gets the full price
+    (ClickPesa already charges its fee to the payer). Whole shillings, rounded up."""
+    rate = Decimal(str(Config.SNIPPE_FEE_PERCENT))
+    if account.provider != 'snippe' or rate <= 0:
+        return Decimal(0)
+    return Decimal(math.ceil(price * 100 / (100 - rate))) - price
 
 
 def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=None, nas=None, gift_phone=None):
@@ -4037,6 +4047,7 @@ def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=
         amount=package.price, currency=package.currency,
         provider=account.provider, provider_account=account.owner,
         fee_amount=(package.price * _fee_percent(tenant) / 100).quantize(Decimal('0.01')) if account.owner == 'platform' else Decimal(0),
+        customer_fee=_customer_fee(account, package.price),
         nas_identifier=(nas or '')[:64] or None,
         site_id=site_id,
         client_mac=(mac or '')[:17] or None,
@@ -4046,7 +4057,7 @@ def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=
     db.session.add(payment)
     db.session.commit()
     try:
-        tx = paylib.start(account, payment.amount, phone, payment.reference, network or None,
+        tx = paylib.start(account, payment.charged, phone, payment.reference, network or None,
                             webhook_url=_link('snippe_webhook') if account.provider == 'snippe' else None)
         payment.provider_id, payment.channel = tx['provider_id'], tx['channel']
         payment.provider_status = tx['provider_status']

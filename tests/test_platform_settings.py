@@ -23,14 +23,14 @@ def login(u):
 cs = login('boss')
 p = html.unescape(cs.get('/platform/billing').text)
 assert 'Platform settings' in p and 'Free trial for new businesses (days)' in p and 'value="14"' in p and 'Server default: 14' in p
-form = {'csrf_token': tok(p), 'TRIAL_DAYS': '30', 'PLATFORM_FEE_PERCENT': '4.5', 'SMS_PRICE': '25', 'MIN_WITHDRAWAL': '3,000', 'BILLING_GRACE_DAYS': '5'}
+form = {'csrf_token': tok(p), 'TRIAL_DAYS': '30', 'PLATFORM_FEE_PERCENT': '4.5', 'SNIPPE_FEE_PERCENT': '3', 'SMS_PRICE': '25', 'MIN_WITHDRAWAL': '3,000', 'BILLING_GRACE_DAYS': '5'}
 # out of range or not a number: refused, nothing saved
 assert 'between 0 and 365' in html.unescape(cs.post('/platform/settings', data={**form, 'TRIAL_DAYS': '999'}, follow_redirects=True).text)
 assert 'enter a number' in cs.post('/platform/settings', data={**form, 'SMS_PRICE': 'abc'}, follow_redirects=True).text
 with app.app_context(): assert PlatformSetting.query.filter(PlatformSetting.key.like('cfg:%')).count() == 0
 r = html.unescape(cs.post('/platform/settings', data=form, follow_redirects=True).text)
 assert 'Platform settings saved' in r and 'value="30"' in r and 'value="4.5"' in r
-assert (Config.TRIAL_DAYS, Config.PLATFORM_FEE_PERCENT, Config.SMS_PRICE, Config.MIN_WITHDRAWAL, Config.BILLING_GRACE_DAYS) == (30, 4.5, 25, 3000, 5)
+assert (Config.TRIAL_DAYS, Config.PLATFORM_FEE_PERCENT, Config.SMS_PRICE, Config.MIN_WITHDRAWAL, Config.BILLING_GRACE_DAYS, Config.SNIPPE_FEE_PERCENT) == (30, 4.5, 25, 3000, 5, 3)
 # used straight away: the landing page and a new sign-up get the 30-day trial
 assert '30-day free trial' in app.test_client().get('/').text
 sg = app.test_client(); f = sg.get('/signup').text

@@ -542,6 +542,7 @@ class Payment(db.Model):
     provider_account = db.Column(db.String(16), nullable=False, default='platform')  # whose ClickPesa: platform/own
     fee_amount = db.Column(db.Numeric(10, 2), default=0)      # kept by the platform
     net_amount = db.Column(db.Numeric(10, 2))                 # owed to the tenant
+    customer_fee = db.Column(db.Numeric(10, 2), default=0)    # provider's fee, paid by the guest on top of amount
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     checked_at = db.Column(db.DateTime)
@@ -551,6 +552,11 @@ class Payment(db.Model):
     package = db.relationship('Package')
     plan = db.relationship('Plan')
     voucher = db.relationship('Voucher')
+
+    @property
+    def charged(self):
+        """What the guest pays: the package price plus the provider's fee."""
+        return self.amount + (self.customer_fee or 0)
 
     def __repr__(self):
         return f'<Payment {self.reference} {self.status}>'
