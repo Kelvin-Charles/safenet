@@ -3140,10 +3140,12 @@ RUIJIE_PORTAL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ru
 RUIJIE_PAGE_TEXT = {
     'en': {'timeout': "We didn't hear back about your payment. If money left your account, use the code sent to you by SMS.",
            'failed': 'Payment not completed: {reason}', 'bad_code': "That code didn't work. Check it and try again.",
-           'login_failed': "Paid, but connecting didn't work yet. Tap Connect with your code below."},
+           'login_failed': "Paid, but connecting didn't work yet. Tap Connect with your code below.",
+           'unreachable': "Buying isn't available on this Wi-Fi right now. If you have a voucher, use the Voucher tab."},
     'sw': {'timeout': 'Hatujapata jibu la malipo yako. Kama pesa imekatwa, tumia namba uliyotumiwa kwa SMS.',
            'failed': 'Malipo hayajakamilika: {reason}', 'bad_code': 'Namba hiyo haikufanya kazi. Iangalie kisha ujaribu tena.',
-           'login_failed': 'Umelipa, lakini kuunganisha bado hakujafanikiwa. Bonyeza Unganisha ukiwa na namba yako hapa chini.'},
+           'login_failed': 'Umelipa, lakini kuunganisha bado hakujafanikiwa. Bonyeza Unganisha ukiwa na namba yako hapa chini.',
+           'unreachable': 'Kununua hakupatikani kwenye Wi-Fi hii sasa. Kama una vocha, tumia sehemu ya Vocha.'},
 }
 
 

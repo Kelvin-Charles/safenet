@@ -236,8 +236,12 @@ const Portal = {
   },
 
   api(path, body) {
+    const self = this;
     return fetch(SAFENET.base + "/app/" + SAFENET.slug + "/api" + path, body === undefined ? {} : {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }).catch(function () {
+      // SafeNet not reachable before login: usually its address isn't in Ruijie's allowlist
+      throw new Error(self.text("unreachable"));
     }).then(function (r) {
       return r.json().then(function (j) {
         if (!r.ok) throw new Error(j.error || r.status);
