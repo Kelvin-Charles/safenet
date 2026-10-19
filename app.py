@@ -46,6 +46,8 @@ import socket
 import time
 import struct
 import json
+import io
+import zipfile
 import sys
 import click
 
@@ -202,7 +204,17 @@ def security_headers(resp):
     resp.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     if request.headers.get('X-Forwarded-Proto', request.scheme) == 'https':
         resp.headers.setdefault('Strict-Transport-Security', 'max-age=31536000')
+    if GUEST_API_PATH.match(request.path):
+        # the guest app's API is also called from login pages on other sites (SafeNet's page on Ruijie Cloud);
+        # it uses no cookies, only the tokens in each request
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        resp.headers['Access-Control-Max-Age'] = '86400'
     return resp
+
+
+GUEST_API_PATH = re.compile(r'^/app/[^/]+/api/')
 
 
 @app.errorhandler(404)
@@ -3068,6 +3080,57 @@ def _ruijie_status(site):
                        if site.portal_token else ''}
 
 
+RUIJIE_PORTAL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ruijie_portal')
+
+
+def _ruijie_portal_zip(site, tenant):
+    """Ruijie Cloud's custom HTML login page (Captive Portal -> Custom HTML), made for this site: packages and
+    mobile money from SafeNet, then Ruijie's voucher login with the new code."""
+    cfg = portal_config(tenant)
+    th = portal_ui.theme(cfg)
+    has_logo = bool(tenant.portal_logo_at)
+    base = Config.PUBLIC_URL or request.host_url.rstrip('/')
+    config = {'base': base, 'slug': tenant.slug, 'site': site.portal_token, 'name': th['name'], 'color': th['color'], 'on': th['on'],
+              'logo': base + url_for('portal_logo', slug=tenant.slug, v=cfg.get('logo_version') or 1) if has_logo else ''}
+    langs = ['sw_TZ', 'en_US'] if th['language'] == 'sw' else ['en_US', 'sw_TZ']
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+        for root, _, files in os.walk(RUIJIE_PORTAL_DIR):
+            for name in sorted(files):
+                path = os.path.join(root, name)
+                arc = os.path.relpath(path, RUIJIE_PORTAL_DIR).replace(os.sep, '/')
+                if arc == 'js/index.js':
+                    with open(path, encoding='utf-8') as f:
+                        z.writestr(arc, f.read().replace('{/*SAFENET_CONFIG*/}', json.dumps(config), 1))
+                elif arc == 'loadConfig.json':
+                    z.writestr(arc, 'loadConfig(' + json.dumps({
+                        'post_url': 'http://www.google.com',
+                        'oneclick': {'oneclick_validity': '0', 'oneclick_qos': {'up_rate': '0', 'down_rate': '0'}, 'oneclick_times': '0'},
+                        'custom_html': {'login_options': ['voucher'], 'lang': langs}}, indent=2) + ');')
+                else:
+                    z.write(path, arc)
+        if has_logo:
+            z.writestr('img/logo.png', db.session.query(Tenant.portal_logo).filter(Tenant.id == tenant.id).scalar() or b'')
+        else:
+            with open(os.path.join(app.static_folder, 'img', 'app-192.png'), 'rb') as f:
+                z.writestr('img/logo.png', f.read())
+    return buf.getvalue()
+
+
+@app.route('/sites/<int:site_id>/ruijie-portal.zip')
+@login_required
+@role_required('admin')
+def site_ruijie_portal(site_id):
+    site = owned_or_404(Site, site_id)
+    if not site.portal_token:
+        site.portal_token = secrets.token_urlsafe(12)[:16]
+        db.session.commit()
+    tenant = db.session.get(Tenant, site.tenant_id)
+    name = re.sub(r'[^A-Za-z0-9]+', '-', f'{tenant.slug}-{site.name}').strip('-').lower()[:60] or 'site'
+    return Response(_ruijie_portal_zip(site, tenant), mimetype='application/zip',
+                    headers={'Content-Disposition': f'attachment; filename="safenet-ruijie-{name}.zip"'})
+
+
 @app.route('/sites/<int:site_id>/ruijie-cloud', methods=['POST'])
 @login_required
 @role_required('admin')
@@ -3367,6 +3430,9 @@ def guest_app_payment(slug, reference):
     if payment.status == 'paid' and payment.voucher:
         out['code'] = payment.voucher.code
         out['ruijie'] = payment.voucher.ruijie_state is not None      # typed on Ruijie's login page
+        out['ready'] = payment.voucher.ruijie_state not in ('pending', 'sending')   # made on Ruijie Cloud
+        if not out['ready']:
+            _ruijie_push_soon()
         if not payment.gift_phone:
             out['token'] = _guest_token(tenant, payment.voucher.code)
     return jsonify(out)

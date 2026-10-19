@@ -106,11 +106,33 @@ assert me['ruijie'] and me['can_buy'] and sorted(x['name'] for x in me['packages
 b = g.post('/app/jriit/api/buy', json={'tokens': [], 'site': TOKEN, 'package_id': PKG_DAY, 'phone': '0684000111', 'network': 'airtel'}).get_json()
 paid = g.get(f'/app/jriit/api/pay/{b["reference"]}').get_json()
 assert paid['status'] == 'paid' and paid['ruijie'] and paid['code']
+assert paid['ready'] is False                         # not on Ruijie Cloud yet: the login page waits
 with app.app_context():
     v = Voucher.query.filter_by(code=paid['code']).one()
     assert v.site_id == SID and v.ruijie_state == 'pending'
     appmod._ruijie_push_due()
     assert made[-1] == ('9001', paid['code'], 'ug2')
+assert g.get(f'/app/jriit/api/pay/{b["reference"]}').get_json()['ready'] is True
+# Ruijie's login page calls this API from its own address
+r = g.options('/app/jriit/api/me', headers={'Origin': 'https://portal.ruijienetworks.com', 'Access-Control-Request-Method': 'POST'})
+assert r.status_code == 200 and r.headers['Access-Control-Allow-Origin'] == '*' and 'Content-Type' in r.headers['Access-Control-Allow-Headers']
+assert g.post('/app/jriit/api/me', json={'tokens': [], 'site': TOKEN}).headers['Access-Control-Allow-Origin'] == '*'
+assert 'Access-Control-Allow-Origin' not in c.get('/sites').headers                  # not the admin pages
+
+# the login page for Ruijie Cloud's Custom HTML, made for this site
+import io, json as _json, zipfile
+z = c.get(f'/sites/{SID}/ruijie-portal.zip')
+assert z.status_code == 200 and z.mimetype == 'application/zip' and 'safenet-ruijie-jriit' in z.headers['Content-Disposition']
+files = zipfile.ZipFile(io.BytesIO(z.data))
+names = set(files.namelist())
+assert {'index.html', 'loadConfig.json', 'css/index.css', 'js/index.js', 'js/language.js', 'js/i18n/i18n.js', 'js/jquery/jquery.min.js', 'img/logo.png'} <= names
+js = files.read('js/index.js').decode()
+cfg = _json.loads(re.search(r'var SAFENET = (\{.*?\});', js).group(1))
+assert cfg['slug'] == 'jriit' and cfg['site'] == TOKEN and cfg['base'].startswith('http')
+lc = files.read('loadConfig.json').decode()
+assert lc.startswith('loadConfig(') and '"voucher"' in lc and '"sw_TZ"' in lc and 'fixaccount' not in lc
+assert 'sw_TZ' in files.read('js/language.js').decode()
+assert app.test_client().get(f'/sites/{SID}/ruijie-portal.zip').status_code in (302, 401)   # admins only
 
 # removing it stops the copying
 assert 'Ruijie Cloud removed' in html.unescape(post(action='remove').text)

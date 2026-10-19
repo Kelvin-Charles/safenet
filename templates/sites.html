@@ -219,6 +219,11 @@ write</pre>
                                         {% for p in rj.packages %}<span class="badge bg-white text-dark border me-1">{{ p.name }} · {{ p.label }}</span>{% else %}<span class="text-danger">{{ _('none yet') }}</span>{% endfor %}</p>
                                     {% if rj.unmatched %}<div class="alert alert-warning py-2 mb-2">{{ _('These SafeNet packages have no Ruijie package with the same duration, so their codes would not work on Ruijie\'s page:') }}
                                         {% for p in rj.unmatched %}<strong>{{ p.name }}</strong> ({{ p.validity_label }}){{ ', ' if not loop.last }}{% endfor %}. {{ _('Create matching packages in Ruijie Cloud, then press Read packages.') }}</div>{% endif %}
+                                    <div class="border rounded bg-white p-2 mt-2 mb-2" style="max-width: 720px">
+                                        <strong><i class="bi bi-file-earmark-zip"></i> {{ _('Recommended: SafeNet login page for Ruijie') }}</strong>
+                                        <p class="mb-2">{{ _("Guests see your packages, pay with mobile money and are connected straight away, all on Ruijie's login page. In Ruijie Cloud: Captive Portal, Add Portal Page, Auth Mode Custom HTML, then upload this file.") }}</p>
+                                        <a class="btn btn-primary btn-sm" href="{{ url_for('site_ruijie_portal', site_id=s.id) }}"><i class="bi bi-download"></i> {{ _('Download login page (.zip)') }}</a>
+                                    </div>
                                     <table class="table table-sm table-bordered bg-white mt-2 mb-2" style="max-width: 720px">
                                         <tr><th style="width: 220px">{{ _('Link for the Ruijie login page') }}</th><td><code class="user-select-all">{{ rj.buy_url }}</code></td></tr>
                                         <tr><th>{{ _('Allowed domain (walled garden)') }}</th><td><code class="user-select-all">{{ request.host }}</code></td></tr>
