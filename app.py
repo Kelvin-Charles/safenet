@@ -3153,7 +3153,14 @@ def site_ruijie_cloud(site_id):
         if cloud_url not in ruijie.CLOUDS or not appid or not (secret or site.ruijie_secret_enc):
             flash(tr('Choose the Ruijie Cloud server and enter the App ID and App secret.'), 'warning')
             return back
-        site.ruijie_cloud_url, site.ruijie_appid = cloud_url, appid
+        try:      # the account may be on another Ruijie server than the one chosen
+            found = ruijie.find_cloud(appid, secret or secretbox.decrypt(site.ruijie_secret_enc), cloud_url)
+        except ruijie.RuijieError as e:
+            flash(tr('Ruijie Cloud: {error}', error=str(e)), 'danger')
+            return back
+        if found != cloud_url:
+            flash(tr('These keys belong to the {server} server, so SafeNet uses that one.', server=ruijie.CLOUDS[found]), 'info')
+        site.ruijie_cloud_url, site.ruijie_appid = found, appid
         if secret:
             site.ruijie_secret_enc = secretbox.encrypt(secret)
     elif action == 'project':

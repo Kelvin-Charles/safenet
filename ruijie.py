@@ -40,6 +40,23 @@ def valid_cloud(url):
     return bool(re.fullmatch(r'https://[a-z0-9-]+\.ruijienetworks\.com', (url or '').rstrip('/')))
 
 
+def find_cloud(appid, secret, preferred=None):
+    """The Ruijie Cloud server that accepts these keys (an account lives on one of them; the others answer
+    "Login failed" too), trying `preferred` first. Raises RuijieError when none does."""
+    order = [preferred] + [u for u in CLOUDS if u != preferred] if preferred in CLOUDS else list(CLOUDS)
+    unreachable = 0
+    for base in order:
+        try:
+            Cloud(base, appid, secret).token()
+            return base
+        except RuijieError as e:
+            unreachable += 'could not be reached' in str(e)
+    if unreachable == len(order):
+        raise RuijieError('Ruijie Cloud could not be reached. Try again in a minute.')
+    raise RuijieError('No Ruijie Cloud server accepted this App ID and secret. Copy both again from Ruijie\'s email '
+                      '(no spaces), and check they were made for the account your access points are in.')
+
+
 class Cloud:
     def __init__(self, base, appid, secret):
         if not valid_cloud(base):

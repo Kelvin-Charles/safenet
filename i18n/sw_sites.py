@@ -291,6 +291,7 @@ SW = {
     'Recommended: SafeNet login page for Ruijie': 'Inapendekezwa: ukurasa wa kuingia wa SafeNet kwa Ruijie',
     "Guests see your packages, pay with mobile money and are connected straight away, all on Ruijie's login page. In Ruijie Cloud: Captive Portal, Add Portal Page, Auth Mode Custom HTML, then upload this file.": 'Wateja wanaona vifurushi vyako, wanalipa kwa simu na wanaunganishwa papo hapo, yote kwenye ukurasa wa kuingia wa Ruijie. Kwenye Ruijie Cloud: Captive Portal, Add Portal Page, Auth Mode Custom HTML, kisha pakia faili hili.',
     'Download login page (.zip)': 'Pakua ukurasa wa kuingia (.zip)',
+    'These keys belong to the {server} server, so SafeNet uses that one.': 'Funguo hizi ni za seva ya {server}, hivyo SafeNet inaitumia hiyo.',
     'Add a site': 'Ongeza eneo',
     'Your plan allows {n} site.': 'Mpango wako unaruhusu eneo {n}.',
     'Your plan allows {n} sites.': 'Mpango wako unaruhusu maeneo {n}.',

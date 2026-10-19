@@ -16,7 +16,12 @@ made, down = [], [False]
 
 class FakeCloud:
     def __init__(self, base, appid, secret):
-        assert ruijie.valid_cloud(base) and secret == 'shh'
+        assert ruijie.valid_cloud(base)
+        self.base, self.secret = base, secret
+
+    def token(self):       # this account lives on the Global server; the others don't know it
+        if self.base != 'https://cloud.ruijienetworks.com' or self.secret != 'shh':
+            raise ruijie.RuijieError('Ruijie Cloud refused the App ID or secret: Login failed')
 
     def projects(self):
         return [('9001', 'JRIIT Hostel')]
@@ -62,7 +67,14 @@ p = c.get('/sites').text
 post = lambda **d: c.post(f'/sites/{SID}/ruijie-cloud', data={'csrf_token': tok(p), **d}, follow_redirects=True)
 # only Ruijie's own servers
 assert 'Choose the Ruijie Cloud server' in html.unescape(post(action='save', cloud='https://evil.example.com', appid='a', secret='shh').text)
+# wrong secret: every server refuses it
+r = html.unescape(post(action='save', cloud='https://cloud-as.ruijienetworks.com', appid='app1', secret='nope').text)
+assert 'No Ruijie Cloud server accepted this App ID and secret' in r
+with app.app_context(): assert not db.session.get(Site, SID).ruijie_appid
+# keys made on another server than the one chosen: SafeNet finds it
 r = html.unescape(post(action='save', cloud='https://cloud-as.ruijienetworks.com', appid='app1', secret='shh').text)
+assert 'These keys belong to the Global (cloud) server' in r
+with app.app_context(): assert db.session.get(Site, SID).ruijie_cloud_url == 'https://cloud.ruijienetworks.com'
 assert 'Ruijie Cloud connected' in r and 'Project: JRIIT Hostel' in r and '1 Hour · 1 hour' in r
 assert 'Wiki 1' in r[r.index('no Ruijie package with the same duration'):][:400]           # 1 week has no Ruijie package
 with app.app_context():
