@@ -3081,6 +3081,12 @@ def _ruijie_push_soon(delay=0):
 
 
 def _ruijie_loop():
+    try:      # codes a restart caught halfway through (claimed, never finished) go back in the queue
+        with app.app_context():
+            Voucher.query.filter_by(ruijie_state='sending').update({'ruijie_state': 'pending'}, synchronize_session=False)
+            db.session.commit()
+    except Exception:
+        log.exception('ruijie cloud: resetting unfinished codes failed')
     while True:
         time.sleep(60)
         try:
