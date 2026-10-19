@@ -1,279 +1,242 @@
-// SafeNet login page for Ruijie Cloud (Reyee access points). Guests buy a package with mobile money from
-// SafeNet (its guest app API), SafeNet creates the code on Ruijie Cloud, and this page logs them in with it
-// through Ruijie's own login (/api/auth/general). A code bought elsewhere can be typed in below.
-// SAFENET is filled in by SafeNet when the business downloads this page (Sites -> Reyee).
+// SafeNet login page for Ruijie Cloud (Reyee access points). It shows the same page guests see on SafeNet
+// (rendered by SafeNet when the business downloads it: Sites -> Reyee), buys through SafeNet's guest app API,
+// and logs guests in through Ruijie's own login (/api/auth/general) with the code: the voucher they type, or
+// the one they just paid for (SafeNet creates it on Ruijie Cloud).
 var SAFENET = {/*SAFENET_CONFIG*/};
 
 function loadConfig(data) {
-  IndexObj.init(data);
+  Portal.init(data);
 }
 
-const IndexObj = {
-  currentOption: "",
-  loginOptions: [],
+const Portal = {
+  lang: "en",
+  live: null,       // packages from SafeNet (fresher than the ones in this file)
+  payment: null,
 
-  LOGIN_OPTION: {
-    VOUCHER: "voucher",
-    FIXACCOUNT: "fixaccount",
-    PASS: "pass",
-  },
-
-  init: function (data) {
-    I18nObj.labelObj.sw_TZ = "Kiswahili";
-    this.loadJson(data);
-    setTimeout(function () {
-      $("#body_loading").addClass("hide");
-    }, 600);
-
-    this.initEvent();
-    SafeNetObj.init();
-  },
-
-  loadJson: function (data) {
-    I18nObj.init(data);
-    $(".dropdown-label").text(I18nObj.labelObj[I18nObj.currentLang] || I18nObj.currentLang);
-    this.renderHtml(data);
-  },
-
-  initEvent: function () {
+  init() {
+    this.lang = SAFENET.lang || "en";
+    const loading = document.getElementById("body_loading");
+    if (loading) loading.classList.add("hide");
+    this.render();
     const self = this;
-    $("#login_btn").on("click", function () {
-      self.onLogin();
-    });
-    const changeLang = I18nObj.changeLang.bind(I18nObj);
-    I18nObj.changeLang = function (lang) {
-      changeLang(lang);
-      SafeNetObj.render();
-    };
-  },
-
-  renderHtml: function (data) {
-    const loginOptions = data?.custom_html?.login_options;
-    this.loginOptions = loginOptions;
-
-    if (!loginOptions) {
-      return false;
-    }
-
-    // Define priority order
-    const priorityOrder = [
-      this.LOGIN_OPTION.VOUCHER,
-      this.LOGIN_OPTION.FIXACCOUNT,
-      this.LOGIN_OPTION.PASS,
-    ];
-    let currentOption = null;
-
-    // Search for the default option according to the priority order
-    for (const option of priorityOrder) {
-      if (loginOptions.includes(option)) {
-        currentOption = option;
-        this.currentOption = currentOption;
-        break;
+    this.api("/me", { tokens: [], site: SAFENET.site }).then(function (d) {
+      if (d.packages && d.packages.length) {
+        self.live = d.packages;
+        if (!self.payment) self.render();
       }
-    }
-
-    if (!currentOption) {
-      return false;
-    }
-
-    I18nObj.renderHtmlLang();
-    this.renderLoginHtml(loginOptions);
-    this.renderCurrentLogin(currentOption);
+    }, function () {});
   },
 
-  renderLoginHtml: function (loginOptions) {
-    // Control priority through styles: Voucher > Account > Oneclick
-    if (loginOptions.length > 1) {
-      $("#login_split_line").removeClass("hide");
+  page() {
+    return SAFENET.pages[this.lang];
+  },
+
+  text(key, vars) {
+    let s = (SAFENET.texts[this.lang] || {})[key] || key;
+    for (const k in vars || {}) s = s.split("{" + k + "}").join(vars[k]);
+    return s;
+  },
+
+  // the whole SafeNet page, then its own script, then this page's handlers
+  render(error, tab) {
+    const p = this.page();
+    document.documentElement.setAttribute("style", p.vars);
+    document.documentElement.lang = this.lang;
+    let css = document.getElementById("sn_css");
+    if (!css) {
+      css = document.createElement("style");
+      css.id = "sn_css";
+      document.head.appendChild(css);
     }
+    css.textContent = SAFENET.css;
+    document.title = SAFENET.name;
+    document.body.className = p.body_class;
+    document.body.innerHTML = p.body;
+    document.querySelectorAll("details.more").forEach(function (d) { d.remove(); });   // no usernames on Ruijie
+    this.packages();
+    if (tab) {
+      const radio = document.getElementById("tab-" + tab);
+      if (radio) radio.checked = true;
+    }
+    if (error) this.alert(error, tab);
+    const run = document.createElement("script");
+    run.textContent = p.script;
+    document.body.appendChild(run);
+    this.wire();
+  },
 
-    const allOptions = [
-      this.LOGIN_OPTION.VOUCHER,
-      this.LOGIN_OPTION.FIXACCOUNT,
-      this.LOGIN_OPTION.PASS,
-    ];
-    const missOptions = allOptions.filter(
-      (option) => !loginOptions.includes(option)
-    );
+  alert(message, tab) {
+    const panel = document.querySelector(tab === "voucher" ? ".panel-voucher" : ".panel-buy") || document.querySelector(".panel");
+    const form = panel && panel.querySelector("form");
+    if (!form) return;
+    const box = document.createElement("div");
+    box.className = "alert";
+    box.setAttribute("role", "alert");
+    box.innerHTML = SAFENET.alert_icon;
+    const span = document.createElement("span");
+    span.textContent = message;
+    box.appendChild(span);
+    form.parentNode.insertBefore(box, form);
+  },
 
-    missOptions.forEach((item) => {
-      $(`.login-item-${item}`).remove();
+  local(phone) {        // 255712345678 -> 0712 345 678
+    const d = String(phone || "").replace(/\D/g, "");
+    return d.length === 12 && d.indexOf("255") === 0 ? "0" + d.slice(3, 6) + " " + d.slice(6, 9) + " " + d.slice(9) : phone || "";
+  },
+
+  money(currency, amount) {
+    return currency + " " + Number(amount).toLocaleString("en-US");
+  },
+
+  duration(minutes) {
+    const sw = this.lang === "sw";
+    const d = Math.floor(minutes / 1440), h = Math.floor((minutes % 1440) / 60), m = minutes % 60;
+    if (sw) return d ? "Siku " + d + (h ? " saa " + h : "") : h ? "Saa " + h + (m ? " dk " + m : "") : "Dakika " + m;
+    if (d) return d + (d === 1 ? " day" : " days") + (h ? " " + h + "h" : "");
+    if (h) return m ? h + "h " + m + "m" : h + (h === 1 ? " hour" : " hours");
+    return m + " min";
+  },
+
+  // swap in SafeNet's current packages, built like the ones in the page
+  packages() {
+    const list = document.querySelector(".pkgs");
+    const first = list && list.querySelector(".pkg");
+    if (!this.live || !first) return;
+    const self = this;
+    const made = this.live.map(function (pk, i) {
+      const row = first.cloneNode(true);
+      const input = row.querySelector("input");
+      const price = self.money(pk.currency, pk.price);
+      input.value = pk.id;
+      input.checked = i === 0;
+      input.setAttribute("data-price", pk.price);
+      input.setAttribute("data-label", self.text("pay", { price: price }));
+      row.classList.toggle("on", i === 0);
+      row.querySelector(".nm b").textContent = pk.name;
+      row.querySelector(".nm small").textContent = self.duration(pk.validity_minutes) + (pk.description ? " · " + pk.description : "");
+      row.querySelector(".pr").textContent = price;
+      return row;
+    });
+    list.replaceChildren.apply(list, made);
+    const pay = document.getElementById("paybtn");
+    if (pay) pay.textContent = this.text("pay", { price: this.money(this.live[0].currency, this.live[0].price) });
+  },
+
+  wire() {
+    const self = this;
+    const other = this.lang === "sw" ? "en" : "sw";
+    document.querySelectorAll("a.lang").forEach(function (a) {
+      a.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        self.lang = other;
+        self.render();
+      });
+    });
+    document.querySelectorAll("form").forEach(function (form) {
+      form.addEventListener("submit", function (ev) {
+        ev.preventDefault();
+        if (form.querySelector("input[name=package_id]")) self.buy(form);
+        else if (form.querySelector("#code")) self.voucher(form.querySelector("#code").value);
+      }, true);
     });
   },
 
-  renderCurrentLogin(currentOption) {
-    switch (currentOption) {
-      case this.LOGIN_OPTION.PASS:
-        $(".login-form-title").text(I18nObj.$t("one_click_login"));
-        $(".login-form-title").attr("data-i18n", "one_click_login");
-        break;
-      case this.LOGIN_OPTION.FIXACCOUNT:
-        $(".login-form-title").text(I18nObj.$t("account_login"));
-        $(".login-form-title").attr("data-i18n", "account_login");
-        break;
-      case this.LOGIN_OPTION.VOUCHER:
-      default:
-        $(".login-form-title").text(I18nObj.$t("voucher_login"));
-        $(".login-form-title").attr("data-i18n", "voucher_login");
-    }
-
-    const loginOptions = this.loginOptions;
-    $(".login-form-wrapper .login-item").addClass("hide");
-    $(".login-form-wrapper .login-item-" + currentOption).removeClass("hide");
-
-    $(".other-btn-wrapper .login-item").addClass("hide");
-    loginOptions.forEach((loginOpt) => {
-      if (loginOpt !== currentOption) {
-        $(".other-btn-wrapper .login-item-" + loginOpt).removeClass("hide");
-      }
+  buy(form) {
+    const self = this;
+    const f = new FormData(form);
+    const gift = !!f.get("gift");
+    this.api("/buy", {
+      tokens: [], site: SAFENET.site, package_id: f.get("package_id"), phone: f.get("phone") || "",
+      network: f.get("network") || "", gift: gift, gift_phone: gift ? f.get("gift_phone") || "" : null,
+    }).then(function (j) {
+      self.payment = j;
+      self.wait();
+      self.poll(0);
+    }, function (e) {
+      self.render(e.message, "buy");
     });
   },
 
-  changeLoginOption(currentOption) {
-    this.currentOption = currentOption;
-    this.renderCurrentLogin(currentOption);
+  wait() {
+    const j = this.payment;
+    const html = (j.gift_phone ? this.page().wait_gift : this.page().wait)
+      .split("@@AMOUNT@@").join(this.money(j.currency, j.amount))
+      .split("@@PACKAGE@@").join(j.package || "")
+      .split("@@PHONE@@").join(this.local(j.phone))
+      .split("@@FRIEND@@").join(this.local(j.gift_phone));
+    document.querySelector(".card").innerHTML = html;
   },
 
-  onLogin() {
-    let paramObj = {};
-
-    switch (this.currentOption) {
-      case this.LOGIN_OPTION.FIXACCOUNT:
-        paramObj.account = $("#account_input").val();
-        paramObj.password = $("#account_password").val();
-        break;
-      case this.LOGIN_OPTION.VOUCHER:
-        paramObj.account = $("#voucher_code").val().replace(/\s+/g, "");
-      case this.LOGIN_OPTION.PASS:
-        break;
-    }
-
-    const validRes = this.validateLoginForm();
-    if (!validRes) {
-      return false;
-    }
-
-    this.authenticate(paramObj).then(
-      function (response) {
-        location.href = response.result.logonUrl;
-      },
-      function (message) {
-        $("#login_msg").text(message);
-      }
-    );
+  poll(n) {
+    const self = this;
+    if (n > 60) { this.payment = null; this.render(this.text("timeout"), "buy"); return; }
+    setTimeout(function () {
+      self.api("/pay/" + self.payment.reference).then(function (s) {
+        if (s.status === "paid" && s.code) {
+          if (s.gift_phone) {
+            document.querySelector(".card").innerHTML = self.page().gift_sent.split("@@FRIEND@@").join(self.local(s.gift_phone));
+            return;
+          }
+          document.querySelector(".card").innerHTML = self.page().connecting.split("@@CODE@@").join(s.code);
+          if (s.ready === false) return self.poll(n + 1);     // SafeNet is still creating it on Ruijie Cloud
+          return self.connect(s.code, 0);
+        }
+        if (s.status === "failed" || s.status === "review") {
+          self.payment = null;
+          self.render(self.text("failed", { reason: s.message || "" }), "buy");
+          return;
+        }
+        self.poll(n + 1);
+      }, function () { self.poll(n + 1); });
+    }, 3000);
   },
 
-  // Ruijie's login: resolves with its response, or rejects with the message to show
-  authenticate(paramObj) {
-    const body = {
-      lang: I18nObj.currentLang,
-      authType: this.currentOption || this.LOGIN_OPTION.VOUCHER,
-      sessionId: this._getParamVal("sessionId"),
-      ...paramObj,
-    };
+  // the code just bought: Ruijie Cloud may need a moment to know it
+  connect(code, tries) {
+    const self = this;
+    this.authenticate(code).then(function (r) {
+      location.href = r.result.logonUrl;
+    }, function () {
+      if (tries < 4) return setTimeout(function () { self.connect(code, tries + 1); }, 3000);
+      self.payment = null;
+      self.render(self.text("login_failed"), "voucher");
+      const box = document.getElementById("code");
+      if (box) box.value = code;
+    });
+  },
+
+  voucher(code) {
+    const self = this;
+    code = String(code || "").replace(/\s+/g, "");
+    if (!code) return;
+    this.authenticate(code).then(function (r) {
+      location.href = r.result.logonUrl;
+    }, function (message) {
+      self.render(message || self.text("bad_code"), "voucher");
+      const box = document.getElementById("code");
+      if (box) box.value = code;
+    });
+  },
+
+  // Ruijie's login: resolves with its answer, or rejects with the message to show
+  authenticate(code) {
+    const body = { lang: "en_US", authType: "voucher", account: code, sessionId: this.param("sessionId") };
     return new Promise(function (resolve, reject) {
       $.post({
         url: "/api/auth/general",
         data: JSON.stringify(body),
         contentType: "application/json",
-        success: function (response) {
-          if (response && response.success) {
-            resolve(response);
-          } else {
-            reject((response && response.message) || "");
-          }
+        success: function (r) {
+          if (r && r.success) resolve(r);
+          else reject((r && r.message) || "");
         },
-        error: function (jqXHR, textStatus) {
-          reject(textStatus || "error");
-        },
+        error: function () { reject(""); },
       });
     });
   },
 
-  validateLoginForm() {
-    $("#login_msg").text("");
-    if (!this.currentOption) {
-      return true;
-    }
-
-    switch (this.currentOption) {
-      case this.LOGIN_OPTION.PASS:
-        break;
-      case this.LOGIN_OPTION.FIXACCOUNT:
-        return this.validateAccountForm();
-      case this.LOGIN_OPTION.VOUCHER:
-      default:
-        return this.validateVoucherForm();
-    }
-
-    return true;
-  },
-
-  validateVoucherForm() {
-    const voucherCode = $("#voucher_code").val().trim();
-    if (!voucherCode) {
-      $("#login_msg").text(I18nObj.$t("please_enter_access_code"));
-      return false;
-    }
-    return true;
-  },
-
-  validateAccountForm() {
-    const accountVal = $("#account_input").val().trim();
-    const accountPwd = $("#account_password").val().trim();
-    if (!accountVal) {
-      $("#login_msg").text(I18nObj.$t("please_enter_account"));
-      return false;
-    }
-    if (!accountPwd) {
-      $("#login_msg").text(I18nObj.$t("please_enter_pwd"));
-      return false;
-    }
-    return true;
-  },
-
-  _getParamVal(paras) {
-    try {
-      const topUrl = decodeURI(window.top.location.href);
-      const queryString = topUrl.split("?")[1];
-      if (!queryString) {
-        return null;
-      }
-
-      const paraString = queryString.split("&");
-      const paraObj = {};
-      for (var i = 0; i < paraString.length; i++) {
-        const pair = paraString[i].split("=");
-        if (pair.length === 2) {
-          paraObj[pair[0].toLowerCase()] = pair[1];
-        }
-      }
-
-      const returnValue = paraObj[paras.toLowerCase()];
-      return returnValue !== undefined ? returnValue : null;
-    } catch (e) {
-      console.error("Error accessing top window URL:", e);
-      return null;
-    }
-  },
-};
-
-// Buying with mobile money from SafeNet
-const SafeNetObj = {
-  data: null,      // packages, networks... from SafeNet
-  view: "buy",     // buy, wait, paid, failed
-  payment: null,
-  error: "",
-
-  t(key, vars) {
-    let s = I18nObj.$t(key);
-    for (const k in vars || {}) s = s.split("{" + k + "}").join(vars[k]);
-    return s;
-  },
-
   api(path, body) {
-    const url = SAFENET.base + "/app/" + SAFENET.slug + "/api" + path;
-    return fetch(url, body === undefined ? {} : {
+    return fetch(SAFENET.base + "/app/" + SAFENET.slug + "/api" + path, body === undefined ? {} : {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     }).then(function (r) {
       return r.json().then(function (j) {
@@ -283,156 +246,14 @@ const SafeNetObj = {
     });
   },
 
-  money(currency, amount) {
-    return currency + " " + Number(amount).toLocaleString("en-US");
-  },
-
-  duration(minutes) {
-    const sw = I18nObj.currentLang === "sw_TZ";
-    if (minutes % 1440 === 0) { const d = minutes / 1440; return sw ? "Siku " + d : d + (d === 1 ? " day" : " days"); }
-    if (minutes % 60 === 0) { const h = minutes / 60; return sw ? "Saa " + h : h + (h === 1 ? " hour" : " hours"); }
-    return sw ? "Dakika " + minutes : minutes + " min";
-  },
-
-  init() {
-    document.documentElement.style.setProperty("--brand", SAFENET.color || "#0f766e");
-    document.documentElement.style.setProperty("--on-brand", SAFENET.on || "#ffffff");
-    document.title = SAFENET.name || "Wi-Fi";
-    const logo = $(".content-logo");
-    logo.addClass("hide");
-    if (SAFENET.logo) {
-      logo.on("load", function () { logo.removeClass("hide"); }).attr("src", SAFENET.logo);
+  param(name) {
+    try {
+      const query = decodeURI(window.top.location.href).split("?")[1] || "";
+      const pair = query.split("&").map(function (x) { return x.split("="); })
+        .find(function (x) { return x.length === 2 && x[0].toLowerCase() === name.toLowerCase(); });
+      return pair ? pair[1] : null;
+    } catch (e) {
+      return null;
     }
-    $(".content-decoration-wrapper").append(
-      $("<div class='sn-name'>").text(SAFENET.name || ""), $("<div class='sn-lead' data-i18n='sn_lead'>").text(I18nObj.$t("sn_lead")));
-    $(".content-decoration-wrapper").after("<div class='sn-card' id='sn_buy'></div>");
-    $(".login-wrapper").after("<div class='sn-foot' id='sn_foot'></div>");
-    this.load();
-  },
-
-  load() {
-    const self = this;
-    this.api("/me", { tokens: [], site: SAFENET.site }).then(function (d) {
-      self.data = d;
-      self.render();
-    }, function () {
-      self.data = { offline: true };
-      self.render();
-    });
-  },
-
-  render() {
-    const box = $("#sn_buy").empty();
-    const d = this.data;
-    const foot = $("#sn_foot").empty();
-    if (d && d.support) foot.text(this.t("sn_help", { phone: d.support }));
-    if (!d) return;
-    if (this.view === "wait") return this.renderWait(box);
-    if (this.view === "paid") return this.renderPaid(box);
-    box.append($("<h2>").text(this.t("sn_buy")));
-    if (d.offline || !d.can_buy) {
-      box.append($("<p class='sn-sub'>").text(this.t(d.offline ? "sn_offline" : "sn_no_packages")));
-      return;
-    }
-    box.append($("<p class='sn-sub'>").text(this.t("sn_buy_sub")));
-    if (this.error) box.append($("<div class='sn-msg'>").text(this.error));
-    const self = this;
-    const list = $("<div class='sn-pkgs'>");
-    d.packages.forEach(function (p, i) {
-      const row = $("<label class='sn-pkg'>").toggleClass("on", i === 0);
-      const radio = $("<input type='radio' name='sn_pkg'>").val(p.id).prop("checked", i === 0);
-      radio.on("change", function () {
-        list.find(".sn-pkg").removeClass("on");
-        row.addClass("on");
-        pay.text(self.t("sn_pay", { price: self.money(p.currency, p.price) }));
-      });
-      const name = $("<span class='nm'>").append($("<b>").text(p.name), $("<small>").text(self.duration(p.validity_minutes)));
-      row.append(radio, name, $("<span class='pr'>").text(self.money(p.currency, p.price)));
-      list.append(row);
-    });
-    box.append(list);
-    let net = null;
-    if (d.networks && d.networks.length > 1) {
-      net = $("<select class='sn-input'>");
-      d.networks.forEach(function (n) { net.append($("<option>").val(n.id).text(n.name)); });
-      box.append($("<div class='sn-field'>").append($("<label>").text(this.t("sn_network")), net));
-    }
-    const phone = $("<input class='sn-input' type='tel' inputmode='tel' placeholder='07XX XXX XXX' autocomplete='tel'>");
-    box.append($("<div class='sn-field'>").append($("<label>").text(this.t("sn_phone")), phone));
-    const first = d.packages[0];
-    const pay = $("<button type='button' class='sn-btn primary'>").text(this.t("sn_pay", { price: this.money(first.currency, first.price) }));
-    box.append(pay);
-    pay.on("click", function () {
-      const picked = box.find("input[name=sn_pkg]:checked").val();
-      if (!phone.val().trim()) { phone.focus(); return; }
-      pay.prop("disabled", true);
-      self.error = "";
-      const networkId = net ? net.val() : (d.networks && d.networks[0] ? d.networks[0].id : "");
-      self.api("/buy", { tokens: [], site: SAFENET.site, package_id: picked, phone: phone.val(), network: networkId }).then(function (j) {
-        self.payment = j;
-        self.view = "wait";
-        self.render();
-        self.poll(0);
-      }, function (e) {
-        self.error = e.message;
-        self.render();
-      });
-    });
-  },
-
-  renderWait(box) {
-    const p = this.payment;
-    box.append($("<div class='sn-spin'>"), $("<p class='sn-wait'>").text(this.t("sn_waiting", { amount: this.money(p.currency, p.amount) })));
-  },
-
-  renderPaid(box) {
-    const p = this.payment;
-    box.append($("<h2>").text(this.t("sn_paid")), $("<div class='sn-code'>").text(p.code));
-    if (p.connecting) box.append($("<div class='sn-spin'>"), $("<p class='sn-wait'>").text(this.t("sn_connecting")));
-    if (p.loginFailed) box.append($("<div class='sn-msg'>").text(this.t("sn_login_failed")));
-    box.append($("<p class='sn-sub'>").text(this.t("sn_keep")));
-  },
-
-  poll(n) {
-    const self = this;
-    if (n > 60) { this.view = "buy"; this.render(); return; }
-    setTimeout(function () {
-      self.api("/pay/" + self.payment.reference).then(function (s) {
-        if (s.status === "paid" && s.code) {
-          self.payment.code = s.code;
-          self.view = "paid";
-          $("#voucher_code").val(s.code);
-          if (s.ready === false) {          // SafeNet is still creating it on Ruijie Cloud
-            self.payment.connecting = true;
-            self.render();
-            return self.poll(n + 1);
-          }
-          self.payment.connecting = true;
-          self.render();
-          return self.connect(s.code, 0);
-        }
-        if (s.status === "failed" || s.status === "review") {
-          self.view = "buy";
-          self.error = self.t("sn_failed", { reason: s.message || "" });
-          self.render();
-          return;
-        }
-        self.poll(n + 1);
-      }, function () { self.poll(n + 1); });
-    }, 3000);
-  },
-
-  // log in with the new code; Ruijie Cloud may need a moment to know it
-  connect(code, tries) {
-    const self = this;
-    IndexObj.currentOption = IndexObj.LOGIN_OPTION.VOUCHER;
-    IndexObj.authenticate({ account: code }).then(function (response) {
-      location.href = response.result.logonUrl;
-    }, function () {
-      if (tries < 4) return setTimeout(function () { self.connect(code, tries + 1); }, 3000);
-      self.payment.connecting = false;
-      self.payment.loginFailed = true;
-      self.render();
-    });
   },
 };

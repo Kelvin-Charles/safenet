@@ -3137,16 +3137,60 @@ def _ruijie_status(site):
 RUIJIE_PORTAL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ruijie_portal')
 
 
+RUIJIE_PAGE_TEXT = {
+    'en': {'timeout': "We didn't hear back about your payment. If money left your account, use the code sent to you by SMS.",
+           'failed': 'Payment not completed: {reason}', 'bad_code': "That code didn't work. Check it and try again.",
+           'login_failed': "Paid, but connecting didn't work yet. Tap Connect with your code below."},
+    'sw': {'timeout': 'Hatujapata jibu la malipo yako. Kama pesa imekatwa, tumia namba uliyotumiwa kwa SMS.',
+           'failed': 'Malipo hayajakamilika: {reason}', 'bad_code': 'Namba hiyo haikufanya kazi. Iangalie kisha ujaribu tena.',
+           'login_failed': 'Umelipa, lakini kuunganisha bado hakujafanikiwa. Bonyeza Unganisha ukiwa na namba yako hapa chini.'},
+}
+
+
+def _ruijie_portal_pages(site, tenant, th):
+    """SafeNet's own login page for this site, in each language, cut into the parts the Ruijie page shows."""
+    packages = [{'id': p.id, 'name': p.name, 'description': p.description or '', 'price': f'{p.price:.0f}', 'currency': p.currency,
+                 'validity_minutes': p.validity_minutes}
+                for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True), site.id)
+                .order_by(Package.sort_order, Package.price)]
+    can_buy = paylib.is_ready(_tenant_account(tenant)) and bool(packages)
+    networks = payment_networks(tenant)
+    pages = {}
+    for lang in portal_ui.LANGS:
+        full = portal_ui.login_page(th, lang, packages=packages, buy_enabled=can_buy, networks=networks, logo_base='img/', lang_url='#')
+        body = re.search(r'<body class="([^"]*)">(.*)<script>(.*?)</script>\s*</body>', full, re.S)
+        card = lambda html: re.search(r'<div class="card">(.*?)</div>\s*<div class="foot">', html, re.S).group(1)
+        mark = 987654321                 # stands for the amount (formatted by money(), so it can't be a plain word)
+        info = {'amount': mark, 'currency': '', 'phone': '@@PHONE@@', 'package': '@@PACKAGE@@', 'gift_phone': ''}
+        wait = card(portal_ui.waiting_page(th, lang, ref='x', info=info)).replace(portal_ui.money('', mark), '@@AMOUNT@@')
+        wait_gift = card(portal_ui.waiting_page(th, lang, ref='x', info={**info, 'gift_phone': '255799999999'})) \
+            .replace(portal_ui.money('', mark), '@@AMOUNT@@').replace(portal_ui.local_phone('255799999999'), '@@FRIEND@@')
+        t = lambda key, **kw: portal_ui.t(lang, key, **kw)
+        connecting = (f'<div class="alert ok" role="alert">{portal_ui.icon("check", 18)}<span>{t("paid_ok")}</span></div>'
+                      f'<div class="codebox"><div><small>{t("your_code")}</small><b id="vcode">@@CODE@@</b></div></div>'
+                      f'<p class="hint" style="margin-top:6px">{t("keep_code")}</p>'
+                      f'<button class="btn loading" type="button" disabled><span class="spinner" aria-hidden="true"></span>{t("busy_connect")}</button>')
+        gift_sent = (f'<div class="center"><div class="state-ic ok">{portal_ui.icon("check", 36, 2.6)}</div><h2>{t("gift_ok")}</h2>'
+                     f'<p class="lead">{portal_ui.e(t("gift_lead", package="", phone="@@FRIEND@@")).replace("  ", " ")}</p></div>'
+                     f'<button class="btn ghost" type="button" onclick="Portal.payment=null;Portal.render()">{t("gift_again")}</button>')
+        pages[lang] = {'vars': re.search(r'<html lang="[^"]*" style="([^"]*)">', full).group(1), 'body_class': body.group(1),
+                       'body': body.group(2), 'script': body.group(3), 'wait': wait, 'wait_gift': wait_gift,
+                       'connecting': connecting, 'gift_sent': gift_sent}
+    css = re.search(r'<style>(.*?)</style>', full, re.S).group(1)
+    texts = {lang: {**RUIJIE_PAGE_TEXT[lang], 'pay': portal_ui.t(lang, 'pay', price='{price}')} for lang in portal_ui.LANGS}
+    return pages, css, texts
+
+
 def _ruijie_portal_zip(site, tenant):
-    """Ruijie Cloud's custom HTML login page (Captive Portal -> Custom HTML), made for this site: packages and
-    mobile money from SafeNet, then Ruijie's voucher login with the new code."""
+    """Ruijie Cloud's custom HTML login page (Captive Portal -> Custom HTML), made for this site: the same page
+    guests get from SafeNet (packages, mobile money, voucher), logging them in through Ruijie with the code."""
     cfg = portal_config(tenant)
-    th = portal_ui.theme(cfg)
     has_logo = bool(tenant.portal_logo_at)
-    base = Config.PUBLIC_URL or request.host_url.rstrip('/')
-    config = {'base': base, 'slug': tenant.slug, 'site': site.portal_token, 'name': th['name'], 'color': th['color'], 'on': th['on'],
-              'logo': base + url_for('portal_logo', slug=tenant.slug, v=cfg.get('logo_version') or 1) if has_logo else ''}
-    langs = ['sw_TZ', 'en_US'] if th['language'] == 'sw' else ['en_US', 'sw_TZ']
+    th = portal_ui.theme({**cfg, 'logo_url': 'img/logo.png' if has_logo else ''})
+    pages, css, texts = _ruijie_portal_pages(site, tenant, th)
+    config = {'base': Config.PUBLIC_URL or request.host_url.rstrip('/'), 'slug': tenant.slug, 'site': site.portal_token,
+              'name': th['name'], 'lang': th['language'], 'pages': pages, 'css': css, 'texts': texts,
+              'alert_icon': portal_ui.icon('alert', 18)}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
         for root, _, files in os.walk(RUIJIE_PORTAL_DIR):
@@ -3160,14 +3204,15 @@ def _ruijie_portal_zip(site, tenant):
                     z.writestr(arc, 'loadConfig(' + json.dumps({
                         'post_url': 'http://www.google.com',
                         'oneclick': {'oneclick_validity': '0', 'oneclick_qos': {'up_rate': '0', 'down_rate': '0'}, 'oneclick_times': '0'},
-                        'custom_html': {'login_options': ['voucher'], 'lang': langs}}, indent=2) + ');')
+                        'custom_html': {'login_options': ['voucher'], 'lang': ['en_US']}}, indent=2) + ');')
                 else:
                     z.write(path, arc)
+        for info in portal_ui.NETWORKS.values():          # the network logos on the page
+            z.write(os.path.join(app.static_folder, 'img', info['logo']), 'img/' + info['logo'])
         if has_logo:
             z.writestr('img/logo.png', db.session.query(Tenant.portal_logo).filter(Tenant.id == tenant.id).scalar() or b'')
-        else:
-            with open(os.path.join(app.static_folder, 'img', 'app-192.png'), 'rb') as f:
-                z.writestr('img/logo.png', f.read())
+        else:                                             # Ruijie's template has one; keep the file
+            z.write(os.path.join(app.static_folder, 'img', 'app-192.png'), 'img/logo.png')
     return buf.getvalue()
 
 

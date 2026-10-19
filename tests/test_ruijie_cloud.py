@@ -162,11 +162,16 @@ files = zipfile.ZipFile(io.BytesIO(z.data))
 names = set(files.namelist())
 assert {'index.html', 'loadConfig.json', 'css/index.css', 'js/index.js', 'js/language.js', 'js/i18n/i18n.js', 'js/jquery/jquery.min.js', 'img/logo.png'} <= names
 js = files.read('js/index.js').decode()
-cfg = _json.loads(re.search(r'var SAFENET = (\{.*?\});', js).group(1))
+cfg = _json.loads(re.search(r'var SAFENET = (\{.*?\});\n', js, re.S).group(1))
 assert cfg['slug'] == 'jriit' and cfg['site'] == TOKEN and cfg['base'].startswith('http')
+# the same login page SafeNet shows: tabs, packages, network logos, terms, in both languages
+sw, en = cfg['pages']['sw'], cfg['pages']['en']
+assert 'id="tab-buy"' in sw['body'] and 'Nunua kifurushi' in sw['body'] and 'Buy package' in en['body'] and 'Siku 1' in sw['body']
+assert 'name="agree"' in sw['body'] and 'img/airtel.png' in sw['body'] and '.pkg' in cfg['css'] and '--brand:' in sw['vars']
+assert '@@AMOUNT@@' in sw['wait'] and '@@CODE@@' in sw['connecting'] and 'Lipa {price}' == cfg['texts']['sw']['pay']
+assert {'img/mpesa.png', 'img/airtel.png'} <= names
 lc = files.read('loadConfig.json').decode()
-assert lc.startswith('loadConfig(') and '"voucher"' in lc and '"sw_TZ"' in lc and 'fixaccount' not in lc
-assert 'sw_TZ' in files.read('js/language.js').decode()
+assert lc.startswith('loadConfig(') and '"voucher"' in lc and 'fixaccount' not in lc
 assert app.test_client().get(f'/sites/{SID}/ruijie-portal.zip').status_code in (302, 401)   # admins only
 
 # removing it stops the copying
