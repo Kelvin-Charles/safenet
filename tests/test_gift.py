@@ -42,8 +42,8 @@ g = app.test_client()
 g.get(f'/wifidog/{TOKEN}/login/?' + urlencode(dict(gw_address='192.168.110.1', gw_port='2060', gw_id='RG', mac='aa:bb:cc:00:00:04',
                                                    ip='192.168.110.23', url='http://example.com/')), base_url=H)
 page = html.unescape(g.get(f'/wifidog/{TOKEN}/guest', base_url=H).text)
-# the login page stays simple (buying for a friend is in the My Wi-Fi app); the buy form still takes a friend's number
-assert 'Buy for a friend' not in page and 'name="gift_phone"' not in page, page[-3000:]
+assert 'Buy for a friend' in page and 'name="gift_phone"' in page and 'id="gift-box" hidden' in page, page[-3000:]
+assert 'Nunulia rafiki' in html.unescape(g.get(f'/wifidog/{TOKEN}/guest?lang=sw', base_url=H).text)
 g.get(f'/wifidog/{TOKEN}/guest?lang=en', base_url=H)
 
 buy = lambda **d: g.post(f'/wifidog/{TOKEN}/guest/buy', data={'package_id': PKG, 'phone': '684000111', 'network': 'airtel', 'agree': '1', **d}, base_url=H)

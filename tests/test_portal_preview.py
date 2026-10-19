@@ -44,7 +44,7 @@ assert '"/portal?t=zulu' + chr(92) + 'u0026preview=1" + ' in raw and "'/portal?t
 pv = lambda **q: html.unescape(c.get('/portal?t=zulu&preview=1&' + '&'.join(f'{k}={v}' for k, v in q.items())).text)
 # packages follow the site
 b = pv(view='buy', site=MW, equip='omada')
-assert 'Everywhere Day' in b and 'Mwenge Week' in b and 'Buy for a friend' not in b
+assert 'Everywhere Day' in b and 'Mwenge Week' in b and 'Buy for a friend' in b
 b = pv(view='buy', site=RJ, equip='ruijie')
 assert 'Everywhere Day' in b and 'Mwenge Week' not in b
 # "Connected": Omada/Ruijie have no Disconnect and no time bar; the gateway has both
