@@ -5,6 +5,9 @@
     <thead><tr><th>Setup</th><th>Check</th></tr></thead>
     <tbody>
         <tr><td>All</td><td>Open <code>http://neverssl.com</code> (plain <strong>http</strong>, not https). Phones only show the login page for plain web pages.</td></tr>
+        <tr><td>All</td><td>Phones open the page by themselves only when their internet check fails. Never allow <code>captive.apple.com</code>, <code>apple.com</code>, <code>google.com</code>, <code>gstatic.com</code> or <code>msftconnecttest.com</code> before login (some guides say to): the phone then thinks it is online and shows nothing. On the phone itself, Android <em>Private DNS</em> or iPhone <em>iCloud Private Relay</em> can also stop the page.</td></tr>
+        <tr><td>All</td><td>A phone that has logged in before may go straight online without the page while its time lasts (Ruijie <em>Seamless Online</em>, Omada and MikroTik remember devices too). Test with a new phone, or "forget" the Wi-Fi first.</td></tr>
+        <tr><td>Reyee</td><td>The captive portal policy is on the guest Wi-Fi (open, no password), and the allowlist has only <code>{{ public_host }}</code>.</td></tr>
         <tr><td>Omada</td><td>The portal is attached to the right Wi-Fi name, and <code>{{ public_host }}</code> is in <strong>Pre-Authentication Access</strong>.</td></tr>
         <tr><td>Gateway box</td><td>The access point's own DHCP server is <strong>off</strong> and the phone got an address like <code>10.10.0.x</code>. If it got another address, the access point is still handing out addresses.</td></tr>
         <tr><td>MikroTik</td><td>The hotspot runs on the interface guests join (<strong>IP → Hotspot</strong>).</td></tr>
