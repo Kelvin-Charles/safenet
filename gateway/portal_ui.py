@@ -97,7 +97,8 @@ T = {
         'code': 'Voucher code', 'code_ph': '12345678',
         'have_account': 'I have a username and password', 'username': 'Username', 'password': 'Password',
         'accept': 'I accept the', 'terms': 'terms of use', 'connect': 'Connect',
-        'buy_title': 'Choose a package', 'buy_lead': 'Pick a package, then your mobile-money network.',
+        'accept_by_continuing': 'By continuing you accept the', 'or_voucher': 'or use a voucher',
+        'buy_title': 'Choose a package', 'buy_lead': 'Pick a package, enter your number and pay. You are connected straight away.',
         'network': 'Your mobile-money network', 'min_from': 'From {amount}', 'choose_network': 'Choose your network first',
         'phone': 'Mobile money number', 'pay': 'Pay {price}', 'pay_hint': "You'll get a PIN prompt on your phone. Once paid, you're connected automatically and the code is sent to you by SMS.",
         'pay_hint_nosms': "You'll get a PIN prompt on your phone. Once paid, you're connected automatically and your code is shown here: write it down.",
@@ -136,7 +137,8 @@ T = {
         'code': 'Namba ya vocha', 'code_ph': '12345678',
         'have_account': 'Nina jina la mtumiaji na nenosiri', 'username': 'Jina la mtumiaji', 'password': 'Nenosiri',
         'accept': 'Nakubali', 'terms': 'masharti ya matumizi', 'connect': 'Unganisha',
-        'buy_title': 'Chagua kifurushi', 'buy_lead': 'Chagua kifurushi, kisha mtandao wako wa malipo.',
+        'accept_by_continuing': 'Kwa kuendelea unakubali', 'or_voucher': 'au tumia vocha',
+        'buy_title': 'Chagua kifurushi', 'buy_lead': 'Chagua kifurushi, weka namba yako na ulipe. Unaunganishwa papo hapo.',
         'network': 'Mtandao wako wa malipo', 'min_from': 'Kuanzia {amount}', 'choose_network': 'Chagua mtandao kwanza',
         'phone': 'Namba ya simu ya malipo', 'pay': 'Lipa {price}', 'pay_hint': 'Utapokea ujumbe wa kuweka PIN kwenye simu yako. Ukishalipa utaunganishwa moja kwa moja na namba ya vocha itatumwa kwa SMS.',
         'pay_hint_nosms': 'Utapokea ujumbe wa kuweka PIN kwenye simu yako. Ukishalipa utaunganishwa moja kwa moja na namba ya vocha itaonyeshwa hapa: iandike.',
@@ -411,15 +413,17 @@ window.addEventListener('pageshow',function(ev){{if(ev.persisted)location.reload
 (function(){{
   var nets=document.querySelectorAll('.net');if(!nets.length)return;
   function price(){{var p=document.querySelector('.pkg input:checked');return p?parseFloat(p.dataset.price)||0:0;}}
-  function paint(){{nets.forEach(function(n){{var r=n.querySelector('input');n.classList.toggle('on',r.checked);}});}}
+  var pick=document.getElementById('netpick');
+  function paint(){{var on=null;nets.forEach(function(n){{var r=n.querySelector('input');n.classList.toggle('on',r.checked);if(r.checked)on=n;}});
+    if(pick){{pick.hidden=!on;if(on){{pick.innerHTML='';pick.append(on.querySelector('img').cloneNode(),document.createTextNode(on.querySelector('span').textContent));}}}}}}
   function limits(){{var pr=price();nets.forEach(function(n){{var r=n.querySelector('input'),low=pr<(parseInt(n.dataset.min)||0);
     n.classList.toggle('off',low);r.disabled=low;if(low&&r.checked)r.checked=false;}});paint();}}
   nets.forEach(function(n){{n.querySelector('input').addEventListener('change',paint);}});
   document.querySelectorAll('.pkg input').forEach(function(r){{r.addEventListener('change',limits);}});
   var ph=document.getElementById('phone');
   if(ph)ph.addEventListener('input',function(){{var d=ph.value.replace(/\\D/g,'');d=d.replace(/^00/,'');if(d.indexOf('255')===0)d=d.slice(3);d=d.replace(/^0/,'');
-    if(d.length<2)return;nets.forEach(function(n){{var r=n.querySelector('input');
-      if(!r.disabled&&(' '+n.dataset.prefixes+' ').indexOf(' '+d.slice(0,2)+' ')>=0){{r.checked=true;}}}});paint();}});
+    nets.forEach(function(n){{var r=n.querySelector('input');
+      r.checked=d.length>=2&&!r.disabled&&(' '+n.dataset.prefixes+' ').indexOf(' '+d.slice(0,2)+' ')>=0;}});paint();}});
   limits();
 }})();
 </script>
@@ -436,9 +440,9 @@ def _alert(message, lang, ok=False):
 def _terms_check(th, lang, field_id):
     link = (f'<button type="button" class="linkbtn" onclick="openTerms()">{t(lang, "terms")}</button>' if th['terms']
             else t(lang, 'terms'))
-    # ticked already: guests can untick it, and the server still requires it
-    return (f'<label class="check" for="{field_id}"><input type="checkbox" id="{field_id}" name="agree" value="1" required checked>'
-            f'<span>{t(lang, "accept")} {link}</span></label>')
+    # one less thing to tick: continuing accepts them (the server still checks the form says so)
+    return (f'<input type="hidden" id="{field_id}" name="agree" value="1">'
+            f'<p class="terms-line">{t(lang, "accept_by_continuing")} {link}</p>')
 
 
 # ---------------------------------------------------------------------------
@@ -522,21 +526,11 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
                         if minimum else '')
                 tiles.append(
                     f'<label class="net" data-min="{minimum}" data-prefixes="{" ".join(info["prefixes"])}">'
-                    f'<input type="radio" name="network" value="{e(n["id"])}" required>'
+                    f'<input type="radio" name="network" value="{e(n["id"])}">'
                     f'<img src="{e(logo_base + info["logo"])}?v={LOGOS_VERSION}" alt="{e(info["name"])}" loading="lazy">'
                     f'<span>{e(info["name"])}</span>{note}<span class="tick">{icon("check", 13, 3)}</span></label>')
-            net_tiles = (f'<div class="field"><label>{t(lang, "network")}</label>'
-                         f'<div class="nets" style="--n:{min(len(tiles), 4)}">{"".join(tiles)}</div></div>')
-        # buying for a friend needs SMS (the code goes to the friend's phone)
-        gift = f'''
-        <label class="check" for="gift" style="margin:4px 0 10px"><input type="checkbox" id="gift" name="gift" value="1"
-          onchange="var b=document.getElementById('gift-box'),i=document.getElementById('gift_phone');b.hidden=!this.checked;i.required=this.checked;if(this.checked)i.focus();">
-          <span>{t(lang, 'gift')}</span></label>
-        <div class="field" id="gift-box" hidden>
-          <label for="gift_phone">{t(lang, 'gift_phone')}</label>
-          <input class="input" type="tel" id="gift_phone" name="gift_phone" inputmode="tel" autocomplete="off" placeholder="07XX XXX XXX">
-          <p class="hint" style="margin-top:6px">{t(lang, 'gift_hint')}</p>
-        </div>''' if th['sms'] else ''
+            # picked from the number as it's typed (see the script in page()); unknown numbers: the server decides
+            net_tiles = f'<div class="nets" hidden>{"".join(tiles)}</div>'
         buy = f"""
       <h2>{t(lang, 'buy_title')}</h2>
       <p class="lead">{t(lang, 'buy_lead')}</p>
@@ -548,23 +542,18 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
         <div class="field">
           <label for="phone">{t(lang, 'phone')}</label>
           <input class="input" type="tel" id="phone" name="phone" inputmode="tel" autocomplete="tel" placeholder="07XX XXX XXX" required>
+          <div class="netpick" id="netpick" hidden></div>
         </div>
-        {gift}
         {_terms_check(th, lang, 'agree-b')}
         <button class="btn" type="{submit_type}" id="paybtn">{e(t(lang, 'pay', price=first_price))}</button>
         <p class="hint">{t(lang, 'pay_hint' if th['sms'] else 'pay_hint_nosms')}</p>
       </form>"""
 
-    if show_voucher and show_buy:
+    if show_voucher and show_buy:      # one screen: pay and be connected, or enter a voucher
         body = f"""
-      <input class="tab" type="radio" name="tab" id="tab-buy"{' checked' if tab == 'buy' else ''}>
-      <input class="tab" type="radio" name="tab" id="tab-voucher"{' checked' if tab != 'buy' else ''}>
-      <div class="tabs" role="tablist">
-        <label for="tab-buy">{icon('phone', 17)} {t(lang, 'tab_buy')}</label>
-        <label for="tab-voucher">{icon('ticket', 17)} {t(lang, 'tab_voucher')}</label>
-      </div>
-      <div class="panel panel-buy">{buy}</div>
-      <div class="panel panel-voucher">{voucher}</div>"""
+      <div class="panel only">{buy}</div>
+      <div class="or"><span>{t(lang, 'or_voucher')}</span></div>
+      <div class="panel only panel-voucher-below" id="voucher">{voucher}</div>"""
     elif show_buy:
         body = f'<div class="panel only">{buy}</div>'
     else:

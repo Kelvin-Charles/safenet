@@ -42,7 +42,7 @@ def post(path, data):
     except urllib.error.HTTPError as e: return e.code, e.read().decode(), e.headers
 
 s, body, _ = get('/')
-assert 'Buy package' in body and '1 Day &lt;b&gt;' in body and 'TZS 1,000' in body, body[-1500:]
+assert 'Choose a package' in body and 'or use a voucher' in body and '1 Day &lt;b&gt;' in body and 'TZS 1,000' in body, body[-1500:]
 s, body, _ = post('/buy', {'package_id': '7', 'phone': 'bad', 'agree': '1'})
 assert 'Enter a valid mobile number' in body
 s, body, _ = post('/buy', {'package_id': '7', 'phone': '0712345678'})

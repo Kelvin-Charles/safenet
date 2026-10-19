@@ -22,7 +22,9 @@ assert ui.network_for_phone('0654000111') == 'mixx' and ui.network_for_phone('+2
 # the guest page asks for the number the way people write it (no fixed +255 in front)
 page = ui.login_page(ui.theme({}), 'en', packages=[{'id': 1, 'name': 'Day', 'price': '1000', 'currency': 'TZS', 'validity_minutes': 1440}])
 assert 'placeholder="07XX XXX XXX"' in page and '<span>+255</span>' not in page
-assert page.count('name="agree" value="1" required checked') == 2          # terms ticked by default (voucher and buy)
+assert page.count('name="agree" value="1"') == 2 and 'type="checkbox"' not in page    # nothing to tick: continuing accepts the terms
+assert 'By continuing you accept the' in page and 'id="tab-buy"' not in page and 'or use a voucher' in page    # one screen
+assert '<div class="nets" hidden>' in page or 'class="net"' not in page        # the network comes from the number
 
 # buying: typed with a leading 0, or +255 followed by 0
 import clickpesa

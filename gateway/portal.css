@@ -196,3 +196,14 @@ body.preview .sheet { padding-bottom: 64px; }
 .appcard{display:flex;gap:12px;align-items:center;margin-top:14px;padding:13px 14px;border:1.5px solid var(--line);border-radius:14px;color:var(--ink);text-decoration:none;background:var(--tint)}
 .appcard .ic{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--brand);color:var(--on-brand);flex:none}
 .appcard b{display:block;font-size:15px}.appcard small{color:var(--ink-2);font-size:12.5px}.appcard>svg{margin-left:auto;flex:none}
+
+/* one screen: buy, then the voucher box */
+.or{display:flex;align-items:center;gap:12px;margin:22px 0 18px;color:var(--ink-2,#64748b);font-size:13px;font-weight:600}
+.or:before,.or:after{content:"";flex:1;height:1px;background:var(--line,#e2e8f0)}
+.panel-voucher-below h2{font-size:18px}.panel-voucher-below .lead{display:none}
+.netpick{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;font-weight:600;color:var(--ink-2,#475569)}
+.netpick img{height:22px;width:auto;border-radius:4px}
+.terms-line{font-size:12px;color:var(--ink-2,#64748b);margin:2px 0 10px;text-align:center}
+.terms-line .linkbtn{font-size:12px}
+.nets[hidden],.netpick[hidden]{display:none!important}
+.panel-voucher-below .terms-line{display:none}

@@ -351,12 +351,6 @@ const SafeNetObj = {
       list.append(row);
     });
     box.append(list);
-    let net = null;
-    if (d.networks && d.networks.length > 1) {
-      net = $("<select class='sn-input'>");
-      d.networks.forEach(function (n) { net.append($("<option>").val(n.id).text(n.name)); });
-      box.append($("<div class='sn-field'>").append($("<label>").text(this.t("sn_network")), net));
-    }
     const phone = $("<input class='sn-input' type='tel' inputmode='tel' placeholder='07XX XXX XXX' autocomplete='tel'>");
     box.append($("<div class='sn-field'>").append($("<label>").text(this.t("sn_phone")), phone));
     const first = d.packages[0];
@@ -367,8 +361,8 @@ const SafeNetObj = {
       if (!phone.val().trim()) { phone.focus(); return; }
       pay.prop("disabled", true);
       self.error = "";
-      const networkId = net ? net.val() : (d.networks && d.networks[0] ? d.networks[0].id : "");
-      self.api("/buy", { tokens: [], site: SAFENET.site, package_id: picked, phone: phone.val(), network: networkId }).then(function (j) {
+      // the network comes from the number (SafeNet works it out)
+      self.api("/buy", { tokens: [], site: SAFENET.site, package_id: picked, phone: phone.val() }).then(function (j) {
         self.payment = j;
         self.view = "wait";
         self.render();
