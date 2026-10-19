@@ -1584,6 +1584,11 @@ def print_vouchers():
         flash(tr('Choose a batch to print.'), 'warning')
         return redirect(url_for('vouchers'))
     items = scoped(Voucher).filter_by(batch=batch, status='unused').order_by(Voucher.id).all()
+    waiting = [v for v in items if v.ruijie_state in ('pending', 'sending')]
+    if waiting:            # their code may still change on Ruijie Cloud
+        _ruijie_push_soon()
+        items = [v for v in items if v not in waiting]
+        flash(tr('{n} codes are still being made on Ruijie Cloud and are not shown. Refresh in a minute.', n=len(waiting)), 'warning')
     return render_template('vouchers/print.html', vouchers=items, batch=batch,
                            hotspot=_hotspot_settings(current_tenant()))
 
@@ -2977,6 +2982,34 @@ def _ruijie_package(site, minutes):
     return next((p for p in _ruijie_info(site).get('packages', []) if p.get('minutes') == minutes), None)
 
 
+def _ruijie_make_voucher(site, cloud, voucher, package):
+    """Make the voucher on Ruijie Cloud with SafeNet's code; when Ruijie won't take codes it didn't make
+    ("Invalid code"), let Ruijie make one and use that code in SafeNet too (remembered for the site)."""
+    info = _ruijie_info(site)
+    if not info.get('ruijie_codes'):
+        try:
+            return cloud.create_voucher(site.ruijie_group_id, voucher.code, package)
+        except ruijie.RuijieError as e:
+            if 'invalid code' not in str(e).lower():
+                raise
+            site.ruijie_packages = json.dumps({**info, 'ruijie_codes': True})
+    code = cloud.generate_voucher(site.ruijie_group_id, package)
+    if code != voucher.code:
+        if Voucher.query.filter(Voucher.code == code, Voucher.id != voucher.id).count() or \
+                RadCheck.query.filter_by(username=code).count():
+            raise ruijie.RuijieError(f'Ruijie Cloud made a code that is already used here ({code}).')
+        _rename_voucher(voucher, code)
+
+
+def _rename_voucher(voucher, code):
+    """Give an unused voucher a new code (its RADIUS rows follow)."""
+    old = voucher.code
+    for model in (RadCheck, RadReply, RadUserGroup):
+        model.query.filter_by(username=old).update({'username': code}, synchronize_session=False)
+    RadCheck.query.filter_by(username=code, attribute='Cleartext-Password').update({'value': code}, synchronize_session=False)
+    voucher.code = code
+
+
 def _ruijie_push_site(site):
     """Copy this site's waiting codes to Ruijie Cloud. A code whose duration has no Ruijie package is marked failed."""
     cloud = _ruijie_cloud(site)
@@ -2995,17 +3028,21 @@ def _ruijie_push_site(site):
             db.session.commit()
             continue
         try:
-            cloud.create_voucher(site.ruijie_group_id, voucher.code, package)
+            _ruijie_make_voucher(site, cloud, voucher, package)
             voucher.ruijie_state = 'ok'
             db.session.commit()
         except ruijie.RuijieError as e:
             if 'exist' in str(e).lower():          # already made (a retry after a timeout)
                 voucher.ruijie_state = 'ok'
                 db.session.commit()
-                continue
-            voucher.ruijie_state = 'pending'      # try again next time
-            db.session.commit()
-            raise
+            else:
+                db.session.rollback()
+                Voucher.query.filter_by(id=vid).update({'ruijie_state': 'pending'})      # try again next time
+                db.session.commit()
+                raise
+        payment = Payment.query.filter_by(voucher_id=vid).first()
+        if payment is not None:
+            _payment_sms(payment, db.session.get(Voucher, vid))      # held back until the code was final
     if missing:
         raise ruijie.RuijieError(tr('No Ruijie package lasts {d}. Create one in Ruijie Cloud, then press Read packages again.',
                                     d=', '.join(format_minutes(m) for m in sorted(missing))))
@@ -3997,6 +4034,13 @@ def _fulfil_payment(payment):
         _ruijie_push_soon(delay=1)       # after this payment is committed
     if payment.client_mac and not payment.gift_phone:
         voucher.first_mac = _mac_key(payment.client_mac)     # waits for this phone (see _returning_code)
+    if voucher.ruijie_state:
+        return                       # the code may still change on Ruijie Cloud: the SMS goes once it's made there
+    _payment_sms(payment, voucher)
+
+
+def _payment_sms(payment, voucher):
+    """The paid code (and receipt) by SMS, when the business sends SMS to guests."""
     if not _sms_on(payment.tenant):
         return                       # the guest sees the code on screen; no SMS, no charge
     brand = _hotspot_settings(payment.tenant)

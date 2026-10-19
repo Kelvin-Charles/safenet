@@ -11,7 +11,7 @@ clickpesa.initiate_ussd_push = lambda a, p, r, c=None: {'id': 'TX', 'status': 'P
 clickpesa.query_payment = lambda r, c=None: {'status': 'SUCCESS', 'collectedAmount': '1000'}
 import ruijie
 from datetime import datetime
-made, down, can_create, created = [], [False], [False], []
+made, down, can_create, created, own_codes = [], [False], [False], [], [True]
 pkgs = [{'user_group': 'ug1', 'profile': 'pf1', 'minutes': 60, 'name': '1 Hour'},
         {'user_group': 'ug2', 'profile': 'pf2', 'minutes': 1440, 'name': '1 Day'}]
 
@@ -41,7 +41,14 @@ class FakeCloud:
     def create_voucher(self, group_id, code, package):
         if down[0]:
             raise ruijie.RuijieError('Ruijie Cloud could not be reached: timed out')
+        if not own_codes[0]:
+            raise ruijie.RuijieError('Ruijie Cloud: Invalid code')
         made.append((group_id, code, package['user_group']))
+
+    def generate_voucher(self, group_id, package, digits=8):
+        code = f'7{len(made):07d}'
+        made.append((group_id, code, package['user_group']))
+        return code
 
 
 ruijie.Cloud = FakeCloud
@@ -49,7 +56,7 @@ import app as appmod
 appmod.send_sms_async = lambda *a, **k: None
 from app import app, db
 import migrations
-from models import Admin, Tenant, Package, Voucher, Site
+from models import Admin, Tenant, Package, Voucher, Site, RadCheck
 from tenancy import tenant_sites
 app.config.update(TESTING=True)
 tok = lambda h: re.search(r'name="csrf_token"[^>]*value="([^"]+)"', h).group(1)
@@ -173,6 +180,36 @@ assert {'img/mpesa.png', 'img/airtel.png'} <= names
 lc = files.read('loadConfig.json').decode()
 assert lc.startswith('loadConfig(') and '"voucher"' in lc and 'fixaccount' not in lc
 assert app.test_client().get(f'/sites/{SID}/ruijie-portal.zip').status_code in (302, 401)   # admins only
+
+# Ruijie won't take codes it didn't make: it makes one, SafeNet uses it (RADIUS too), and the SMS has the final code
+own_codes[0] = False
+texts = []
+appmod._guest_sms = lambda payment, phone, text, kind: texts.append(text)
+appmod._sms_on = lambda tenant: True
+b = g.post('/app/jriit/api/buy', json={'tokens': [], 'site': TOKEN, 'package_id': PKG_DAY, 'phone': '0684000222', 'network': 'airtel'}).get_json()
+paid = g.get(f'/app/jriit/api/pay/{b["reference"]}').get_json()
+assert paid['ready'] is False and texts == []                       # no SMS yet: the code may change
+OLD = paid['code']
+with app.app_context():
+    appmod._ruijie_push_due()
+    v = Voucher.query.filter_by(code=made[-1][1]).one()
+    assert v.code != OLD and v.ruijie_state == 'ok' and made[-1][2] == 'ug2'
+    assert RadCheck.query.filter_by(username=v.code, value=v.code).count() == 1 and RadCheck.query.filter_by(username=OLD).count() == 0
+    NEW = v.code
+    assert _json.loads(db.session.get(Site, SID).ruijie_packages)['ruijie_codes'] is True        # remembered for the site
+paid = g.get(f'/app/jriit/api/pay/{b["reference"]}').get_json()
+assert paid['ready'] is True and paid['code'] == NEW and len(texts) == 1 and NEW in texts[0] and OLD not in texts[0]
+# generated vouchers get Ruijie's codes too; printing leaves out the ones not made yet
+r = c.get('/vouchers/generate')
+c.post('/vouchers/generate', data={'csrf_token': tok(r.text), 'count': 2, 'validity_value': 1, 'validity_unit': 'hours', 'max_devices': 1, 'plan_id': 0, 'batch': 'reyee'})
+pr = html.unescape(c.get('/vouchers/print?batch=reyee').text)
+assert '2 codes are still being made on Ruijie Cloud' in pr
+with app.app_context():
+    appmod._ruijie_push_due()
+    codes = sorted(v.code for v in Voucher.query.filter_by(batch='reyee'))
+    assert all(c_.startswith('7') for c_ in codes) and all(Voucher.query.filter_by(code=c_).one().ruijie_state == 'ok' for c_ in codes)
+pr = html.unescape(c.get('/vouchers/print?batch=reyee').text)
+assert 'still being made' not in pr and all(c_ in pr for c_ in codes)
 
 # removing it stops the copying
 assert 'Ruijie Cloud removed' in html.unescape(post(action='remove').text)

@@ -28,6 +28,7 @@
 </head>
 <body>
     <div class="toolbar">
+        {% for category, message in get_flashed_messages(with_categories=true) %}<strong style="color:#b45309">{{ message }}</strong>{% endfor %}
         <button onclick="window.print()">{{ _('Print') }}</button>
         <span>{{ _('Batch') }} <strong>{{ batch }}</strong> &middot; {{ _('{n} unused voucher', n=vouchers|length) if vouchers|length == 1 else _('{n} unused vouchers', n=vouchers|length) }}</span>
     </div>

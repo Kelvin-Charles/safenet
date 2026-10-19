@@ -293,6 +293,7 @@ SW = {
     'Download login page (.zip)': 'Pakua ukurasa wa kuingia (.zip)',
     'These keys belong to the {server} server, so SafeNet uses that one.': 'Funguo hizi ni za seva ya {server}, hivyo SafeNet inaitumia hiyo.',
     "SafeNet tried to create them on Ruijie Cloud, but Ruijie refused: {reason}.": 'SafeNet ilijaribu kuvitengeneza kwenye Ruijie Cloud, lakini Ruijie imekataa: {reason}.',
+    '{n} codes are still being made on Ruijie Cloud and are not shown. Refresh in a minute.': 'Namba {n} bado zinatengenezwa kwenye Ruijie Cloud na hazionyeshwi. Onyesha upya baada ya dakika moja.',
     'Add a site': 'Ongeza eneo',
     'Your plan allows {n} site.': 'Mpango wako unaruhusu eneo {n}.',
     'Your plan allows {n} sites.': 'Mpango wako unaruhusu maeneo {n}.',

@@ -168,6 +168,17 @@ class Cloud:
                   {'list': [{**fields, 'authProfileId': profile}]})
 
 
+    def generate_voucher(self, group_id, package, digits=8):
+        """A new voucher of `package` with a code Ruijie makes up (numeric). Returns the code."""
+        data = self.call('POST', f'open/auth/voucher/create/{group_id}', body={
+            'quantity': 1, 'profile': package['profile'], 'userGroupId': package['user_group'],
+            'createCodeType': '3', 'codeSize': digits}, inner='voucherData')
+        items = data.get('list') if isinstance(data, dict) else data
+        code = next((str(v.get('voucherCode') or v.get('codeNo') or '') for v in items or [] if isinstance(v, dict)), '')
+        if not code:
+            raise RuijieError('Ruijie Cloud made no voucher.')
+        return code
+
     def create_voucher(self, group_id, code, package):
         """Make `code` a voucher of `package` (one of packages()) in the project."""
         self.call('POST', f'open/auth/voucher/customerCreate/{group_id}/{urllib.parse.quote(code, safe="")}',
