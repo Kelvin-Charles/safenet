@@ -196,10 +196,11 @@ const Portal = {
     const self = this;
     this.authenticate(code).then(function (r) {
       location.href = r.result.logonUrl;
-    }, function () {
-      if (tries < 4) return setTimeout(function () { self.connect(code, tries + 1); }, 3000);
+    }, function (message) {
+      // a new voucher can take a little while to reach the access point: keep trying for about 40 seconds
+      if (tries < 12) return setTimeout(function () { self.connect(code, tries + 1); }, 3000);
       self.payment = null;
-      self.render(self.text("login_failed"), "voucher");
+      self.render(self.text("login_failed") + (message ? " (" + message + ")" : ""), "voucher");
       const box = document.getElementById("code");
       if (box) box.value = code;
     });
@@ -226,6 +227,7 @@ const Portal = {
         url: "/api/auth/general",
         data: JSON.stringify(body),
         contentType: "application/json",
+        timeout: 10000,
         success: function (r) {
           if (r && r.success) resolve(r);
           else reject((r && r.message) || "");
