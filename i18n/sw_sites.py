@@ -292,6 +292,7 @@ SW = {
     "Guests see your packages, pay with mobile money and are connected straight away, all on Ruijie's login page. In Ruijie Cloud: Captive Portal, Add Portal Page, Auth Mode Custom HTML, then upload this file.": 'Wateja wanaona vifurushi vyako, wanalipa kwa simu na wanaunganishwa papo hapo, yote kwenye ukurasa wa kuingia wa Ruijie. Kwenye Ruijie Cloud: Captive Portal, Add Portal Page, Auth Mode Custom HTML, kisha pakia faili hili.',
     'Download login page (.zip)': 'Pakua ukurasa wa kuingia (.zip)',
     'These keys belong to the {server} server, so SafeNet uses that one.': 'Funguo hizi ni za seva ya {server}, hivyo SafeNet inaitumia hiyo.',
+    "SafeNet tried to create them on Ruijie Cloud, but Ruijie refused: {reason}.": 'SafeNet ilijaribu kuvitengeneza kwenye Ruijie Cloud, lakini Ruijie imekataa: {reason}.',
     'Add a site': 'Ongeza eneo',
     'Your plan allows {n} site.': 'Mpango wako unaruhusu eneo {n}.',
     'Your plan allows {n} sites.': 'Mpango wako unaruhusu maeneo {n}.',

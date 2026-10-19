@@ -136,7 +136,47 @@ class Cloud:
                         'name': str(p.get('packageName') or p.get('profileName') or p.get('userGroupName') or p.get('name') or user_group)})
         return out
 
+    def account(self):
+        """(email, tenantId) of the account the keys belong to."""
+        info = self.call('GET', 'org/account/info')
+        info = info.get('data') if isinstance(info.get('data'), dict) else info
+        return (str(info.get('account') or info.get('email') or ''), str(info.get('tenantId') or info.get('defaultTenantId') or ''))
+
+    def create_package(self, group_id, name, minutes, devices=1, price='', down_kbps=0, up_kbps=0):
+        """Create a voucher package (user group) in the project. Not in Ruijie's published API: this is the call
+        Ruijie Cloud's own pages make (profile, then user group); it may be refused for API keys."""
+        email, tenant = self.account()
+        if not email:
+            raise RuijieError('Ruijie Cloud did not say which account these keys belong to.')
+        fields = {
+            'name': name, 'userGroupName': name, 'price': str(price or ''), 'quota': 0,
+            'timePeriod': int(minutes), 'timePeriodDaily': 0, 'timePeriodDailyCustom': 0, 'timePeriodTotal': 0,
+            'uploadRateLimit': int(up_kbps or 0), 'downloadRateLimit': int(down_kbps or 0),
+            'noOfDevice': str(devices or 1), 'packageType': 'COMMON', 'bindSsid': '', 'isBindSsid': 0, 'bindMac': 0,
+            'ip': '', 'bindIpList': [], 'kickOffType': 1, 'durationCtrlType': 0, 'limitedTimes': 0,
+            'lowQuota': 0, 'lowUploadRateLimit': 0, 'lowDownloadRateLimit': 0, 'lowProfileStatus': 0, 'groupId': int(group_id),
+        }
+        who = urllib.parse.quote(email, safe='')
+        query = {'lang': 'en', 'cloudType': 'smb', **({'tenantId': tenant} if tenant else {})}
+        made = self.call('POST', f'intlSamProfile/create/{who}/{who}/{group_id}', query, fields)
+        inner = made.get('data') if isinstance(made.get('data'), dict) else made.get('result') if isinstance(made.get('result'), dict) else {}
+        profile = next((str(v) for v in (made.get('authProfileId'), made.get('profileId'), inner.get('authProfileId'),
+                                         inner.get('profileId'), inner.get('id'), made.get('id')) if v not in (None, '')), '')
+        if not profile:
+            raise RuijieError('Ruijie Cloud made no package profile.')
+        self.call('POST', f'intl/usergroup/group/{group_id}', {'lang': 'en', 'cloudType': 'smb'},
+                  {'list': [{**fields, 'authProfileId': profile}]})
+
+
     def create_voucher(self, group_id, code, package):
         """Make `code` a voucher of `package` (one of packages()) in the project."""
         self.call('POST', f'open/auth/voucher/customerCreate/{group_id}/{urllib.parse.quote(code, safe="")}',
                   body={'profile': package['profile'], 'userGroupId': package['user_group']}, inner='voucherData')
+
+
+def kbps(speed):
+    """'10M' / '512k' / '1G' / '2048' (kbps) -> kbps; 0 = no limit."""
+    m = re.fullmatch(r'\s*([\d.]+)\s*([kKmMgG]?)\s*(?:bps)?\s*', str(speed or ''))
+    if not m:
+        return 0
+    return int(float(m.group(1)) * {'': 1, 'k': 1, 'm': 1024, 'g': 1024 * 1024}[m.group(2).lower()])

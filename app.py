@@ -3062,7 +3062,60 @@ def _ruijie_read(site, cloud):
     site.ruijie_group_name = dict(info['projects']).get(site.ruijie_group_id)
     if site.ruijie_group_id:
         info['packages'] = cloud.packages(site.ruijie_group_id)
+        info['create_error'] = _ruijie_make_packages(site, cloud, info['packages'])
+        if info['create_error'] is not None:
+            info['packages'] = cloud.packages(site.ruijie_group_id)
     site.ruijie_packages = json.dumps(info)
+
+
+def _ruijie_refresh(tenant, site_id=None):
+    """Re-read Ruijie Cloud for the business's connected sites (one, or all for an all-sites package),
+    creating packages SafeNet sells that Ruijie doesn't have yet."""
+    for site in Site.query.filter_by(tenant_id=tenant).all():
+        if not site.ruijie_ready or (site_id and site.id != site_id):
+            continue
+        try:
+            _ruijie_read(site, _ruijie_cloud(site))
+            site.ruijie_error = None
+        except ruijie.RuijieError as e:
+            site.ruijie_error = str(e)[:255]
+        db.session.commit()
+
+
+def _ruijie_refresh_soon(package):
+    tenant, site_id = package.tenant_id, package.site_id
+    if not Site.query.filter(Site.tenant_id == tenant, Site.ruijie_group_id.isnot(None)).count():
+        return
+    if app.config.get('TESTING'):
+        return _ruijie_refresh(tenant, site_id)
+
+    def run():
+        try:
+            with app.app_context():
+                _ruijie_refresh(tenant, site_id)
+        except Exception:
+            log.exception('ruijie cloud refresh failed')
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _ruijie_make_packages(site, cloud, have):
+    """Create on Ruijie Cloud a package for each duration sold at the site that has none there, so the business
+    only makes packages in SafeNet. None if nothing was needed, '' if all were made, else Ruijie's reason."""
+    minutes = {p.get('minutes') for p in have}
+    wanted = {}
+    for p in _site_packages(Package.query.filter_by(tenant_id=site.tenant_id, is_active=True), site.id).order_by(Package.price):
+        if p.validity_minutes not in minutes and p.validity_minutes not in wanted:
+            wanted[p.validity_minutes] = p
+    if not wanted:
+        return None
+    for m, p in wanted.items():
+        try:
+            cloud.create_package(site.ruijie_group_id, f'SafeNet {format_minutes(m)}', m, devices=p.max_devices or 1, price=f'{p.price:.0f}',
+                                 down_kbps=ruijie.kbps(p.plan.download_speed if p.plan else ''), up_kbps=ruijie.kbps(p.plan.upload_speed if p.plan else ''))
+        except ruijie.RuijieError as e:
+            log.info('ruijie cloud refused to create a package for site %s: %s', site.id, e)
+            return str(e)[:200]
+    return ''
 
 
 def _ruijie_status(site):
@@ -3076,6 +3129,7 @@ def _ruijie_status(site):
             'packages': [{**p, 'label': format_minutes(p['minutes']) if p.get('minutes') else '?'} for p in info.get('packages', [])],
             'ok': counts.get('ok', 0), 'waiting': counts.get('pending', 0) + counts.get('sending', 0), 'failed': counts.get('failed', 0),
             'unmatched': [p for p in sold if p.validity_minutes not in have],
+            'create_error': info.get('create_error') or '',
             'buy_url': url_for('guest_app', slug=db.session.get(Tenant, site.tenant_id).slug, s=site.portal_token, _external=True)
                        if site.portal_token else ''}
 
@@ -3566,6 +3620,7 @@ def add_package():
         _fill_package(package, form)
         db.session.add(package)
         db.session.commit()
+        _ruijie_refresh_soon(package)
         flash(tr('Package "{name}" created.', name=package.name), 'success')
         return redirect(url_for('packages'))
     return render_template('packages/form.html', form=form, title=tr('New Package'))
@@ -3585,6 +3640,7 @@ def edit_package(package_id):
     if form.validate_on_submit():
         _fill_package(package, form)
         db.session.commit()
+        _ruijie_refresh_soon(package)
         flash(tr('Package "{name}" updated.', name=package.name), 'success')
         return redirect(url_for('packages'))
     return render_template('packages/form.html', form=form, title=tr('Edit Package'), package=package)

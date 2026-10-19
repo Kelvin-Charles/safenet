@@ -11,7 +11,9 @@ clickpesa.initiate_ussd_push = lambda a, p, r, c=None: {'id': 'TX', 'status': 'P
 clickpesa.query_payment = lambda r, c=None: {'status': 'SUCCESS', 'collectedAmount': '1000'}
 import ruijie
 from datetime import datetime
-made, down = [], [False]
+made, down, can_create, created = [], [False], [False], []
+pkgs = [{'user_group': 'ug1', 'profile': 'pf1', 'minutes': 60, 'name': '1 Hour'},
+        {'user_group': 'ug2', 'profile': 'pf2', 'minutes': 1440, 'name': '1 Day'}]
 
 
 class FakeCloud:
@@ -28,8 +30,13 @@ class FakeCloud:
 
     def packages(self, group_id):
         assert group_id == '9001'
-        return [{'user_group': 'ug1', 'profile': 'pf1', 'minutes': 60, 'name': '1 Hour'},
-                {'user_group': 'ug2', 'profile': 'pf2', 'minutes': 1440, 'name': '1 Day'}]
+        return list(pkgs)
+
+    def create_package(self, group_id, name, minutes, devices=1, price='', down_kbps=0, up_kbps=0):
+        if not can_create[0]:
+            raise ruijie.RuijieError('Ruijie Cloud: You do not have permission to perform this operation')
+        created.append((group_id, name, minutes, devices, price, down_kbps))
+        pkgs.append({'user_group': f'ug{len(pkgs) + 1}', 'profile': f'pf{len(pkgs) + 1}', 'minutes': minutes, 'name': name})
 
     def create_voucher(self, group_id, code, package):
         if down[0]:
@@ -76,7 +83,9 @@ r = html.unescape(post(action='save', cloud='https://cloud-as.ruijienetworks.com
 assert 'These keys belong to the Global (cloud) server' in r
 with app.app_context(): assert db.session.get(Site, SID).ruijie_cloud_url == 'https://cloud.ruijienetworks.com'
 assert 'Ruijie Cloud connected' in r and 'Project: JRIIT Hostel' in r and '1 Hour · 1 hour' in r
-assert 'Wiki 1' in r[r.index('no Ruijie package with the same duration'):][:400]           # 1 week has no Ruijie package
+# 1 week has no Ruijie package: SafeNet tried to make it, Ruijie refused, and the page says why
+warn = r[r.index('no Ruijie package with the same duration'):][:800]
+assert 'Wiki 1' in warn and 'Ruijie refused: Ruijie Cloud: You do not have permission' in warn
 with app.app_context():
     s = db.session.get(Site, SID)
     assert s.ruijie_ready and s.ruijie_secret_enc and 'shh' not in s.ruijie_secret_enc and s.portal_token
@@ -103,6 +112,7 @@ with app.app_context():
     assert Voucher.query.filter_by(code=CODE).one().ruijie_state == 'ok' and db.session.get(Site, SID).ruijie_error is None
     # a duration with no Ruijie package fails, and says what to create
     w = appmod._create_vouchers(1, None, 10080, None, 'x', tenant=TID, site_id=SID)[0]; db.session.commit()
+    WCODE = w.code
     appmod._ruijie_push_due()
     assert Voucher.query.filter_by(code=w.code).one().ruijie_state == 'failed' and 'No Ruijie package lasts 7 days' in db.session.get(Site, SID).ruijie_error
     # another site's codes aren't copied
@@ -110,11 +120,24 @@ with app.app_context():
     assert o.ruijie_state is None
 p = html.unescape(c.get('/sites').text)
 assert '4 codes made on Ruijie Cloud, 0 waiting, 1 failed' in p and 'Try failed codes again' in p
+# when Ruijie lets the keys create packages, SafeNet makes the missing one and the failed code goes through
+can_create[0] = True
+r = html.unescape(post(action='retry').text)
+assert created == [('9001', 'SafeNet 7 days', 10080, 1, '5000', 0)], created
+assert 'no Ruijie package with the same duration' not in r and 'SafeNet 7 days · 7 days' in r
+with app.app_context():
+    appmod._ruijie_push_due()
+    assert Voucher.query.filter_by(code=WCODE).one().ruijie_state == 'ok' and made[-1][2] == 'ug3'
+# a package added in SafeNet later is made on Ruijie Cloud straight away
+f = c.get('/packages/add').text
+c.post('/packages/add', data={'csrf_token': tok(f), 'name': 'Mwezi', 'price': '20000', 'validity_value': 30, 'validity_unit': 'days',
+                              'max_devices': 2, 'plan_id': 0, 'site_id': SID, 'is_active': 'y', 'show_on_portal': 'y'})
+assert created[-1][1:4] == ('SafeNet 30 days', 43200, 2), created
 
 # the guest app from the Ruijie login page link: this site's packages, buy straight away, the code to type on Ruijie's page
 g = app.test_client()
 me = g.post('/app/jriit/api/me', json={'tokens': [], 'site': TOKEN}).get_json()
-assert me['ruijie'] and me['can_buy'] and sorted(x['name'] for x in me['packages']) == ['Saa 1', 'Siku 1', 'Wiki 1']
+assert me['ruijie'] and me['can_buy'] and sorted(x['name'] for x in me['packages']) == ['Mwezi', 'Saa 1', 'Siku 1', 'Wiki 1']
 b = g.post('/app/jriit/api/buy', json={'tokens': [], 'site': TOKEN, 'package_id': PKG_DAY, 'phone': '0684000111', 'network': 'airtel'}).get_json()
 paid = g.get(f'/app/jriit/api/pay/{b["reference"]}').get_json()
 assert paid['status'] == 'paid' and paid['ruijie'] and paid['code']
