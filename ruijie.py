@@ -111,7 +111,7 @@ class Cloud:
                 for n in node:
                     walk(n)
             elif isinstance(node, dict):
-                if node.get('groupId') is not None and str(node.get('type', 'BUILDING')).upper() == 'BUILDING':
+                if node.get('groupId') is not None and str(node.get('type') or '').upper() == 'BUILDING':
                     out.append((str(node['groupId']), str(node.get('name') or node['groupId'])))
                 walk(node.get('subGroups') or node.get('children') or [])
         walk(data.get('groups') or data.get('group') or data.get('data') or [])
@@ -178,6 +178,19 @@ class Cloud:
         if not code:
             raise RuijieError('Ruijie Cloud made no voucher.')
         return code
+
+    def vouchers(self, group_id, pages=25):
+        """Every voucher in the project, as Ruijie has them: voucherCode, loginTime and expiryTime (ms),
+        usedTime (minutes), currentClients (phones online with it now), status."""
+        out, start, size = [], 0, 200
+        for _ in range(pages):
+            data = self.call('GET', f'open/auth/voucher/getList/{group_id}', {'start': start, 'pageSize': size}, inner='voucherData')
+            items = data.get('list') or []
+            out += [v for v in items if isinstance(v, dict)]
+            start += size
+            if not items or start >= int(data.get('count') or 0):
+                break
+        return out
 
     def create_voucher(self, group_id, code, package):
         """Make `code` a voucher of `package` (one of packages()) in the project."""

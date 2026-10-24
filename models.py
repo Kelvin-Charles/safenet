@@ -119,6 +119,7 @@ class Site(db.Model):
     ruijie_group_name = db.Column(db.String(128))
     ruijie_packages = db.Column(db.Text)                 # JSON: the project's voucher packages, read when saved
     ruijie_error = db.Column(db.String(255))
+    ruijie_synced_at = db.Column(db.DateTime)            # guests online last read from Ruijie Cloud (one worker a minute)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     @property

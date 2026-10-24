@@ -331,7 +331,7 @@ def _site_filters(tid, site):
         q = db.session.query(Gateway.name).filter(Gateway.tenant_id == tid)
         found = [n for (n,) in (q.filter(Gateway.site_id == sid) if sid else q)]
         site_ids = [sid] if sid else [x.id for x in tenant_sites(tid)]
-        return found + [f'omada-{i}' for i in site_ids] + [f'wifidog-{i}' for i in site_ids]
+        return found + [f'{kind}-{i}' for i in site_ids for kind in ('omada', 'wifidog', 'ruijie')]
 
     def ips(sid):
         q = db.session.query(Nas.nasname).filter(Nas.tenant_id == tid)
@@ -365,10 +365,10 @@ def _session_where(row, tid):
     """Readable place of a session: 'Omada · Mwenge', 'Ruijie · Mwenge', a gateway name or router IP."""
     where = row.calledstationid or row.nasipaddress or ''
     kind, _, sid = where.partition('-')
-    if kind in ('omada', 'wifidog') and sid.isdigit():
+    if kind in ('omada', 'wifidog', 'ruijie') and sid.isdigit():
         site = db.session.get(Site, int(sid))
         if site is not None and site.tenant_id == tid:
-            return f"{'Omada' if kind == 'omada' else 'Ruijie'} · {site.name}"
+            return f"{ {'omada': 'Omada', 'wifidog': 'Ruijie', 'ruijie': 'Reyee'}[kind]} · {site.name}"
     return where
 
 
@@ -3080,6 +3080,72 @@ def _ruijie_push_soon(delay=0):
     threading.Thread(target=run, daemon=True).start()
 
 
+def _ms_utc(ms):
+    try:
+        return datetime.utcfromtimestamp(int(ms) / 1000) if ms else None
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def _ruijie_sync_site(site, cloud=None, now=None):
+    """Read the site's vouchers from Ruijie Cloud (which runs the login there): each code's start and end, and
+    which have a phone online now. A code online gets an open session (Live, 'online now'); it closes when the
+    phone leaves or the time ends. Ruijie doesn't say which phone uses which code, so no data usage. Commits."""
+    now = now or datetime.utcnow()
+    cloud = cloud or _ruijie_cloud(site)
+    theirs = {str(v.get('voucherCode') or ''): v for v in cloud.vouchers(site.ruijie_group_id)}
+    theirs.pop('', None)
+    station = f'ruijie-{site.id}'
+    mine = {v.code: v for v in Voucher.query.filter(Voucher.tenant_id == site.tenant_id, Voucher.code.in_(list(theirs) or ['-']))}
+    rows = {r.username: r for r in RadAcct.query.filter(RadAcct.calledstationid == station, RadAcct.acctstoptime.is_(None))}
+    for code, r in theirs.items():
+        voucher = mine.get(code)
+        if voucher is None:
+            continue
+        started, ends = _ms_utc(r.get('loginTime')), _ms_utc(r.get('expiryTime'))
+        if started:
+            if not voucher.first_used_at:
+                voucher.first_used_at = started
+            if ends:
+                voucher.expires_at = ends
+            if voucher.status == 'unused':
+                voucher.status = 'active'
+        online = int(r.get('currentClients') or 0) > 0 and voucher.state not in ('expired', 'disabled')
+        row = rows.pop(code, None)
+        if online and row is None:
+            sid = secrets.token_hex(8)
+            row = RadAcct(acctsessionid=sid, acctuniqueid=hashlib.md5(f'ruijie:{site.id}:{sid}'.encode()).hexdigest(),
+                          username=code, nasipaddress='', groupname='', acctterminatecause='', calledstationid=station,
+                          callingstationid='', framedipaddress='', nasporttype='Wireless-802.11',
+                          acctstarttime=now, acctupdatetime=now, acctsessiontime=0, acctinputoctets=0, acctoutputoctets=0)
+            db.session.add(row)
+        elif online:
+            row.acctupdatetime = now
+            row.acctsessiontime = int((now - row.acctstarttime).total_seconds())
+        elif row is not None:
+            row.acctstoptime = now
+            row.acctterminatecause = 'Session-Timeout' if voucher.state == 'expired' else 'Lost-Carrier'
+    for row in rows.values():           # codes Ruijie no longer has
+        row.acctstoptime, row.acctterminatecause = now, 'Lost-Carrier'
+    db.session.commit()
+
+
+def _ruijie_sync_due():
+    """Sync each Ruijie site at most once a minute across all web workers."""
+    cutoff = datetime.utcnow() - timedelta(seconds=55)
+    for (sid,) in db.session.query(Site.id).filter(Site.ruijie_group_id.isnot(None), Site.ruijie_appid.isnot(None)).all():
+        claimed = Site.query.filter(Site.id == sid, or_(Site.ruijie_synced_at.is_(None), Site.ruijie_synced_at < cutoff)) \
+            .update({'ruijie_synced_at': datetime.utcnow()}, synchronize_session=False)
+        db.session.commit()
+        if not claimed:
+            continue
+        try:
+            _ruijie_sync_site(db.session.get(Site, sid))
+        except Exception as e:          # Ruijie Cloud down: try again next minute
+            db.session.rollback()
+            log.warning('ruijie cloud: reading guests for site %s failed: %s', sid, e)
+
+
 def _ruijie_loop():
     try:      # codes a restart caught halfway through (claimed, never finished) go back in the queue
         with app.app_context():
@@ -3092,6 +3158,7 @@ def _ruijie_loop():
         try:
             with app.app_context():
                 _ruijie_push_due()
+                _ruijie_sync_due()
         except Exception:
             log.exception('ruijie cloud copy failed')
 
@@ -4611,7 +4678,7 @@ def api_live():
             'expires': _iso(v.expires_at) if v else None,
             'mac': s.callingstationid or '',
             'ip': s.framedipaddress or '',
-            'router': s.calledstationid or nas_names.get(s.nasipaddress) or s.nasipaddress,
+            'router': (_session_where(s, tid) if s.calledstationid else '') or nas_names.get(s.nasipaddress) or s.nasipaddress,
             'started': _iso(s.acctstarttime),
             'updated': _iso(s.acctupdatetime or s.acctstarttime),
             'seconds': s.acctsessiontime or 0,

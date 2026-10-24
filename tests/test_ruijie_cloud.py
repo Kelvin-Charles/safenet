@@ -10,7 +10,7 @@ clickpesa.preview_ussd_push = lambda a, p, r, c=None: ['AIRTEL-MONEY']
 clickpesa.initiate_ussd_push = lambda a, p, r, c=None: {'id': 'TX', 'status': 'PROCESSING'}
 clickpesa.query_payment = lambda r, c=None: {'status': 'SUCCESS', 'collectedAmount': '1000'}
 import ruijie
-from datetime import datetime
+from datetime import datetime, timedelta
 made, down, can_create, created, own_codes = [], [False], [False], [], [True]
 pkgs = [{'user_group': 'ug1', 'profile': 'pf1', 'minutes': 60, 'name': '1 Hour'},
         {'user_group': 'ug2', 'profile': 'pf2', 'minutes': 1440, 'name': '1 Day'}]
@@ -32,6 +32,10 @@ class FakeCloud:
         assert group_id == '9001'
         return list(pkgs)
 
+    def vouchers(self, group_id):
+        assert group_id == '9001'
+        return list(ruijie_list)
+
     def create_package(self, group_id, name, minutes, devices=1, price='', down_kbps=0, up_kbps=0):
         if not can_create[0]:
             raise ruijie.RuijieError('Ruijie Cloud: You do not have permission to perform this operation')
@@ -51,7 +55,15 @@ class FakeCloud:
         return code
 
 
+# the real client's project list: only buildings (projects), not Ruijie's placeholder entries
+RealCloud = ruijie.Cloud
+real = RealCloud('https://cloud-eu.ruijienetworks.com', 'a', 'b')
+real.call = lambda *a, **k: {'groups': [{'groupId': 0, 'name': 'dumy', 'subGroups': [
+    {'groupId': 10331303, 'name': 'Safetanzania.tech', 'type': 'ROOT', 'subGroups': [
+        {'groupId': 10331699, 'name': 'SafeNet Free WiFi', 'type': 'BUILDING'}]}]}]}
+assert real.projects() == [('10331699', 'SafeNet Free WiFi')], real.projects()
 ruijie.Cloud = FakeCloud
+ruijie_list = []
 import app as appmod
 appmod.send_sms_async = lambda *a, **k: None
 from app import app, db
@@ -210,6 +222,28 @@ with app.app_context():
     assert all(c_.startswith('7') for c_ in codes) and all(Voucher.query.filter_by(code=c_).one().ruijie_state == 'ok' for c_ in codes)
 pr = html.unescape(c.get('/vouchers/print?batch=reyee').text)
 assert 'still being made' not in pr and all(c_ in pr for c_ in codes)
+
+# guests online: Ruijie says which codes have a phone on now; they show on Live as Reyee sessions, with Ruijie's times
+from models import RadAcct
+import time as _time; login_ms = int((_time.time() - 1800) * 1000)
+ruijie_list[:] = [{'voucherCode': NEW, 'loginTime': login_ms, 'expiryTime': login_ms + 1440 * 60000, 'currentClients': 1, 'usedTime': 30},
+                  {'voucherCode': 'not-ours', 'currentClients': 1}]
+with app.app_context():
+    appmod._ruijie_sync_site(db.session.get(Site, SID))
+    v = Voucher.query.filter_by(code=NEW).one()
+    assert v.status == 'active' and abs((v.first_used_at - (datetime.utcnow() - timedelta(minutes=30))).total_seconds()) < 5
+    assert abs((v.expires_at - v.first_used_at).total_seconds() - 1440 * 60) < 2
+    row = RadAcct.query.filter_by(calledstationid=f'ruijie-{SID}', username=NEW).one()
+    assert row.acctstoptime is None and RadAcct.query.filter_by(username='not-ours').count() == 0
+    appmod._ruijie_sync_site(db.session.get(Site, SID))                     # still online: same session, not a second one
+    assert RadAcct.query.filter_by(calledstationid=f'ruijie-{SID}').count() == 1
+lv = c.get('/api/live').get_json()
+assert [(x['user'], x['router']) for x in lv['online']] == [(NEW, 'Reyee · TICD')] or \
+       [x['user'] for x in lv['online']] == [NEW] and lv['online'][0]['router'].startswith('Reyee · '), lv['online']
+ruijie_list[0]['currentClients'] = 0                                        # the phone left
+with app.app_context():
+    appmod._ruijie_sync_site(db.session.get(Site, SID))
+    assert RadAcct.query.filter_by(calledstationid=f'ruijie-{SID}', username=NEW).one().acctstoptime is not None
 
 # removing it stops the copying
 assert 'Ruijie Cloud removed' in html.unescape(post(action='remove').text)
