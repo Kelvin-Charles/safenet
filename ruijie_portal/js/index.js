@@ -195,7 +195,7 @@ const Portal = {
   connect(code, tries) {
     const self = this;
     this.authenticate(code).then(function (r) {
-      location.href = r.result.logonUrl;
+      self.online(code, r.result.logonUrl);
     }, function (message) {
       // a new voucher can take a little while to reach the access point: keep trying for about 40 seconds
       if (tries < 12) return setTimeout(function () { self.connect(code, tries + 1); }, 3000);
@@ -211,12 +211,21 @@ const Portal = {
     code = String(code || "").replace(/\s+/g, "");
     if (!code) return;
     this.authenticate(code).then(function (r) {
-      location.href = r.result.logonUrl;
+      self.online(code, r.result.logonUrl);
     }, function (message) {
       self.render(message || self.text("bad_code"), "voucher");
       const box = document.getElementById("code");
       if (box) box.value = code;
     });
+  },
+
+  // tell SafeNet which phone went online with this code (Ruijie's link carries its MAC), then go online
+  online(code, url) {
+    try {
+      const body = JSON.stringify({ code: code, url: url || "", page: location.href });
+      navigator.sendBeacon(SAFENET.base + "/app/" + SAFENET.slug + "/api/ruijie-link", new Blob([body], { type: "text/plain" }));
+    } catch (e) {}
+    location.href = url;
   },
 
   // Ruijie's login: resolves with its answer, or rejects with the message to show

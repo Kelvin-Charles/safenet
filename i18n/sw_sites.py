@@ -295,7 +295,7 @@ SW = {
     "SafeNet tried to create them on Ruijie Cloud, but Ruijie refused: {reason}.": 'SafeNet ilijaribu kuvitengeneza kwenye Ruijie Cloud, lakini Ruijie imekataa: {reason}.',
     '{n} codes are still being made on Ruijie Cloud and are not shown. Refresh in a minute.': 'Namba {n} bado zinatengenezwa kwenye Ruijie Cloud na hazionyeshwi. Onyesha upya baada ya dakika moja.',
     'Phones on the Reyee Wi-Fi now': 'Simu zilizo kwenye Wi-Fi ya Reyee sasa',
-    "As Ruijie Cloud lists them, every minute. Ruijie doesn't say which code each phone uses.": 'Kama Ruijie Cloud inavyoziorodhesha, kila dakika. Ruijie haisemi kila simu inatumia namba gani.',
+    "As Ruijie Cloud lists them, every minute. A phone shows its code once it has connected through SafeNet's login page.": 'Kama Ruijie Cloud inavyoziorodhesha, kila dakika. Simu inaonyesha namba yake ikishaunganishwa kupitia ukurasa wa kuingia wa SafeNet.',
     'Signal': 'Mawimbi',
     'Wi-Fi': 'Wi-Fi',
     'Add a site': 'Ongeza eneo',

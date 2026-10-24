@@ -41,7 +41,7 @@ from functools import wraps
 from datetime import timedelta
 import ipaddress
 from decimal import Decimal
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 import socket
 import time
 import struct
@@ -3093,6 +3093,13 @@ def _ruijie_sync_site(site, cloud=None, now=None):
     phone leaves or the time ends. Ruijie doesn't say which phone uses which code, so no data usage. Commits."""
     now = now or datetime.utcnow()
     cloud = cloud or _ruijie_cloud(site)
+    try:      # the phones themselves, as Ruijie Cloud's Clients page shows them
+        phones = cloud.clients(site.ruijie_group_id)
+        site.ruijie_clients, site.ruijie_clients_at = json.dumps(phones), now
+    except ruijie.RuijieError as e:
+        log.warning('ruijie cloud: reading phones for site %s failed: %s', site.id, e)
+        phones = []
+    by_mac = {_mac_norm(p.get('mac')): p for p in phones}
     theirs = {str(v.get('voucherCode') or ''): v for v in cloud.vouchers(site.ruijie_group_id)}
     theirs.pop('', None)
     station = f'ruijie-{site.id}'
@@ -3125,13 +3132,23 @@ def _ruijie_sync_site(site, cloud=None, now=None):
         elif row is not None:
             row.acctstoptime = now
             row.acctterminatecause = 'Session-Timeout' if voucher.state == 'expired' else 'Lost-Carrier'
+            row = None
+        phone = by_mac.get(_mac_norm(voucher.first_mac)) if row is not None and voucher.first_mac else None
+        if phone is not None:           # the phone this code was used on (see guest_app_ruijie_link): its data
+            db.session.flush()
+            row.callingstationid = voucher.first_mac.upper().replace(':', '-')
+            row.framedipaddress = str(phone.get('ip') or '')[:15]
+            down, up = int(phone.get('down_kb') or 0) * 1024, int(phone.get('up_kb') or 0) * 1024
+            last = db.session.get(OmadaCounter, row.radacctid)
+            if last is None:
+                last = OmadaCounter(radacct_id=row.radacctid, down=0, up=0)
+                db.session.add(last)
+            # Ruijie's counters restart when the phone reconnects: then all of the new count is new usage
+            row.acctoutputoctets = (row.acctoutputoctets or 0) + (down - last.down if down >= last.down else down)
+            row.acctinputoctets = (row.acctinputoctets or 0) + (up - last.up if up >= last.up else up)
+            last.down, last.up = down, up
     for row in rows.values():           # codes Ruijie no longer has
         row.acctstoptime, row.acctterminatecause = now, 'Lost-Carrier'
-    db.session.commit()
-    try:      # the phones themselves, as Ruijie Cloud's Clients page shows them
-        site.ruijie_clients, site.ruijie_clients_at = json.dumps(cloud.clients(site.ruijie_group_id)), now
-    except ruijie.RuijieError as e:
-        log.warning('ruijie cloud: reading phones for site %s failed: %s', site.id, e)
     db.session.commit()
 
 
@@ -3641,6 +3658,47 @@ def guest_app_buy(slug):
         return jsonify(error=error), status
     return jsonify(reference=payment.reference, amount=f'{payment.charged:.0f}', currency=payment.currency, phone=payment.phone,
                    package=payment.package_name, gift_phone=payment.gift_phone or '')
+
+
+RUIJIE_MAC = re.compile(r'^(?:[0-9a-fA-F]{2}[:-]?){5}[0-9a-fA-F]{2}$')
+
+
+def _mac_norm(raw):
+    """'06-5A-…' / '065a…' / '06:5a:…' -> '06:5a:…', else None."""
+    hexes = re.sub(r'[^0-9a-fA-F]', '', str(raw or '')).lower()
+    return ':'.join(hexes[i:i + 2] for i in range(0, 12, 2)) if len(hexes) == 12 else None
+
+
+@app.route('/app/<slug>/api/ruijie-link', methods=['POST'])
+def guest_app_ruijie_link(slug):
+    """SafeNet's Reyee login page says which phone just went online with which code: the link Ruijie sends it
+    to carries the phone's MAC. Then that phone's data, as Ruijie counts it, is the code's data."""
+    tenant = _guest_app_tenant(slug)
+    if _rate_limited('rjlink', f'ip:{_client_ip()}', 30, 10):
+        return jsonify(ok=False), 429
+    _rate_hit('rjlink', f'ip:{_client_ip()}')
+    try:
+        data = json.loads(request.get_data(as_text=True) or '{}')     # sent as text/plain (no CORS preflight)
+    except ValueError:
+        data = {}
+    code = re.sub(r'\s+', '', str(data.get('code') or ''))[:32]
+    voucher = Voucher.query.filter_by(tenant_id=tenant.id, code=code).first() if code else None
+    if voucher is None:
+        return jsonify(ok=False), 404
+    found, names = [], set()
+    for raw in (data.get('url'), data.get('page')):
+        query = urlparse(str(raw or '')[:4000]).query
+        for key, values in parse_qs(query).items():
+            names.add(key)
+            for value in values:
+                if RUIJIE_MAC.match(value.strip()):
+                    found.append((0 if 'mac' in key.lower() else 1, _mac_norm(value)))
+    if not found:
+        log.info('ruijie link for %s: no MAC in the login links (fields: %s)', code, ', '.join(sorted(names))[:300])
+        return jsonify(ok=False)
+    voucher.first_mac = sorted(found)[0][1]
+    db.session.commit()
+    return jsonify(ok=True)
 
 
 @app.route('/app/<slug>/api/pay/<reference>')
@@ -4693,12 +4751,14 @@ def api_live():
 
     # Reyee sites: every phone on the Wi-Fi as Ruijie Cloud lists it (it doesn't say which code each one uses)
     wifi = []
+    codes_on = {_mac_norm(x.callingstationid): x.username for x in open_sessions
+                if (x.calledstationid or '').startswith('ruijie-') and x.callingstationid}
     for st in ([current_site()] if current_site() else tenant_sites(tid)):
         if not (st.ruijie_clients and st.ruijie_clients_at and (now - st.ruijie_clients_at).total_seconds() < 300):
             continue
         for ph in json.loads(st.ruijie_clients):
             wifi.append({'mac': ph.get('mac', ''), 'ip': ph.get('ip', ''), 'ssid': ph.get('ssid', ''), 'ap': ph.get('ap', ''),
-                         'band': ph.get('band', ''), 'rssi': ph.get('rssi'), 'site': st.name,
+                         'band': ph.get('band', ''), 'rssi': ph.get('rssi'), 'site': st.name, 'code': codes_on.get(_mac_norm(ph.get('mac'))),
                          'down': int(ph.get('down_kb') or 0) * 1024, 'up': int(ph.get('up_kb') or 0) * 1024,
                          'since': _iso(_ms_utc(ph.get('since'))) if ph.get('since') else None})
     wifi.sort(key=lambda w: -(w['down'] + w['up']))

@@ -56,7 +56,7 @@
         </div>
         <div class="card mt-3" id="wifi-card" hidden>
             <div class="card-header"><i class="bi bi-phone"></i> {{ _('Phones on the Reyee Wi-Fi now') }} <span class="badge bg-light text-dark border" id="wifi-count"></span>
-                <small class="text-muted d-block">{{ _("As Ruijie Cloud lists them, every minute. Ruijie doesn't say which code each phone uses.") }}</small></div>
+                <small class="text-muted d-block">{{ _("As Ruijie Cloud lists them, every minute. A phone shows its code once it has connected through SafeNet's login page.") }}</small></div>
             <div class="card-body">
                 <div class="table-responsive">
                     <table class="table table-sm table-hover align-middle mb-0">
@@ -178,14 +178,14 @@
         card.hidden = !rows || !rows.length;
         if (card.hidden) return;
         const q = $('filter').value.trim().toLowerCase();
-        const shown = rows.filter(r => !q || [r.mac, r.ip, r.ssid, r.ap, r.site].join(' ').toLowerCase().includes(q));
+        const shown = rows.filter(r => !q || [r.code, r.mac, r.ip, r.ssid, r.ap, r.site].join(' ').toLowerCase().includes(q));
         const now = Date.parse(nowIso);
         $('wifi-count').textContent = rows.length;
         $('wifi-body').innerHTML = shown.map(r => {
             const sig = r.rssi === null || r.rssi === undefined ? '–' : r.rssi + ' dBm';
             const weak = typeof r.rssi === 'number' && r.rssi < -80;
             return `<tr>
-                <td><small class="d-block font-monospace">${esc(r.mac)}</small><small class="text-muted">${esc(r.ip)}</small></td>
+                <td>${r.code ? `<strong class="font-monospace d-block">${esc(r.code)}</strong>` : ''}<small class="d-block font-monospace">${esc(r.mac)}</small><small class="text-muted">${esc(r.ip)}</small></td>
                 <td><small class="d-block">${esc(r.ssid)}</small><small class="text-muted">${esc(r.ap)}${r.band ? ' · ' + esc(r.band) : ''}</small></td>
                 <td class="${weak ? 'text-danger' : ''}">${esc(sig)}</td>
                 <td>${r.since ? duration((now - Date.parse(r.since)) / 1000) : '–'}</td>

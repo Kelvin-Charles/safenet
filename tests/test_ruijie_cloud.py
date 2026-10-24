@@ -259,6 +259,31 @@ with app.app_context():
     appmod._ruijie_sync_site(db.session.get(Site, SID))
     assert RadAcct.query.filter_by(calledstationid=f'ruijie-{SID}', username=NEW).one().acctstoptime is not None
 
+# the login page says which phone went online with which code; then the phone's data is the code's data
+ruijie_list[0]['currentClients'] = 1
+link = lambda **d: g.post('/app/jriit/api/ruijie-link', data=_json.dumps(d), content_type='text/plain')
+assert link(code='nope', url='http://1.1.1.1/x?usermac=065a00000001').status_code == 404
+assert link(code=NEW, url='http://192.168.0.1:2060/logon?token=abc&sessionId=x').get_json() == {'ok': False}     # no MAC in it
+assert link(code=NEW, url='http://192.168.0.1:2060/logon?usermac=06-5A-00-00-00-01&userip=192.168.0.10', page='https://portal/x?a=1').get_json() == {'ok': True}
+with app.app_context():
+    assert Voucher.query.filter_by(code=NEW).one().first_mac == '06:5a:00:00:00:01'
+    appmod._ruijie_sync_site(db.session.get(Site, SID))
+    row = RadAcct.query.filter_by(calledstationid=f'ruijie-{SID}', username=NEW, acctstoptime=None).one()
+    assert (row.callingstationid, row.framedipaddress, row.acctoutputoctets, row.acctinputoctets) == \
+        ('06-5A-00-00-00-01', '192.168.0.10', 322888 * 1024, 143192 * 1024)
+    phones[0].update(down_kb=322888 + 1000, up_kb=143192 + 10)                  # more data
+    appmod._ruijie_sync_site(db.session.get(Site, SID))
+    assert db.session.get(RadAcct, row.radacctid).acctoutputoctets == (322888 + 1000) * 1024
+    phones[0].update(down_kb=50, up_kb=5)                                       # the phone reconnected: Ruijie starts again
+    appmod._ruijie_sync_site(db.session.get(Site, SID))
+    assert db.session.get(RadAcct, row.radacctid).acctoutputoctets == (322888 + 1000 + 50) * 1024
+lv = c.get('/api/live').get_json()
+mine = [x for x in lv['online'] if x['user'] == NEW][0]
+assert [w['code'] for w in lv['wifi']] == [NEW, None]
+assert mine['mac'] == '06-5A-00-00-00-01' and mine['down'] == (322888 + 1000 + 50) * 1024 and lv['stats']['down_today'] >= mine['down']
+r = g.options('/app/jriit/api/ruijie-link', headers={'Origin': 'https://portal-eu.ruijienetworks.com', 'Access-Control-Request-Method': 'POST'})
+assert r.headers['Access-Control-Allow-Origin'] == '*'
+
 # removing it stops the copying
 assert 'Ruijie Cloud removed' in html.unescape(post(action='remove').text)
 with app.app_context():
