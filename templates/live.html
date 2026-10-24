@@ -54,18 +54,6 @@
                 </div>
             </div>
         </div>
-        <div class="card mt-3" id="wifi-card" hidden>
-            <div class="card-header"><i class="bi bi-phone"></i> {{ _('Phones on the Reyee Wi-Fi now') }} <span class="badge bg-light text-dark border" id="wifi-count"></span>
-                <small class="text-muted d-block">{{ _("As Ruijie Cloud lists them, every minute. A phone shows its code once it has connected through SafeNet's login page.") }}</small></div>
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover align-middle mb-0">
-                        <thead><tr><th>{{ _('Device') }}</th><th>{{ _('Wi-Fi') }}</th><th>{{ _('Signal') }}</th><th>{{ _('Online for') }}</th><th>{{ _('Download') }}</th><th>{{ _('Upload') }}</th></tr></thead>
-                        <tbody id="wifi-body"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
     </div>
     <div class="col-xl-4">
         <div class="card">
@@ -87,6 +75,7 @@
         waitingPin: {{ _('{n} payment(s) waiting for PIN')|tojson }}, activeSession: {{ _('devices with an active session')|tojson }},
         downUp: {{ _('{down} down · {up} up')|tojson }}, moneySplit: {{ _('{online} mobile money ({sales}) · {cash} vouchers')|tojson }},
         loginsSub: {{ _('{rejected} rejected · {activated} vouchers activated')|tojson }},
+        guest: {{ _('Guest')|tojson }}, codeUnknown: {{ _('On Reyee Wi-Fi (code not known yet)')|tojson }},
         noMatch: {{ _('No match')|tojson }}, nobody: {{ _('Nobody is online right now')|tojson }},
         voucher: {{ _('Voucher')|tojson }}, user: {{ _('User')|tojson }},
         noUpdate: {{ _('No usage update for {n} min')|tojson }}, quiet: {{ _('quiet {n}m')|tojson }},
@@ -144,7 +133,7 @@
 
     function renderOnline(rows, nowIso, staleMin) {
         const q = $('filter').value.trim().toLowerCase();
-        const shown = rows.filter(r => !q || [r.user, r.phone, r.mac, r.ip, r.plan].join(' ').toLowerCase().includes(q));
+        const shown = rows.filter(r => !q || [r.user, r.phone, r.mac, r.ip, r.plan, r.router].join(' ').toLowerCase().includes(q));
         const body = $('online-body');
         if (!shown.length) {
             body.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-4">${esc(rows.length ? T.noMatch : T.nobody)}</td></tr>`;
@@ -160,39 +149,17 @@
             const quiet = (now - Date.parse(r.updated)) / 60000;
             const left = r.expires ? (Date.parse(r.expires) - now) / 1000 : null;
             return `<tr class="${isNew ? 'flash' : ''}">
-                <td><strong class="font-monospace">${esc(r.user)}</strong>
-                    <small class="text-muted d-block">${esc(r.plan || (r.kind === 'voucher' ? T.voucher : T.user))}${r.phone ? ' · ' + esc(r.phone) : ''}</small></td>
-                <td><small class="d-block">${esc(r.mac)}</small><small class="text-muted">${esc(r.ip)} · ${esc(r.router)}</small></td>
+                <td>${r.user ? `<strong class="font-monospace">${esc(r.user)}</strong>` : `<strong>${esc(T.guest)}</strong>`}
+                    <small class="text-muted d-block">${esc(r.kind === 'phone' ? T.codeUnknown : (r.plan || (r.kind === 'voucher' ? T.voucher : T.user)))}${r.phone ? ' · ' + esc(r.phone) : ''}</small></td>
+                <td><small class="d-block">${esc(r.mac)}</small><small class="text-muted">${esc(r.ip)} · ${esc(r.router)}${r.signal !== undefined && r.signal !== null ? ` · <span class="${r.signal < -80 ? 'text-danger' : ''}">${esc(r.signal)} dBm</span>` : ''}</small></td>
                 <td>${duration(online)}${quiet > 3 ? `<small class="d-block stale" title="${esc(fill(T.noUpdate, {n: Math.floor(quiet)}))}"><i class="bi bi-hourglass-split"></i> ${esc(fill(T.quiet, {n: Math.floor(quiet)}))}</small>` : ''}</td>
                 <td>${bytes(r.down)}</td>
                 <td>${bytes(r.up)}</td>
                 <td>${left === null ? '<span class="text-muted">–</span>' : duration(left)}</td>
-                <td><button class="btn btn-sm btn-outline-danger" data-kick="${esc(r.user)}" title="${esc(T.disconnectNow)}"><i class="bi bi-x-circle"></i></button></td>
+                <td>${r.user && !String(r.router).startsWith('Reyee') ? `<button class="btn btn-sm btn-outline-danger" data-kick="${esc(r.user)}" title="${esc(T.disconnectNow)}"><i class="bi bi-x-circle"></i></button>` : ''}</td>
             </tr>`;
         }).join('');
         known = seen;
-    }
-
-    function renderWifi(rows, nowIso) {
-        const card = $('wifi-card');
-        card.hidden = !rows || !rows.length;
-        if (card.hidden) return;
-        const q = $('filter').value.trim().toLowerCase();
-        const shown = rows.filter(r => !q || [r.code, r.mac, r.ip, r.ssid, r.ap, r.site].join(' ').toLowerCase().includes(q));
-        const now = Date.parse(nowIso);
-        $('wifi-count').textContent = rows.length;
-        $('wifi-body').innerHTML = shown.map(r => {
-            const sig = r.rssi === null || r.rssi === undefined ? '–' : r.rssi + ' dBm';
-            const weak = typeof r.rssi === 'number' && r.rssi < -80;
-            return `<tr>
-                <td>${r.code ? `<strong class="font-monospace d-block">${esc(r.code)}</strong>` : ''}<small class="d-block font-monospace">${esc(r.mac)}</small><small class="text-muted">${esc(r.ip)}</small></td>
-                <td><small class="d-block">${esc(r.ssid)}</small><small class="text-muted">${esc(r.ap)}${r.band ? ' · ' + esc(r.band) : ''}</small></td>
-                <td class="${weak ? 'text-danger' : ''}">${esc(sig)}</td>
-                <td>${r.since ? duration((now - Date.parse(r.since)) / 1000) : '–'}</td>
-                <td>${bytes(r.down)}</td>
-                <td>${bytes(r.up)}</td>
-            </tr>`;
-        }).join('') || `<tr><td colspan="6" class="text-center text-muted py-3">${esc(T.noMatch)}</td></tr>`;
     }
 
     function renderFeed(events) {
@@ -215,7 +182,6 @@
             const d = await r.json();
             renderTiles(d.stats);
             renderOnline(d.online, d.now, d.stale_minutes);
-            renderWifi(d.wifi, d.now);
             renderFeed(d.events);
             last = d;
             $('dot').classList.remove('off');
@@ -242,7 +208,7 @@
         if (!document.hidden) { refresh(); timer = setInterval(refresh, REFRESH_MS); }
     }
     document.addEventListener('visibilitychange', schedule);
-    $('filter').addEventListener('input', () => { if (last) { renderOnline(last.online, last.now, last.stale_minutes); renderWifi(last.wifi, last.now); } });
+    $('filter').addEventListener('input', () => last && renderOnline(last.online, last.now, last.stale_minutes));
     schedule();
 })();
 </script>

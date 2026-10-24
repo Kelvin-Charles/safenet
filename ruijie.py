@@ -181,7 +181,8 @@ class Cloud:
 
     def clients(self, group_id, pages=10):
         """Phones on the project's Wi-Fi now, as Ruijie Cloud's Clients page lists them. Traffic is in bytes
-        (a phone online 3 hours reports about 1,264,989,184: 1.26 GB)."""
+        (a phone online 3 hours reports about 1,264,989,184: 1.26 GB). Ruijie counts from the access point's side,
+        so its wifiUp is what the phone downloaded."""
         out = []
         for page in range(pages):
             for attempt in (0, 1):      # an expired token: log in again once
@@ -196,7 +197,7 @@ class Cloud:
             out += [{'mac': str(c.get('mac') or ''), 'ip': str(c.get('userIp') or ''), 'ssid': str(c.get('ssid') or ''),
                      'ap': str(c.get('deviceAliasName') or c.get('sn') or ''), 'band': str(c.get('band') or ''),
                      'rssi': c.get('rssiInt') if c.get('rssiInt') is not None else c.get('rssi'),
-                     'down': int(float(c.get('wifiDown') or 0)), 'up': int(float(c.get('wifiUp') or 0)),
+                     'down': int(float(c.get('wifiUp') or 0)), 'up': int(float(c.get('wifiDown') or 0)),
                      'since': c.get('onlineTime'), 'online_ms': c.get('activeTime')} for c in items]
             if len(items) < 200 or len(out) >= int(reply.get('count') or 0):
                 break

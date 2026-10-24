@@ -65,6 +65,10 @@ real.call = lambda *a, **k: {'groups': [{'groupId': 0, 'name': 'dumy', 'subGroup
     {'groupId': 10331303, 'name': 'Safetanzania.tech', 'type': 'ROOT', 'subGroups': [
         {'groupId': 10331699, 'name': 'SafeNet Free WiFi', 'type': 'BUILDING'}]}]}]}
 assert real.projects() == [('10331699', 'SafeNet Free WiFi')], real.projects()
+# Ruijie counts phone traffic from the access point's side: its wifiUp is what the phone downloaded
+real._token, real._token_at = 'tok', __import__('time').time()
+real._http = lambda *a, **k: {'code': 0, 'count': 1, 'list': [{'mac': '06:5A', 'userIp': '1.2.3.4', 'wifiUp': 1000, 'wifiDown': 20}]}
+assert (real.clients('1')[0]['down'], real.clients('1')[0]['up']) == (1000, 20)
 ruijie.Cloud = FakeCloud
 ruijie_list, phones = [], []
 import app as appmod
@@ -247,18 +251,12 @@ phones[:] = [{'mac': '06:5A:00:00:00:01', 'ip': '192.168.0.10', 'ssid': 'U-SMART
 with app.app_context():
     appmod._ruijie_sync_site(db.session.get(Site, SID))
 lv = c.get('/api/live').get_json()
-# every phone Ruijie lists, with its real address, signal and traffic (bytes, as Ruijie counts them), most data first
-assert [(w['mac'], w['ip'], w['rssi'], w['down'], w['up']) for w in lv['wifi']] == \
-    [('06:5A:00:00:00:01', '192.168.0.10', -94, 322888, 143192), ('06:5A:00:00:00:02', '192.168.0.11', -60, 10, 5)]
-assert lv['wifi'][0]['ssid'] == 'U-SMART CONNECT' and lv['wifi'][0]['ap'] == 'Ruijie RAP6262' and lv['wifi'][0]['since']
-assert 'Phones on the Reyee Wi-Fi now' in html.unescape(c.get('/live').text)
-assert [(x['user'], x['router']) for x in lv['online']] == [(NEW, 'Reyee · TICD')] or \
-       [x['user'] for x in lv['online']] == [NEW] and lv['online'][0]['router'].startswith('Reyee · '), lv['online']
-ruijie_list[0]['currentClients'] = 0                                        # the phone left
-with app.app_context():
-    appmod._ruijie_sync_site(db.session.get(Site, SID))
-    assert RadAcct.query.filter_by(calledstationid=f'ruijie-{SID}', username=NEW).one().acctstoptime is not None
-
+# on Live, a Reyee site's online users are the phones Ruijie lists, with their real address, signal and data (bytes)
+assert sorted((x['user'], x['kind'], x['mac'], x['ip'], x['signal'], x['down'], x['up']) for x in lv['online']) == [
+    ('', 'phone', '06:5A:00:00:00:01', '192.168.0.10', -94, 322888, 143192), ('', 'phone', '06:5A:00:00:00:02', '192.168.0.11', -60, 10, 5)]
+assert lv['online'][0]['router'].startswith('Reyee · ') and lv['online'][0]['router'].endswith(' · U-SMART CONNECT') and lv['stats']['online'] == 2
+assert lv['stats']['down_today'] == 322888 + 10 and lv['stats']['up_today'] == 143192 + 5
+assert 'code not known yet' in html.unescape(c.get('/live').text)
 # the login page says which phone went online with which code; then the phone's data is the code's data
 ruijie_list[0]['currentClients'] = 1
 link = lambda **d: g.post('/app/jriit/api/ruijie-link', data=_json.dumps(d), content_type='text/plain')
@@ -279,8 +277,9 @@ with app.app_context():
     assert db.session.get(RadAcct, row.radacctid).acctoutputoctets == (322888 + 1000 + 50)
 lv = c.get('/api/live').get_json()
 mine = [x for x in lv['online'] if x['user'] == NEW][0]
-assert [w['code'] for w in lv['wifi']] == [NEW, None]
-assert mine['mac'] == '06-5A-00-00-00-01' and mine['down'] == (322888 + 1000 + 50) and lv['stats']['down_today'] >= mine['down']
+assert sorted(x['user'] for x in lv['online']) == ['', NEW] and mine['kind'] == 'voucher' and mine['expires']
+assert mine['mac'] == '06:5A:00:00:00:01' and mine['down'] == (322888 + 1000 + 50) and lv['stats']['down_today'] >= mine['down']
+assert link(code=NEW, error='Authentication failed', page='https://portal/x?sessionId=abc&timestamp=1').get_json() == {'ok': True}
 r = g.options('/app/jriit/api/ruijie-link', headers={'Origin': 'https://portal-eu.ruijienetworks.com', 'Access-Control-Request-Method': 'POST'})
 assert r.headers['Access-Control-Allow-Origin'] == '*'
 

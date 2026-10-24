@@ -18,6 +18,13 @@ const Portal = {
     const loading = document.getElementById("body_loading");
     if (loading) loading.classList.add("hide");
     this.render();
+    const saved = this.saved();
+    if (saved) {           // back with a fresh login session after a failed try: connect with the paid code
+      this.payment = { reference: "" };
+      document.querySelector(".card").innerHTML = this.page().connecting.split("@@CODE@@").join(saved.code);
+      this.connect(saved.code, 8);
+      return;
+    }
     const self = this;
     this.api("/me", { tokens: [], site: SAFENET.site }).then(function (d) {
       if (d.packages && d.packages.length) {
@@ -179,6 +186,7 @@ const Portal = {
           }
           document.querySelector(".card").innerHTML = self.page().connecting.split("@@CODE@@").join(s.code);
           if (s.ready === false) return self.poll(n + 1);     // SafeNet is still creating it on Ruijie Cloud
+          self.keep({ code: s.code, at: Date.now(), fresh: 0 });
           return self.connect(s.code, 0);
         }
         if (s.status === "failed" || s.status === "review") {
@@ -199,6 +207,17 @@ const Portal = {
     }, function (message) {
       // a new voucher can take a little while to reach the access point: keep trying for about 40 seconds
       if (tries < 12) return setTimeout(function () { self.connect(code, tries + 1); }, 3000);
+      self.report(code, message);
+      // Ruijie's login session on this page may have gone stale while the guest approved the payment: ask the
+      // access point for a new one (it sends the phone back here) and connect with the saved code (twice at most)
+      const saved = self.saved();
+      if (saved && saved.code === code && saved.fresh < 2) {
+        saved.fresh += 1;
+        self.keep(saved);
+        location.href = "http://neverssl.com/?sn=" + Date.now();
+        return;
+      }
+      self.keep(null);
       self.payment = null;
       self.render(self.text("login_failed") + (message ? " (" + message + ")" : ""), "voucher");
       const box = document.getElementById("code");
@@ -219,8 +238,34 @@ const Portal = {
     });
   },
 
+  // the paid code, kept on the phone for a few minutes in case the page has to start again
+  keep(value) {
+    try {
+      if (value) localStorage.setItem("sn_code", JSON.stringify(value));
+      else localStorage.removeItem("sn_code");
+    } catch (e) {}
+  },
+
+  saved() {
+    try {
+      const v = JSON.parse(localStorage.getItem("sn_code") || "null");
+      return v && v.code && Date.now() - v.at < 15 * 60000 ? v : null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  // why Ruijie refused a code, to SafeNet's log
+  report(code, message) {
+    try {
+      const body = JSON.stringify({ code: code, error: String(message || "no answer").slice(0, 200), page: location.href });
+      navigator.sendBeacon(SAFENET.base + "/app/" + SAFENET.slug + "/api/ruijie-link", new Blob([body], { type: "text/plain" }));
+    } catch (e) {}
+  },
+
   // tell SafeNet which phone went online with this code (Ruijie's link carries its MAC), then go online
   online(code, url) {
+    this.keep(null);
     try {
       const body = JSON.stringify({ code: code, url: url || "", page: location.href });
       navigator.sendBeacon(SAFENET.base + "/app/" + SAFENET.slug + "/api/ruijie-link", new Blob([body], { type: "text/plain" }));

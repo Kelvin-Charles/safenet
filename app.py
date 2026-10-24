@@ -3685,6 +3685,10 @@ def guest_app_ruijie_link(slug):
     voucher = Voucher.query.filter_by(tenant_id=tenant.id, code=code).first() if code else None
     if voucher is None:
         return jsonify(ok=False), 404
+    if data.get('error'):          # the page couldn't log in with the code: why, for whoever looks into it
+        fields = sorted(parse_qs(urlparse(str(data.get('page') or '')[:4000]).query))
+        log.warning('ruijie login with code %s refused: %s (page fields: %s)', code, str(data['error'])[:200], ', '.join(fields)[:200])
+        return jsonify(ok=True)
     found, names = [], set()
     for raw in (data.get('url'), data.get('page')):
         query = urlparse(str(raw or '')[:4000]).query
@@ -4750,19 +4754,31 @@ def api_live():
             'up': up,
         })
 
-    # Reyee sites: every phone on the Wi-Fi as Ruijie Cloud lists it (it doesn't say which code each one uses)
-    wifi = []
-    codes_on = {_mac_norm(x.callingstationid): x.username for x in open_sessions
-                if (x.calledstationid or '').startswith('ruijie-') and x.callingstationid}
-    for st in ([current_site()] if current_site() else tenant_sites(tid)):
-        if not (st.ruijie_clients and st.ruijie_clients_at and (now - st.ruijie_clients_at).total_seconds() < 300):
-            continue
-        for ph in json.loads(st.ruijie_clients):
-            wifi.append({'mac': ph.get('mac', ''), 'ip': ph.get('ip', ''), 'ssid': ph.get('ssid', ''), 'ap': ph.get('ap', ''),
-                         'band': ph.get('band', ''), 'rssi': ph.get('rssi'), 'site': st.name, 'code': codes_on.get(_mac_norm(ph.get('mac'))),
-                         'down': int(ph.get('down') or 0), 'up': int(ph.get('up') or 0),
-                         'since': _iso(_ms_utc(ph.get('since'))) if ph.get('since') else None})
-    wifi.sort(key=lambda w: -(w['down'] + w['up']))
+    # Reyee sites: the phones Ruijie Cloud lists are the online users (Ruijie doesn't keep data per code); a phone
+    # shows its code once it has logged in through SafeNet's page (see guest_app_ruijie_link)
+    reyee = [st for st in ([current_site()] if current_site() else tenant_sites(tid))
+             if st.ruijie_clients and st.ruijie_clients_at and (now - st.ruijie_clients_at).total_seconds() < 300]
+    if reyee:
+        stations = {f'ruijie-{st.id}' for st in reyee}
+        online = [o for o, s in zip(online, open_sessions) if s.calledstationid not in stations]
+        on_phone = {_mac_norm(s.callingstationid): s for s in open_sessions if s.calledstationid in stations and s.callingstationid}
+        for st in reyee:
+            for ph in json.loads(st.ruijie_clients):
+                s = on_phone.get(_mac_norm(ph.get('mac')))
+                v = vouchers.get(s.username) if s else None
+                since = _ms_utc(ph.get('since')) or now
+                online.append({
+                    'user': s.username if s else '', 'kind': 'voucher' if v else 'phone',
+                    'plan': (v.plan.name if v and v.plan else '') or '', 'phone': phones.get(v.id) if v else None,
+                    'expires': _iso(v.expires_at) if v else None,
+                    'mac': str(ph.get('mac') or ''), 'ip': str(ph.get('ip') or ''),
+                    'router': f"Reyee · {st.name} · {ph.get('ssid') or ''}".rstrip(' ·'),
+                    'signal': ph.get('rssi'), 'started': _iso(since), 'updated': _iso(now),
+                    # a phone with its code: the code's session adds up its data across reconnects
+                    'seconds': int((now - since).total_seconds()),
+                    'down': (s.acctoutputoctets or 0) if s else int(ph.get('down') or 0),
+                    'up': (s.acctinputoctets or 0) if s else int(ph.get('up') or 0),
+                })
 
     day_sessions = view['sessions'](RadAcct.query).filter(or_(RadAcct.acctstoptime.is_(None), RadAcct.acctstoptime >= midnight))
     usage = day_sessions.with_entities(
@@ -4770,10 +4786,12 @@ def api_live():
         func.coalesce(func.sum(RadAcct.acctinputoctets), 0)).one()
     paid_today = view['payments'](scoped(Payment)).filter(Payment.status == 'paid', Payment.paid_at >= midnight)
     cash_today = view['vouchers'](scoped(Voucher)).filter(Voucher.first_used_at >= midnight, Voucher.batch != 'online-payments')
+    # Reyee phones not tied to a code yet: their traffic (since they came online) isn't in any session
+    loose = [o for o in online if o.get('kind') == 'phone']
     stats = {
         'online': len(online),
-        'down_today': int(usage[0]),
-        'up_today': int(usage[1]),
+        'down_today': int(usage[0]) + sum(o['down'] for o in loose),
+        'up_today': int(usage[1]) + sum(o['up'] for o in loose),
         # login attempts aren't tied to a site: for one site, count its sessions started today
         'logins_today': (view['sessions'](RadAcct.query).filter(RadAcct.acctstarttime >= midnight).count() if current_site() else
                          RadPostAuth.query.filter(RadPostAuth.username.in_(names), RadPostAuth.authdate >= midnight,
@@ -4784,7 +4802,9 @@ def api_live():
         'online_sales_today': paid_today.count(),
         'cash_revenue_today': float(cash_today.with_entities(func.coalesce(func.sum(Voucher.price), 0)).scalar()),
         'vouchers_activated_today': view['vouchers'](scoped(Voucher)).filter(Voucher.first_used_at >= midnight).count(),
-        'pending_payments': view['payments'](scoped(Payment)).filter_by(status='pending').count(),
+        # only ones started lately: a guest who never entered the PIN leaves a payment pending for good
+        'pending_payments': view['payments'](scoped(Payment)).filter(Payment.status == 'pending',
+                                                                     Payment.created_at >= now - timedelta(minutes=10)).count(),
     }
 
     events = []
@@ -4810,7 +4830,7 @@ def api_live():
                            'text': f'{p.phone} payment {p.status}: {p.message or ""}'.strip()})
     events = sorted((e for e in events if e['at']), key=lambda e: e['at'], reverse=True)[:40]
 
-    return jsonify(now=_iso(now), stats=stats, online=online, events=events, wifi=wifi,
+    return jsonify(now=_iso(now), stats=stats, online=online, events=events,
                    stale_minutes=LIVE_STALE_MINUTES)
 
 
