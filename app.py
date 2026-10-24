@@ -3138,7 +3138,7 @@ def _ruijie_sync_site(site, cloud=None, now=None):
             db.session.flush()
             row.callingstationid = voucher.first_mac.upper().replace(':', '-')
             row.framedipaddress = str(phone.get('ip') or '')[:15]
-            down, up = int(phone.get('down_kb') or 0) * 1024, int(phone.get('up_kb') or 0) * 1024
+            down, up = int(phone.get('down') or 0), int(phone.get('up') or 0)
             last = db.session.get(OmadaCounter, row.radacctid)
             if last is None:
                 last = OmadaCounter(radacct_id=row.radacctid, down=0, up=0)
@@ -3698,6 +3698,7 @@ def guest_app_ruijie_link(slug):
         return jsonify(ok=False)
     voucher.first_mac = sorted(found)[0][1]
     db.session.commit()
+    log.info('ruijie link: code %s is on phone %s', code, voucher.first_mac)
     return jsonify(ok=True)
 
 
@@ -4759,7 +4760,7 @@ def api_live():
         for ph in json.loads(st.ruijie_clients):
             wifi.append({'mac': ph.get('mac', ''), 'ip': ph.get('ip', ''), 'ssid': ph.get('ssid', ''), 'ap': ph.get('ap', ''),
                          'band': ph.get('band', ''), 'rssi': ph.get('rssi'), 'site': st.name, 'code': codes_on.get(_mac_norm(ph.get('mac'))),
-                         'down': int(ph.get('down_kb') or 0) * 1024, 'up': int(ph.get('up_kb') or 0) * 1024,
+                         'down': int(ph.get('down') or 0), 'up': int(ph.get('up') or 0),
                          'since': _iso(_ms_utc(ph.get('since'))) if ph.get('since') else None})
     wifi.sort(key=lambda w: -(w['down'] + w['up']))
 

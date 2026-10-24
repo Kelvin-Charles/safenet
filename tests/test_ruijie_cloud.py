@@ -241,15 +241,15 @@ with app.app_context():
     appmod._ruijie_sync_site(db.session.get(Site, SID))                     # still online: same session, not a second one
     assert RadAcct.query.filter_by(calledstationid=f'ruijie-{SID}').count() == 1
 phones[:] = [{'mac': '06:5A:00:00:00:01', 'ip': '192.168.0.10', 'ssid': 'U-SMART CONNECT', 'ap': 'Ruijie RAP6262', 'band': '2.4G',
-               'rssi': -94, 'down_kb': 322888, 'up_kb': 143192, 'since': login_ms, 'online_ms': 813000},
+               'rssi': -94, 'down': 322888, 'up': 143192, 'since': login_ms, 'online_ms': 813000},
               {'mac': '06:5A:00:00:00:02', 'ip': '192.168.0.11', 'ssid': 'U-SMART CONNECT', 'ap': 'Ruijie RAP6262', 'band': '5G',
-               'rssi': -60, 'down_kb': 10, 'up_kb': 5, 'since': login_ms, 'online_ms': 1000}]
+               'rssi': -60, 'down': 10, 'up': 5, 'since': login_ms, 'online_ms': 1000}]
 with app.app_context():
     appmod._ruijie_sync_site(db.session.get(Site, SID))
 lv = c.get('/api/live').get_json()
-# every phone Ruijie lists, with its real address, signal and traffic (KB from Ruijie, bytes here), most data first
+# every phone Ruijie lists, with its real address, signal and traffic (bytes, as Ruijie counts them), most data first
 assert [(w['mac'], w['ip'], w['rssi'], w['down'], w['up']) for w in lv['wifi']] == \
-    [('06:5A:00:00:00:01', '192.168.0.10', -94, 322888 * 1024, 143192 * 1024), ('06:5A:00:00:00:02', '192.168.0.11', -60, 10240, 5120)]
+    [('06:5A:00:00:00:01', '192.168.0.10', -94, 322888, 143192), ('06:5A:00:00:00:02', '192.168.0.11', -60, 10, 5)]
 assert lv['wifi'][0]['ssid'] == 'U-SMART CONNECT' and lv['wifi'][0]['ap'] == 'Ruijie RAP6262' and lv['wifi'][0]['since']
 assert 'Phones on the Reyee Wi-Fi now' in html.unescape(c.get('/live').text)
 assert [(x['user'], x['router']) for x in lv['online']] == [(NEW, 'Reyee · TICD')] or \
@@ -270,17 +270,17 @@ with app.app_context():
     appmod._ruijie_sync_site(db.session.get(Site, SID))
     row = RadAcct.query.filter_by(calledstationid=f'ruijie-{SID}', username=NEW, acctstoptime=None).one()
     assert (row.callingstationid, row.framedipaddress, row.acctoutputoctets, row.acctinputoctets) == \
-        ('06-5A-00-00-00-01', '192.168.0.10', 322888 * 1024, 143192 * 1024)
-    phones[0].update(down_kb=322888 + 1000, up_kb=143192 + 10)                  # more data
+        ('06-5A-00-00-00-01', '192.168.0.10', 322888, 143192)
+    phones[0].update(down=322888 + 1000, up=143192 + 10)                  # more data
     appmod._ruijie_sync_site(db.session.get(Site, SID))
-    assert db.session.get(RadAcct, row.radacctid).acctoutputoctets == (322888 + 1000) * 1024
-    phones[0].update(down_kb=50, up_kb=5)                                       # the phone reconnected: Ruijie starts again
+    assert db.session.get(RadAcct, row.radacctid).acctoutputoctets == (322888 + 1000)
+    phones[0].update(down=50, up=5)                                       # the phone reconnected: Ruijie starts again
     appmod._ruijie_sync_site(db.session.get(Site, SID))
-    assert db.session.get(RadAcct, row.radacctid).acctoutputoctets == (322888 + 1000 + 50) * 1024
+    assert db.session.get(RadAcct, row.radacctid).acctoutputoctets == (322888 + 1000 + 50)
 lv = c.get('/api/live').get_json()
 mine = [x for x in lv['online'] if x['user'] == NEW][0]
 assert [w['code'] for w in lv['wifi']] == [NEW, None]
-assert mine['mac'] == '06-5A-00-00-00-01' and mine['down'] == (322888 + 1000 + 50) * 1024 and lv['stats']['down_today'] >= mine['down']
+assert mine['mac'] == '06-5A-00-00-00-01' and mine['down'] == (322888 + 1000 + 50) and lv['stats']['down_today'] >= mine['down']
 r = g.options('/app/jriit/api/ruijie-link', headers={'Origin': 'https://portal-eu.ruijienetworks.com', 'Access-Control-Request-Method': 'POST'})
 assert r.headers['Access-Control-Allow-Origin'] == '*'
 
