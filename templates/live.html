@@ -54,6 +54,18 @@
                 </div>
             </div>
         </div>
+        <div class="card mt-3" id="wifi-card" hidden>
+            <div class="card-header"><i class="bi bi-phone"></i> {{ _('Phones on the Reyee Wi-Fi now') }} <span class="badge bg-light text-dark border" id="wifi-count"></span>
+                <small class="text-muted d-block">{{ _("As Ruijie Cloud lists them, every minute. Ruijie doesn't say which code each phone uses.") }}</small></div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover align-middle mb-0">
+                        <thead><tr><th>{{ _('Device') }}</th><th>{{ _('Wi-Fi') }}</th><th>{{ _('Signal') }}</th><th>{{ _('Online for') }}</th><th>{{ _('Download') }}</th><th>{{ _('Upload') }}</th></tr></thead>
+                        <tbody id="wifi-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
     <div class="col-xl-4">
         <div class="card">
@@ -161,6 +173,28 @@
         known = seen;
     }
 
+    function renderWifi(rows, nowIso) {
+        const card = $('wifi-card');
+        card.hidden = !rows || !rows.length;
+        if (card.hidden) return;
+        const q = $('filter').value.trim().toLowerCase();
+        const shown = rows.filter(r => !q || [r.mac, r.ip, r.ssid, r.ap, r.site].join(' ').toLowerCase().includes(q));
+        const now = Date.parse(nowIso);
+        $('wifi-count').textContent = rows.length;
+        $('wifi-body').innerHTML = shown.map(r => {
+            const sig = r.rssi === null || r.rssi === undefined ? '–' : r.rssi + ' dBm';
+            const weak = typeof r.rssi === 'number' && r.rssi < -80;
+            return `<tr>
+                <td><small class="d-block font-monospace">${esc(r.mac)}</small><small class="text-muted">${esc(r.ip)}</small></td>
+                <td><small class="d-block">${esc(r.ssid)}</small><small class="text-muted">${esc(r.ap)}${r.band ? ' · ' + esc(r.band) : ''}</small></td>
+                <td class="${weak ? 'text-danger' : ''}">${esc(sig)}</td>
+                <td>${r.since ? duration((now - Date.parse(r.since)) / 1000) : '–'}</td>
+                <td>${bytes(r.down)}</td>
+                <td>${bytes(r.up)}</td>
+            </tr>`;
+        }).join('') || `<tr><td colspan="6" class="text-center text-muted py-3">${esc(T.noMatch)}</td></tr>`;
+    }
+
     function renderFeed(events) {
         if (!events.length) { $('feed').innerHTML = '<p class="text-muted mb-0">' + esc(T.noActivity) + '</p>'; return; }
         $('feed').innerHTML = events.map(e => {
@@ -181,6 +215,7 @@
             const d = await r.json();
             renderTiles(d.stats);
             renderOnline(d.online, d.now, d.stale_minutes);
+            renderWifi(d.wifi, d.now);
             renderFeed(d.events);
             last = d;
             $('dot').classList.remove('off');
@@ -207,7 +242,7 @@
         if (!document.hidden) { refresh(); timer = setInterval(refresh, REFRESH_MS); }
     }
     document.addEventListener('visibilitychange', schedule);
-    $('filter').addEventListener('input', () => last && renderOnline(last.online, last.now, last.stale_minutes));
+    $('filter').addEventListener('input', () => { if (last) { renderOnline(last.online, last.now, last.stale_minutes); renderWifi(last.wifi, last.now); } });
     schedule();
 })();
 </script>

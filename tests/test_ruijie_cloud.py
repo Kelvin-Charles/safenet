@@ -36,6 +36,9 @@ class FakeCloud:
         assert group_id == '9001'
         return list(ruijie_list)
 
+    def clients(self, group_id):
+        return list(phones)
+
     def create_package(self, group_id, name, minutes, devices=1, price='', down_kbps=0, up_kbps=0):
         if not can_create[0]:
             raise ruijie.RuijieError('Ruijie Cloud: You do not have permission to perform this operation')
@@ -63,7 +66,7 @@ real.call = lambda *a, **k: {'groups': [{'groupId': 0, 'name': 'dumy', 'subGroup
         {'groupId': 10331699, 'name': 'SafeNet Free WiFi', 'type': 'BUILDING'}]}]}]}
 assert real.projects() == [('10331699', 'SafeNet Free WiFi')], real.projects()
 ruijie.Cloud = FakeCloud
-ruijie_list = []
+ruijie_list, phones = [], []
 import app as appmod
 appmod.send_sms_async = lambda *a, **k: None
 from app import app, db
@@ -237,7 +240,18 @@ with app.app_context():
     assert row.acctstoptime is None and RadAcct.query.filter_by(username='not-ours').count() == 0
     appmod._ruijie_sync_site(db.session.get(Site, SID))                     # still online: same session, not a second one
     assert RadAcct.query.filter_by(calledstationid=f'ruijie-{SID}').count() == 1
+phones[:] = [{'mac': '06:5A:00:00:00:01', 'ip': '192.168.0.10', 'ssid': 'U-SMART CONNECT', 'ap': 'Ruijie RAP6262', 'band': '2.4G',
+               'rssi': -94, 'down_kb': 322888, 'up_kb': 143192, 'since': login_ms, 'online_ms': 813000},
+              {'mac': '06:5A:00:00:00:02', 'ip': '192.168.0.11', 'ssid': 'U-SMART CONNECT', 'ap': 'Ruijie RAP6262', 'band': '5G',
+               'rssi': -60, 'down_kb': 10, 'up_kb': 5, 'since': login_ms, 'online_ms': 1000}]
+with app.app_context():
+    appmod._ruijie_sync_site(db.session.get(Site, SID))
 lv = c.get('/api/live').get_json()
+# every phone Ruijie lists, with its real address, signal and traffic (KB from Ruijie, bytes here), most data first
+assert [(w['mac'], w['ip'], w['rssi'], w['down'], w['up']) for w in lv['wifi']] == \
+    [('06:5A:00:00:00:01', '192.168.0.10', -94, 322888 * 1024, 143192 * 1024), ('06:5A:00:00:00:02', '192.168.0.11', -60, 10240, 5120)]
+assert lv['wifi'][0]['ssid'] == 'U-SMART CONNECT' and lv['wifi'][0]['ap'] == 'Ruijie RAP6262' and lv['wifi'][0]['since']
+assert 'Phones on the Reyee Wi-Fi now' in html.unescape(c.get('/live').text)
 assert [(x['user'], x['router']) for x in lv['online']] == [(NEW, 'Reyee · TICD')] or \
        [x['user'] for x in lv['online']] == [NEW] and lv['online'][0]['router'].startswith('Reyee · '), lv['online']
 ruijie_list[0]['currentClients'] = 0                                        # the phone left

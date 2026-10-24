@@ -179,6 +179,25 @@ class Cloud:
             raise RuijieError('Ruijie Cloud made no voucher.')
         return code
 
+    def clients(self, group_id, pages=10):
+        """Phones on the project's Wi-Fi now, as Ruijie Cloud's Clients page lists them. Traffic is in KB."""
+        out = []
+        for page in range(pages):
+            qs = urllib.parse.urlencode({'access_token': self.token()})
+            reply = self._http('POST', f'{self.base}/logbizagent/logbiz/api/sta/sta_users?{qs}',
+                               {'groupId': int(group_id), 'pageIndex': page, 'pageSize': 200, 'staType': 'currentUser'})
+            if reply.get('code') != 0:
+                raise RuijieError(f'Ruijie Cloud: {reply.get("msg") or reply.get("code")}')
+            items = [c for c in reply.get('list') or [] if isinstance(c, dict)]
+            out += [{'mac': str(c.get('mac') or ''), 'ip': str(c.get('userIp') or ''), 'ssid': str(c.get('ssid') or ''),
+                     'ap': str(c.get('deviceAliasName') or c.get('sn') or ''), 'band': str(c.get('band') or ''),
+                     'rssi': c.get('rssiInt') if c.get('rssiInt') is not None else c.get('rssi'),
+                     'down_kb': int(float(c.get('wifiDown') or 0)), 'up_kb': int(float(c.get('wifiUp') or 0)),
+                     'since': c.get('onlineTime'), 'online_ms': c.get('activeTime')} for c in items]
+            if len(items) < 200 or len(out) >= int(reply.get('count') or 0):
+                break
+        return out
+
     def vouchers(self, group_id, pages=25):
         """Every voucher in the project, as Ruijie has them: voucherCode, loginTime and expiryTime (ms),
         usedTime (minutes), currentClients (phones online with it now), status."""

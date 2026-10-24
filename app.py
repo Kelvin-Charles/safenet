@@ -3128,6 +3128,11 @@ def _ruijie_sync_site(site, cloud=None, now=None):
     for row in rows.values():           # codes Ruijie no longer has
         row.acctstoptime, row.acctterminatecause = now, 'Lost-Carrier'
     db.session.commit()
+    try:      # the phones themselves, as Ruijie Cloud's Clients page shows them
+        site.ruijie_clients, site.ruijie_clients_at = json.dumps(cloud.clients(site.ruijie_group_id)), now
+    except ruijie.RuijieError as e:
+        log.warning('ruijie cloud: reading phones for site %s failed: %s', site.id, e)
+    db.session.commit()
 
 
 def _ruijie_sync_due():
@@ -4686,6 +4691,18 @@ def api_live():
             'up': up,
         })
 
+    # Reyee sites: every phone on the Wi-Fi as Ruijie Cloud lists it (it doesn't say which code each one uses)
+    wifi = []
+    for st in ([current_site()] if current_site() else tenant_sites(tid)):
+        if not (st.ruijie_clients and st.ruijie_clients_at and (now - st.ruijie_clients_at).total_seconds() < 300):
+            continue
+        for ph in json.loads(st.ruijie_clients):
+            wifi.append({'mac': ph.get('mac', ''), 'ip': ph.get('ip', ''), 'ssid': ph.get('ssid', ''), 'ap': ph.get('ap', ''),
+                         'band': ph.get('band', ''), 'rssi': ph.get('rssi'), 'site': st.name,
+                         'down': int(ph.get('down_kb') or 0) * 1024, 'up': int(ph.get('up_kb') or 0) * 1024,
+                         'since': _iso(_ms_utc(ph.get('since'))) if ph.get('since') else None})
+    wifi.sort(key=lambda w: -(w['down'] + w['up']))
+
     day_sessions = view['sessions'](RadAcct.query).filter(or_(RadAcct.acctstoptime.is_(None), RadAcct.acctstoptime >= midnight))
     usage = day_sessions.with_entities(
         func.coalesce(func.sum(RadAcct.acctoutputoctets), 0),
@@ -4732,7 +4749,7 @@ def api_live():
                            'text': f'{p.phone} payment {p.status}: {p.message or ""}'.strip()})
     events = sorted((e for e in events if e['at']), key=lambda e: e['at'], reverse=True)[:40]
 
-    return jsonify(now=_iso(now), stats=stats, online=online, events=events,
+    return jsonify(now=_iso(now), stats=stats, online=online, events=events, wifi=wifi,
                    stale_minutes=LIVE_STALE_MINUTES)
 
 

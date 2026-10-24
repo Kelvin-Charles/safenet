@@ -225,6 +225,8 @@ def run():
     _add_column('sites', 'ruijie_packages', 'TEXT')
     _add_column('sites', 'ruijie_error', 'VARCHAR(255)')
     _add_column('sites', 'ruijie_synced_at', 'DATETIME')
+    _add_column('sites', 'ruijie_clients', 'MEDIUMTEXT')
+    _add_column('sites', 'ruijie_clients_at', 'DATETIME')
     _add_column('vouchers', 'ruijie_state', 'VARCHAR(8)')
     _add_column('payments', 'customer_fee', 'DECIMAL(10,2) DEFAULT 0')
     _add_index('sites', 'uq_sites_portal_token', 'portal_token', unique=True)
