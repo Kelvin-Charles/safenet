@@ -183,9 +183,12 @@ class Cloud:
         """Phones on the project's Wi-Fi now, as Ruijie Cloud's Clients page lists them. Traffic is in KB."""
         out = []
         for page in range(pages):
-            qs = urllib.parse.urlencode({'access_token': self.token()})
-            reply = self._http('POST', f'{self.base}/logbizagent/logbiz/api/sta/sta_users?{qs}',
-                               {'groupId': int(group_id), 'pageIndex': page, 'pageSize': 200, 'staType': 'currentUser'})
+            for attempt in (0, 1):      # an expired token: log in again once
+                qs = urllib.parse.urlencode({'access_token': self.token(force=attempt == 1)})
+                reply = self._http('POST', f'{self.base}/logbizagent/logbiz/api/sta/sta_users?{qs}',
+                                   {'groupId': int(group_id), 'pageIndex': page, 'pageSize': 200, 'staType': 'currentUser'})
+                if not (reply.get('code') == 4 or str(reply.get('msg', '')).lower() == 'login timeout'):
+                    break
             if reply.get('code') != 0:
                 raise RuijieError(f'Ruijie Cloud: {reply.get("msg") or reply.get("code")}')
             items = [c for c in reply.get('list') or [] if isinstance(c, dict)]
