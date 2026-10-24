@@ -3315,25 +3315,55 @@ def _ruijie_portal_pages(site, tenant, th):
     return pages, css, texts
 
 
+def _ruijie_portal_config(site, tenant, logo=''):
+    """What the Ruijie page shows: the business's current SafeNet login page, cut into parts (see _ruijie_portal_pages)."""
+    th = portal_ui.theme({**portal_config(tenant), 'logo_url': logo})
+    pages, css, texts = _ruijie_portal_pages(site, tenant, th)
+    return {'base': Config.PUBLIC_URL or request.host_url.rstrip('/'), 'slug': tenant.slug, 'site': site.portal_token,
+            'name': th['name'], 'lang': th['language'], 'pages': pages, 'css': css, 'texts': texts,
+            'alert_icon': portal_ui.icon('alert', 18)}
+
+
+@app.route('/app/<slug>/ruijie.js')
+def guest_app_ruijie_page(slug):
+    """The Ruijie page (uploaded once to Ruijie Cloud) loads this each time it opens: the business's current page
+    (portal settings, packages, logo) and the latest page code. Unless that page already started without it."""
+    tenant = _guest_app_tenant(slug)
+    site = Site.query.filter_by(tenant_id=tenant.id, portal_token=request.args.get('s', '')[:24]).first()
+    if site is None:
+        abort(404)
+    logo = (Config.PUBLIC_URL or request.host_url.rstrip('/')) + url_for('portal_logo', slug=tenant.slug,
+                                                                         v=portal_config(tenant).get('logo_version') or 1) \
+        if tenant.portal_logo_at else ''
+    with open(os.path.join(RUIJIE_PORTAL_DIR, 'portal.js'), encoding='utf-8') as f:
+        logic = f.read()
+    body = ('(function () {\nif (Portal && Portal.started) return;\n'
+            f'Object.assign(SAFENET, {json.dumps(_ruijie_portal_config(site, tenant, logo))});\n{logic}\n}})();\n')
+    resp = make_response(body)
+    resp.headers['Content-Type'] = 'application/javascript; charset=utf-8'
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
 def _ruijie_portal_zip(site, tenant):
     """Ruijie Cloud's custom HTML login page (Captive Portal -> Custom HTML), made for this site: the same page
     guests get from SafeNet (packages, mobile money, voucher), logging them in through Ruijie with the code."""
-    cfg = portal_config(tenant)
     has_logo = bool(tenant.portal_logo_at)
-    th = portal_ui.theme({**cfg, 'logo_url': 'img/logo.png' if has_logo else ''})
-    pages, css, texts = _ruijie_portal_pages(site, tenant, th)
-    config = {'base': Config.PUBLIC_URL or request.host_url.rstrip('/'), 'slug': tenant.slug, 'site': site.portal_token,
-              'name': th['name'], 'lang': th['language'], 'pages': pages, 'css': css, 'texts': texts,
-              'alert_icon': portal_ui.icon('alert', 18)}
+    config = _ruijie_portal_config(site, tenant, logo='img/logo.png' if has_logo else '')
+    with open(os.path.join(RUIJIE_PORTAL_DIR, 'portal.js'), encoding='utf-8') as f:
+        logic = f.read()
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
         for root, _, files in os.walk(RUIJIE_PORTAL_DIR):
             for name in sorted(files):
                 path = os.path.join(root, name)
                 arc = os.path.relpath(path, RUIJIE_PORTAL_DIR).replace(os.sep, '/')
+                if arc == 'portal.js':
+                    continue                              # served by SafeNet; its copy goes into js/index.js
                 if arc == 'js/index.js':
                     with open(path, encoding='utf-8') as f:
-                        z.writestr(arc, f.read().replace('{/*SAFENET_CONFIG*/}', json.dumps(config), 1))
+                        z.writestr(arc, f.read().replace('{/*SAFENET_CONFIG*/}', json.dumps(config), 1)
+                                   .replace('/*PORTAL_COPY*/', logic, 1))
                 elif arc == 'loadConfig.json':
                     z.writestr(arc, 'loadConfig(' + json.dumps({
                         'post_url': 'http://www.google.com',

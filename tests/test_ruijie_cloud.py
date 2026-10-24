@@ -196,6 +196,17 @@ assert 'id="tab-buy"' in sw['body'] and 'Nunua kifurushi' in sw['body'] and 'Buy
 assert 'name="agree"' in sw['body'] and 'img/airtel.png' in sw['body'] and '.pkg' in cfg['css'] and '--brand:' in sw['vars']
 assert '@@AMOUNT@@' in sw['wait'] and '@@CODE@@' in sw['connecting'] and 'Lipa {price}' == cfg['texts']['sw']['pay']
 assert {'img/mpesa.png', 'img/airtel.png'} <= names
+assert 'portal.js' not in names and 'Portal = {' in js and '/*PORTAL_COPY*/' not in js       # the copy for when SafeNet can't be reached
+# each time it opens, the page loads the business's current page and code from SafeNet (no new upload needed)
+fresh = g.get(f'/app/jriit/ruijie.js?s={TOKEN}')
+assert fresh.status_code == 200 and fresh.headers['Content-Type'].startswith('application/javascript') and fresh.headers['Cache-Control'] == 'no-store'
+assert 'if (Portal && Portal.started) return;' in fresh.text and 'Object.assign(SAFENET, ' in fresh.text and 'Portal = {' in fresh.text
+assert 'Nunua kifurushi' in fresh.text and g.get('/app/jriit/ruijie.js?s=wrong').status_code == 404
+import subprocess, tempfile
+for code_ in (js, 'var SAFENET = {}; var Portal = null;\n' + fresh.text):
+    with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as tf:
+        tf.write(code_)
+    assert subprocess.run(['node', '--check', tf.name], capture_output=True).returncode == 0
 lc = files.read('loadConfig.json').decode()
 assert lc.startswith('loadConfig(') and '"voucher"' in lc and 'fixaccount' not in lc
 assert app.test_client().get(f'/sites/{SID}/ruijie-portal.zip').status_code in (302, 401)   # admins only
