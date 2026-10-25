@@ -203,6 +203,22 @@ class Cloud:
                 break
         return out
 
+    def logins(self, group_id, pages=10):
+        """Who logged in on the project's Wi-Fi, as Ruijie Cloud's Auth Clients page lists them: account (the voucher
+        code for voucher logins), userMac, userIp, onlineStatus (1 = online), loginTimes (ms). The call Ruijie Cloud's
+        own page makes; not in Ruijie's published API, but it answers API keys."""
+        out, page = [], 1
+        while page <= pages:
+            data = self.call('POST', 'samTransfer/authuserinfos/bypage', {'cloudType': 'smb', 'lang': 'en'},
+                             {'group_id': int(group_id), 'page': page, 'size': 200})
+            res = (data.get('data') or {}).get('result') or {} if isinstance(data.get('data'), dict) else {}
+            items = [x for x in res.get('list') or [] if isinstance(x, dict)]
+            out += items
+            if not items or len(out) >= int(res.get('total') or 0):
+                break
+            page += 1
+        return out
+
     def vouchers(self, group_id, pages=25):
         """Every voucher in the project, as Ruijie has them: voucherCode, loginTime and expiryTime (ms),
         usedTime (minutes), currentClients (phones online with it now), status."""

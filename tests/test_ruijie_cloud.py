@@ -39,6 +39,9 @@ class FakeCloud:
     def clients(self, group_id):
         return list(phones)
 
+    def logins(self, group_id):
+        return list(logins_list)
+
     def create_package(self, group_id, name, minutes, devices=1, price='', down_kbps=0, up_kbps=0):
         if not can_create[0]:
             raise ruijie.RuijieError('Ruijie Cloud: You do not have permission to perform this operation')
@@ -70,7 +73,7 @@ real._token, real._token_at = 'tok', __import__('time').time()
 real._http = lambda *a, **k: {'code': 0, 'count': 1, 'list': [{'mac': '06:5A', 'userIp': '1.2.3.4', 'wifiUp': 1000, 'wifiDown': 20}]}
 assert (real.clients('1')[0]['down'], real.clients('1')[0]['up']) == (1000, 20)
 ruijie.Cloud = FakeCloud
-ruijie_list, phones = [], []
+ruijie_list, phones, logins_list = [], [], []
 import app as appmod
 appmod.send_sms_async = lambda *a, **k: None
 from app import app, db
@@ -293,6 +296,19 @@ assert mine['mac'] == '06:5A:00:00:00:01' and mine['down'] == (322888 + 1000 + 5
 assert link(code=NEW, error='Authentication failed', page='https://portal/x?sessionId=abc&timestamp=1').get_json() == {'ok': True}
 r = g.options('/app/jriit/api/ruijie-link', headers={'Origin': 'https://portal-eu.ruijienetworks.com', 'Access-Control-Request-Method': 'POST'})
 assert r.headers['Access-Control-Allow-Origin'] == '*'
+
+# Ruijie's own login records say which phone each code is on (phones that reconnect by themselves too):
+# Live shows the code, time left and that phone's data instead of 'Guest'
+logins_list[:] = [{'account': NEW, 'userMac': '065a.0000.0001', 'userIp': '192.168.0.10', 'loginTimes': login_ms - 60000, 'onlineStatus': 0},
+                  {'account': NEW, 'userMac': '065a.0000.0002', 'userIp': '192.168.0.11', 'loginTimes': login_ms, 'onlineStatus': 1},
+                  {'account': 'someone-else', 'userMac': '065a.0000.0009', 'loginTimes': login_ms, 'onlineStatus': 1}]
+with app.app_context():
+    appmod._ruijie_sync_site(db.session.get(Site, SID))
+    assert Voucher.query.filter_by(code=NEW).one().first_mac == '06:5a:00:00:00:02'          # its latest login
+lv = c.get('/api/live').get_json()
+rows = {x['mac']: x for x in lv['online']}
+assert rows['06:5A:00:00:00:02']['user'] == NEW and rows['06:5A:00:00:00:02']['expires'] and rows['06:5A:00:00:00:02']['kind'] == 'voucher'
+assert rows['06:5A:00:00:00:01']['user'] == ''
 
 # removing it stops the copying
 assert 'Ruijie Cloud removed' in html.unescape(post(action='remove').text)

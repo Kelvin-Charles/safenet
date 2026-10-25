@@ -3102,6 +3102,17 @@ def _ruijie_sync_site(site, cloud=None, now=None):
     by_mac = {_mac_norm(p.get('mac')): p for p in phones}
     theirs = {str(v.get('voucherCode') or ''): v for v in cloud.vouchers(site.ruijie_group_id)}
     theirs.pop('', None)
+    # which phone each code is on, from Ruijie's own login records (the latest login of each phone wins)
+    try:
+        logins = sorted(cloud.logins(site.ruijie_group_id), key=lambda x: int(x.get('loginTimes') or 0))
+    except ruijie.RuijieError as e:
+        log.warning('ruijie cloud: reading logins for site %s failed: %s', site.id, e)
+        logins = []
+    phone_of = {}
+    for x in logins:
+        mac = _mac_norm(x.get('userMac'))
+        if mac and str(x.get('account') or '') in theirs:
+            phone_of[str(x['account'])] = mac
     station = f'ruijie-{site.id}'
     mine = {v.code: v for v in Voucher.query.filter(Voucher.tenant_id == site.tenant_id, Voucher.code.in_(list(theirs) or ['-']))}
     rows = {r.username: r for r in RadAcct.query.filter(RadAcct.calledstationid == station, RadAcct.acctstoptime.is_(None))}
@@ -3109,6 +3120,8 @@ def _ruijie_sync_site(site, cloud=None, now=None):
         voucher = mine.get(code)
         if voucher is None:
             continue
+        if phone_of.get(code) and voucher.first_mac != phone_of[code]:
+            voucher.first_mac = phone_of[code]
         started, ends = _ms_utc(r.get('loginTime')), _ms_utc(r.get('expiryTime'))
         if started:
             if not voucher.first_used_at:
