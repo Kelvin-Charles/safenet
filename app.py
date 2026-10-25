@@ -1896,7 +1896,8 @@ def _portal_preview(tenant, th, lang, here):
         return portal_ui.login_page(th, lang, packages=packages, tab=tab, error=error, preview=True, simulate=True,
                                     buy_enabled=buy_enabled, lang_url=here, networks=networks,
                                     action=url(view='sim-login'), buy_action=url(view='sim-buy'),
-                                    logo_base=url_for('static', filename='img/'))
+                                    trial=_guest_trial(tenant) if equip in ('omada', 'ruijie', 'mikrotik') else None,
+                                    trial_action=url(view='sim-login'), logo_base=url_for('static', filename='img/'))
 
     def online(user, seconds, new_code=None):
         if mikrotik:
@@ -2051,6 +2052,7 @@ def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, exter
                     for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True),
                                             site.id).order_by(Package.sort_order, Package.price)]
         html_out = portal_ui.login_page(th, lang, packages=packages, error=error, tab=tab, external=external,
+                                        trial=_guest_trial(tenant), trial_action=base + '/trial',
                                         action=base + '/login', buy_action=base + '/buy',
                                         buy_enabled=paylib.is_ready(_tenant_account(tenant)),
                                         lang_url=base, networks=payment_networks(tenant),
@@ -2170,6 +2172,20 @@ def omada_login(token):
         return err(error)
     return _omada_page(site, tenant, view='status', user=info['user'], remaining=info['seconds'],
                        dst=guest.get('redirectUrl', ''))
+
+
+@app.route('/omada/<token>/trial', methods=['POST'])
+def omada_trial(token):
+    site, tenant = _omada_site(token)
+    guest = _omada_guest(site.portal_token)
+    problem = _guest_trial_problem(tenant, guest.get('clientMac'))
+    if problem:
+        return _omada_page(site, tenant, error=problem, tab='buy')
+    code = _guest_trial_code(tenant, site, guest['clientMac'])
+    info, error = _omada_let_in(site, tenant, guest, code, code)
+    if error:
+        return _omada_page(site, tenant, error=error, tab='buy')
+    return _omada_page(site, tenant, view='status', user=info['user'], remaining=info['seconds'], dst=guest.get('redirectUrl', ''))
 
 
 @app.route('/omada/<token>/buy', methods=['POST'])
@@ -2322,6 +2338,16 @@ def mikrotik_buy(token):
     return redirect(url_for('mikrotik_wait', token=token, ref=payment.reference))
 
 
+@app.route('/mikrotik/<token>/trial', methods=['POST'])
+def mikrotik_trial(token):
+    site, tenant = _mikrotik_site(token)
+    guest = _mikrotik_guest(token)
+    problem = _guest_trial_problem(tenant, guest.get('mac') if guest.get('login') else None)
+    if problem:
+        return _mikrotik_page(site, tenant, error=problem, tab='buy')
+    return _mikrotik_connect(site, tenant, guest, _guest_trial_code(tenant, site, guest['mac']), message='trial_ok')
+
+
 @app.route('/mikrotik/<token>/buy/wait')
 def mikrotik_wait(token):
     site, tenant = _mikrotik_site(token)
@@ -2348,8 +2374,8 @@ def mikrotik_wait(token):
                                 'package': payment.package_name, 'gift_phone': payment.gift_phone or ''})
 
 
-def _mikrotik_connect(site, tenant, guest, code):
-    """Paid: show the code and log the phone in on the router with it (the router asks SafeNet's RADIUS)."""
+def _mikrotik_connect(site, tenant, guest, code, message='paid_ok'):
+    """Paid (or a free trial): show the code and log the phone in on the router with it (the router asks SafeNet's RADIUS)."""
     cfg = portal_config(tenant)
     if cfg.get('logo_version'):
         cfg['logo_url'] = url_for('portal_logo', slug=tenant.slug, v=cfg['logo_version'])
@@ -2357,7 +2383,7 @@ def _mikrotik_connect(site, tenant, guest, code):
     lang = request.cookies.get('sn_lang') if request.cookies.get('sn_lang') in portal_ui.LANGS else th['language']
     t = lambda key: portal_ui.t(lang, key)
     e = portal_ui.e
-    body = (f'<div class="alert ok" role="alert">{portal_ui.icon("check", 18)}<span>{t("paid_ok")}</span></div>'
+    body = (f'<div class="alert ok" role="alert">{portal_ui.icon("check", 18)}<span>{t(message)}</span></div>'
             f'<div class="codebox"><div><small>{t("your_code")}</small><b id="vcode">{e(code)}</b></div></div>'
             f'<p class="hint" style="margin-top:6px">{t("keep_code")}</p>'
             f'<form id="mk" method="post" action="{e(guest["login"])}">'
@@ -3017,6 +3043,23 @@ def wifidog_login(token):
         _omada_failures.setdefault(key, []).append(time.time())
         _omada_failures.setdefault(site_key, []).append(time.time())
         return err(error)
+    return redirect(back)
+
+
+@app.route('/wifidog/<token>/guest/trial', methods=['POST'])
+def wifidog_trial(token):
+    site, tenant = _wifidog_site(token)
+    if site is None:
+        abort(404)
+    base = f'/wifidog/{site.portal_token}/guest'
+    guest = _wifidog_guest(site.portal_token)
+    problem = _guest_trial_problem(tenant, guest.get('mac') if guest.get('gw_address') else None)
+    if problem:
+        return _hotspot_page(site, tenant, base, error=problem, tab='buy')
+    code = _guest_trial_code(tenant, site, guest['mac'])
+    back, error = _wifidog_let_in(site, tenant, guest, code, code)
+    if error:
+        return _hotspot_page(site, tenant, base, error=error, tab='buy')
     return redirect(back)
 
 
@@ -3966,7 +4009,72 @@ def portal_settings():
                            equipment=EQUIPMENT, payments_ready=paylib.is_ready(_tenant_account(tenant)), current_site=current_site(),
                            sms_on=_sms_on(tenant), sms_price=Config.SMS_PRICE,
                            package_count=scoped(Package).filter_by(is_active=True, show_on_portal=True).count(),
-                           hotspot_name=_hotspot_settings(tenant)['name'], app_url=_guest_app_link(tenant))
+                           hotspot_name=_hotspot_settings(tenant)['name'], app_url=_guest_app_link(tenant),
+                           trial_minutes=[(m, format_minutes(m)) for m in GUEST_TRIAL_MINUTES], trial=tenant,
+                           plans=scoped(Plan).filter_by(is_active=True).order_by(Plan.name).all(),
+                           trial_stats=_free_trial_stats(tenant.id))
+
+
+GUEST_TRIAL_BATCH = 'Free trial button'
+GUEST_TRIAL_MINUTES = (15, 30, 60, 120, 240, 1440)
+
+
+def _guest_trial(tenant):
+    """The "Try free" offer on the login page: {'minutes': n} or None when it's off."""
+    return {'minutes': tenant.guest_trial_minutes, 'every': tenant.guest_trial_every} \
+        if tenant is not None and tenant.guest_trial_minutes else None
+
+
+def _guest_trial_problem(tenant, mac):
+    """Why this phone can't have the free trial now, or None."""
+    device = _mac_key(mac)
+    if not _guest_trial(tenant):
+        return "Free trial isn't available here."
+    if not device:
+        return 'Please connect to the Wi-Fi again and open any website to get the free trial.'
+    if tenant.guest_trial_who == 'new':
+        paid = any(_mac_key(m) == device for (m,) in db.session.query(Payment.client_mac).filter(
+            Payment.tenant_id == tenant.id, Payment.status == 'paid', Payment.client_mac.isnot(None)))
+        used = Voucher.query.filter(Voucher.tenant_id == tenant.id, Voucher.first_mac == device,
+                                    Voucher.is_free.is_(False)).first()
+        if paid or used:
+            return 'The free trial is for new customers. Choose a package to connect.'
+    trials = Voucher.query.filter(Voucher.tenant_id == tenant.id, Voucher.first_mac == device, Voucher.is_free.is_(True))
+    if tenant.guest_trial_every == 'day':
+        if trials.filter(Voucher.created_at >= datetime.utcnow() - timedelta(hours=24)).first():
+            return 'This phone already had its free trial today. Come back tomorrow, or choose a package.'
+    elif trials.first():
+        return 'This phone has already had a free trial. Choose a package to keep browsing.'
+    return None
+
+
+def _guest_trial_code(tenant, site, mac):
+    """A free code for this phone (the caller checked _guest_trial_problem). Commits."""
+    plan = db.session.get(Plan, tenant.guest_trial_plan_id) if tenant.guest_trial_plan_id else None
+    voucher = _create_vouchers(1, plan if plan is not None and plan.tenant_id == tenant.id else None, tenant.guest_trial_minutes,
+                               None, GUEST_TRIAL_BATCH, tenant=tenant.id, is_free=True, site_id=site.id if site else None)[0]
+    voucher.first_mac = _mac_key(mac)
+    db.session.commit()
+    log.info('free trial: %s for %s (%s min)', voucher.code, voucher.first_mac, tenant.guest_trial_minutes)
+    return voucher.code
+
+
+@app.route('/settings/free-trial', methods=['POST'])
+@login_required
+@role_required('admin')
+def guest_trial_settings():
+    _check_csrf()
+    tenant = current_tenant()
+    minutes = request.form.get('minutes', type=int) or 0
+    tenant.guest_trial_minutes = minutes if minutes in GUEST_TRIAL_MINUTES else 0
+    plan = scoped(Plan).filter_by(id=request.form.get('plan_id', type=int)).first()
+    tenant.guest_trial_plan_id = plan.id if plan else None
+    tenant.guest_trial_who = 'all' if request.form.get('who') == 'all' else 'new'
+    tenant.guest_trial_every = 'day' if request.form.get('every') == 'day' else 'once'
+    db.session.commit()
+    flash(tr('Free trial button switched on: {d} free.', d=format_minutes(tenant.guest_trial_minutes)) if tenant.guest_trial_minutes
+          else tr('Free trial button switched off.'), 'success')
+    return redirect(url_for('portal_settings') + '#trial')
 
 
 @app.route('/settings/portal/poster')
@@ -4684,7 +4792,8 @@ def _gateway_authenticate(tenant, username, password, mac=None):
         if mac and len(_devices_in_use(username, mac)) >= (voucher.max_devices or 1):
             return False, 'This code is already being used on another device.', None
         device = _mac_key(mac)
-        if voucher.is_free and device and not voucher.first_used_at and Voucher.query.filter(
+        # printed free vouchers: one per phone (the "Try free" button checks its own rules when it makes the code)
+        if voucher.is_free and voucher.batch != GUEST_TRIAL_BATCH and device and not voucher.first_used_at and Voucher.query.filter(
                 Voucher.tenant_id == tenant.id, Voucher.is_free.is_(True), Voucher.first_mac == device,
                 Voucher.id != voucher.id).first():
             return False, 'This phone has already had a free trial. Buy a package to keep browsing.', None

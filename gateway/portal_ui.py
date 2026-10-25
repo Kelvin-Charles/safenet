@@ -97,6 +97,9 @@ T = {
         'code': 'Voucher code', 'code_ph': '12345678',
         'have_account': 'I have a username and password', 'username': 'Username', 'password': 'Password',
         'accept': 'I accept the', 'terms': 'terms of use', 'connect': 'Connect',
+        'trial_btn': 'Try free for {time}', 'trial_hint': 'No payment and no voucher needed. One free trial per phone.',
+        'trial_hint_day': 'No payment and no voucher needed. One free trial per phone each day.',
+        'trial_ok': "You're on your free trial. Enjoy!",
         'buy_title': 'Choose a package', 'buy_lead': 'Pick a package, then your mobile-money network.',
         'network': 'Your mobile-money network', 'min_from': 'From {amount}', 'choose_network': 'Choose your network first',
         'phone': 'Mobile money number', 'pay': 'Pay {price}', 'pay_hint': "You'll get a PIN prompt on your phone. Once paid, you're connected automatically and the code is sent to you by SMS.",
@@ -136,6 +139,9 @@ T = {
         'code': 'Namba ya vocha', 'code_ph': '12345678',
         'have_account': 'Nina jina la mtumiaji na nenosiri', 'username': 'Jina la mtumiaji', 'password': 'Nenosiri',
         'accept': 'Nakubali', 'terms': 'masharti ya matumizi', 'connect': 'Unganisha',
+        'trial_btn': 'Jaribu bure kwa {time}', 'trial_hint': 'Hakuna malipo wala vocha. Jaribio moja la bure kwa kila simu.',
+        'trial_hint_day': 'Hakuna malipo wala vocha. Jaribio moja la bure kwa kila simu kila siku.',
+        'trial_ok': 'Uko kwenye jaribio lako la bure. Furahia!',
         'buy_title': 'Chagua kifurushi', 'buy_lead': 'Chagua kifurushi, kisha mtandao wako wa malipo.',
         'network': 'Mtandao wako wa malipo', 'min_from': 'Kuanzia {amount}', 'choose_network': 'Chagua mtandao kwanza',
         'phone': 'Namba ya simu ya malipo', 'pay': 'Lipa {price}', 'pay_hint': 'Utapokea ujumbe wa kuweka PIN kwenye simu yako. Ukishalipa utaunganishwa moja kwa moja na namba ya vocha itatumwa kwa SMS.',
@@ -171,6 +177,11 @@ T = {
 
 # Messages that come from the gateway or SafeNet in English
 MESSAGES_SW = {
+    "Free trial isn't available here.": 'Jaribio la bure halipatikani hapa.',
+    'Please connect to the Wi-Fi again and open any website to get the free trial.': 'Tafadhali unganisha Wi-Fi tena na ufungue tovuti yoyote ili upate jaribio la bure.',
+    'The free trial is for new customers. Choose a package to connect.': 'Jaribio la bure ni kwa wateja wapya. Chagua kifurushi ili kuunganishwa.',
+    'This phone already had its free trial today. Come back tomorrow, or choose a package.': 'Simu hii imeshapata jaribio lake la bure leo. Rudi kesho, au chagua kifurushi.',
+    'This phone has already had a free trial. Choose a package to keep browsing.': 'Simu hii imeshapata jaribio la bure. Chagua kifurushi ili kuendelea kutumia intaneti.',
     "That code isn't valid. Check it and try again.": 'Namba hiyo si sahihi. Iangalie na ujaribu tena.',
     'Please accept the terms of use to continue.': 'Tafadhali kubali masharti ya matumizi ili kuendelea.',
     'Enter your voucher code.': 'Weka namba ya vocha.',
@@ -445,7 +456,8 @@ def _terms_check(th, lang, field_id):
 # Pages
 # ---------------------------------------------------------------------------
 def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/login', buy_action='/buy',
-               external=None, buy_enabled=True, preview=False, lang_url='/', networks=(), logo_base='/img/', simulate=False):
+               external=None, buy_enabled=True, preview=False, lang_url='/', networks=(), logo_base='/img/', simulate=False,
+               trial=None, trial_action='/trial'):
     """Voucher and/or buy-package tabs.
 
     external: {'action': url, 'next_field': name, 'next_value': value} to post the
@@ -555,6 +567,13 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
         <p class="hint">{t(lang, 'pay_hint' if th['sms'] else 'pay_hint_nosms')}</p>
       </form>"""
 
+    # "Try free": one tap, SafeNet makes a free code for this phone and connects it
+    free = ''
+    if trial:
+        free = (f'<form method="post" action="{e(trial_action)}" class="trialbox" data-busy="{e(t(lang, "busy_connect"))}">'
+                f'<input type="hidden" name="dst" value="{e(dst)}"><input type="hidden" name="agree" value="1">'
+                f'<button class="btn trial" type="{submit_type}">{icon("bolt", 19, 2.4)} {e(t(lang, "trial_btn", time=duration(trial["minutes"], lang)))}</button>'
+                f'<p class="hint">{t(lang, "trial_hint_day" if trial.get("every") == "day" else "trial_hint")}</p></form>')
     if show_voucher and show_buy:
         body = f"""
       <input class="tab" type="radio" name="tab" id="tab-buy"{' checked' if tab == 'buy' else ''}>
@@ -569,7 +588,7 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
         body = f'<div class="panel only">{buy}</div>'
     else:
         body = f'<div class="panel only">{voucher}</div>'
-    return page(th, lang, body, lang_url=_qs(lang_url, dst=dst), preview=preview)
+    return page(th, lang, free + body, lang_url=_qs(lang_url, dst=dst), preview=preview)
 
 
 def status_page(th, lang, *, user, remaining, total=None, dst='', new_code=None, preview=False, base='', logout=True,

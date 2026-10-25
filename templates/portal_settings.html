@@ -66,6 +66,38 @@
                 </form>
             </div>
         </div>
+        <div class="card" id="trial">
+            <div class="card-header"><i class="bi bi-gift"></i> {{ _('Free trial button') }}</div>
+            <div class="card-body">
+                <p class="small text-muted">{{ _('Guests see a "Try free" button on the login page and are connected straight away, without a voucher. Each phone is checked, so nobody can repeat it.') }}</p>
+                <form method="POST" action="{{ url_for('guest_trial_settings') }}" class="row g-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="col-md-6"><label class="form-label small mb-1">{{ _('Free time') }}</label>
+                        <select name="minutes" class="form-select form-select-sm">
+                            <option value="0"{{ ' selected' if not trial.guest_trial_minutes }}>{{ _('Off: no free trial button') }}</option>
+                            {% for m, label in trial_minutes %}<option value="{{ m }}"{{ ' selected' if trial.guest_trial_minutes == m }}>{{ label }}</option>{% endfor %}
+                        </select></div>
+                    <div class="col-md-6"><label class="form-label small mb-1">{{ _('Speed (plan)') }}</label>
+                        <select name="plan_id" class="form-select form-select-sm">
+                            <option value="">{{ _('No limit') }}</option>
+                            {% for p in plans %}<option value="{{ p.id }}"{{ ' selected' if trial.guest_trial_plan_id == p.id }}>{{ p.name }}{% if p.download_speed %} · {{ p.download_speed }}{% endif %}</option>{% endfor %}
+                        </select></div>
+                    <div class="col-md-6"><label class="form-label small mb-1">{{ _('Who gets it') }}</label>
+                        <select name="who" class="form-select form-select-sm">
+                            <option value="new"{{ ' selected' if trial.guest_trial_who != 'all' }}>{{ _('New customers only (never paid or tried here)') }}</option>
+                            <option value="all"{{ ' selected' if trial.guest_trial_who == 'all' }}>{{ _('Everyone') }}</option>
+                        </select></div>
+                    <div class="col-md-6"><label class="form-label small mb-1">{{ _('How often') }}</label>
+                        <select name="every" class="form-select form-select-sm">
+                            <option value="once"{{ ' selected' if trial.guest_trial_every != 'day' }}>{{ _('Once per phone') }}</option>
+                            <option value="day"{{ ' selected' if trial.guest_trial_every == 'day' }}>{{ _('Once per phone per day') }}</option>
+                        </select></div>
+                    <div class="col-12"><button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-check-circle"></i> {{ _('Save free trial') }}</button>
+                        <span class="small text-muted ms-2">{{ _('{n} phones tried it, {b} bought a package afterwards.', n=trial_stats.free_used, b=trial_stats.free_bought) }}</span></div>
+                </form>
+                <p class="small text-muted mt-2 mb-0">{{ _('Works on the SafeNet login page with Omada, Ruijie RG-AP and MikroTik.') }}</p>
+            </div>
+        </div>
         <div class="card" id="guest-app">
             <div class="card-header"><i class="bi bi-phone-vibrate"></i> {{ _("Your guests' Wi-Fi app") }}</div>
             <div class="card-body">

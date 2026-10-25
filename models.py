@@ -37,6 +37,11 @@ class Tenant(db.Model):
     notify_daily_sms = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     notify_daily_email = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     summary_sent_on = db.Column(db.Date)                 # last day the daily summary went out
+    # "Try free" button on the guest login page (marketing): SafeNet makes a free code for the phone and connects it
+    guest_trial_minutes = db.Column(db.Integer, nullable=False, default=0, server_default='0')   # 0 = no button
+    guest_trial_plan_id = db.Column(db.Integer, db.ForeignKey('plans.id', ondelete='SET NULL'))   # speed; none = no limit
+    guest_trial_who = db.Column(db.String(8), nullable=False, default='new', server_default='new')       # new, all
+    guest_trial_every = db.Column(db.String(8), nullable=False, default='once', server_default='once')   # once, day
     # The business's own login to SafeNet's Omada Controller (advanced users; only its sites)
     omada_login = db.Column(db.String(64))
     omada_user_id = db.Column(db.String(64))

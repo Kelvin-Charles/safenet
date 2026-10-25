@@ -196,3 +196,8 @@ body.preview .sheet { padding-bottom: 64px; }
 .appcard{display:flex;gap:12px;align-items:center;margin-top:14px;padding:13px 14px;border:1.5px solid var(--line);border-radius:14px;color:var(--ink);text-decoration:none;background:var(--tint)}
 .appcard .ic{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--brand);color:var(--on-brand);flex:none}
 .appcard b{display:block;font-size:15px}.appcard small{color:var(--ink-2);font-size:12.5px}.appcard>svg{margin-left:auto;flex:none}
+
+/* free trial button above the tabs */
+.trialbox{margin:0 0 18px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.trialbox .btn.trial{background:var(--tint);color:var(--brand);border:1.5px dashed var(--brand);box-shadow:none}
+.trialbox .hint{margin-top:6px}
