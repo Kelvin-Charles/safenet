@@ -296,6 +296,7 @@ SW = {
     '{n} codes are still being made on Ruijie Cloud and are not shown. Refresh in a minute.': 'Namba {n} bado zinatengenezwa kwenye Ruijie Cloud na hazionyeshwi. Onyesha upya baada ya dakika moja.',
     'Guest': 'Mgeni',
     'On Reyee Wi-Fi (code not known yet)': 'Kwenye Wi-Fi ya Reyee (namba bado haijulikani)',
+    "The last lines replace the hotspot's own login page with yours from SafeNet (logo, packages, mobile money, vouchers). Already ran the script before? Run just those four lines.": 'Mistari ya mwisho inabadilisha ukurasa wa kuingia wa hotspot kuwa wako wa SafeNet (nembo, vifurushi, pesa kwa simu, vocha). Ulishaendesha script hapo awali? Endesha mistari hiyo minne tu.',
     'Add a site': 'Ongeza eneo',
     'Your plan allows {n} site.': 'Mpango wako unaruhusu eneo {n}.',
     'Your plan allows {n} sites.': 'Mpango wako unaruhusu maeneo {n}.',

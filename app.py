@@ -2029,7 +2029,7 @@ def _omada_page(site, tenant, **kw):
     return _hotspot_page(site, tenant, url_for('omada_portal', token=site.portal_token), **kw)
 
 
-def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, **extra):
+def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, external=None, **extra):
     """SafeNet's guest login/status/waiting page for a site, with its forms posting under `base`."""
     cfg = portal_config(tenant)
     if cfg.get('logo_version'):
@@ -2050,7 +2050,7 @@ def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, **ext
                      'currency': p.currency, 'validity_minutes': p.validity_minutes}
                     for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True),
                                             site.id).order_by(Package.sort_order, Package.price)]
-        html_out = portal_ui.login_page(th, lang, packages=packages, error=error, tab=tab,
+        html_out = portal_ui.login_page(th, lang, packages=packages, error=error, tab=tab, external=external,
                                         action=base + '/login', buy_action=base + '/buy',
                                         buy_enabled=paylib.is_ready(_tenant_account(tenant)),
                                         lang_url=base, networks=payment_networks(tenant),
@@ -2226,6 +2226,148 @@ def omada_wait(token):
     return _omada_page(site, tenant, view='wait', ref=ref, timed_out=timed_out,
                        info={'amount': f'{payment.charged:.0f}', 'currency': payment.currency, 'phone': payment.phone,
                              'package': payment.package_name, 'gift_phone': payment.gift_phone or ''})
+
+
+# ---------------------------------------------------------------------------
+# MikroTik hotspot with SafeNet's login page: the router's login.html (fetched from SafeNet by the setup script)
+# sends guests to /mikrotik/<site token>/ with the router's login link; guests buy with mobile money or type a
+# voucher there, and the code is posted back to the router, which asks SafeNet's RADIUS as before.
+# ---------------------------------------------------------------------------
+MIKROTIK_LOGIN_HTML = '''<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wi-Fi</title><meta http-equiv="pragma" content="no-cache"><meta http-equiv="expires" content="-1"></head>
+<body style="font-family:sans-serif;text-align:center;padding-top:40px">
+<!-- SafeNet: guests log in on SafeNet's page; the router fills in its own values below -->
+<form name="sn" action="{action}" method="get">
+<input type="hidden" name="link-login-only" value="$(link-login-only)">
+<input type="hidden" name="link-orig" value="$(link-orig)">
+<input type="hidden" name="mac" value="$(mac)">
+<input type="hidden" name="ip" value="$(ip)">
+<input type="hidden" name="error" value="$(error)">
+<noscript><button type="submit">Continue</button></noscript>
+</form>
+<script>document.sn.submit();</script>
+</body></html>
+'''
+
+
+def _mikrotik_site(token):
+    site = Site.query.filter_by(portal_token=(token or '')[:24]).first()
+    tenant = db.session.get(Tenant, site.tenant_id) if site else None
+    if site is None or tenant is None or tenant_blocked(tenant):
+        abort(404)
+    return site, tenant
+
+
+def _mikrotik_guest(token):
+    """The router's login link and the guest's device, kept from the router's first redirect."""
+    return session.get(f'mk_{token}') or {}
+
+
+def _mikrotik_page(site, tenant, **kw):
+    guest = _mikrotik_guest(site.portal_token)
+    external = {'action': guest['login'], 'next_field': 'dst', 'next_value': guest.get('orig', '')} if guest.get('login') else None
+    return _hotspot_page(site, tenant, url_for('mikrotik_portal', token=site.portal_token), external=external, **kw)
+
+
+@app.route('/mikrotik/<token>/login.html')
+def mikrotik_login_file(token):
+    """The hotspot's login.html, fetched onto the router by the setup script."""
+    site, _tenant = _mikrotik_site(token)
+    base = Config.PUBLIC_URL or request.host_url.rstrip('/')
+    resp = make_response(MIKROTIK_LOGIN_HTML.replace('{action}', base + url_for('mikrotik_portal', token=site.portal_token)))
+    resp.headers['Content-Type'] = 'text/html; charset=utf-8'
+    return resp
+
+
+@app.route('/mikrotik/<token>')
+def mikrotik_portal(token):
+    site, tenant = _mikrotik_site(token)
+    login = request.args.get('link-login-only', '')
+    if login:
+        if not _is_gateway_url(login):
+            abort(400)
+        known = _mikrotik_guest(token)          # values the router left empty this time stay as they were
+        session[f'mk_{token}'] = {'login': login[:300], 'orig': request.args.get('link-orig', '')[:500] or known.get('orig', ''),
+                                  'mac': request.args.get('mac', '')[:17] or known.get('mac', ''),
+                                  'ip': request.args.get('ip', '')[:45] or known.get('ip', '')}
+        error = request.args.get('error', '')[:200]
+        return redirect(url_for('mikrotik_portal', token=token, error=error or None, lang=request.args.get('lang')))
+    if not _mikrotik_guest(token).get('login'):
+        return _mikrotik_page(site, tenant, error='Please connect to the Wi-Fi again and open any website to get here.')
+    return _mikrotik_page(site, tenant, error=request.args.get('error', '')[:200], tab='voucher' if request.args.get('error') else None)
+
+
+@app.route('/mikrotik/<token>/buy', methods=['POST'])
+def mikrotik_buy(token):
+    site, tenant = _mikrotik_site(token)
+    guest = _mikrotik_guest(token)
+    err = lambda m: _mikrotik_page(site, tenant, error=m, tab='buy')
+    if not guest.get('login'):
+        return err('Please connect to the Wi-Fi again and open any website to get here.')
+    if not request.form.get('agree'):
+        return err('Please accept the terms of use to continue.')
+    package = _site_packages(Package.query.filter_by(id=request.form.get('package_id', type=int), tenant_id=tenant.id,
+                                                     is_active=True, show_on_portal=True), site.id).first()
+    if not package:
+        return err('Choose a package.')
+    network = (request.form.get('network') or '')[:16] or None
+    if payment_networks(tenant) and not network:
+        return err('Choose your mobile-money network.')
+    payment, error, _ = _start_purchase(tenant, site.id, package, request.form.get('phone', ''), network, guest.get('mac'),
+                                        guest.get('ip'), 'mikrotik', gift_phone=_gift_phone_field())
+    if error:
+        return err(error)
+    session['mk_ref'] = payment.reference
+    return redirect(url_for('mikrotik_wait', token=token, ref=payment.reference))
+
+
+@app.route('/mikrotik/<token>/buy/wait')
+def mikrotik_wait(token):
+    site, tenant = _mikrotik_site(token)
+    guest = _mikrotik_guest(token)
+    ref = (request.args.get('ref') or '')[:20]
+    if not guest.get('login') or session.get('mk_ref') != ref:
+        return redirect(url_for('mikrotik_portal', token=token))
+    payment = _refresh_payment(ref)
+    if payment is None or payment.tenant_id != tenant.id:
+        return redirect(url_for('mikrotik_portal', token=token))
+    if payment.status == 'paid' and payment.voucher and payment.gift_phone:
+        session.pop('mk_ref', None)
+        return _mikrotik_page(site, tenant, view='gift', code=payment.voucher.code, friend=payment.gift_phone,
+                              package=payment.package_name)
+    if payment.status == 'paid' and payment.voucher:
+        session.pop('mk_ref', None)
+        return _mikrotik_connect(site, tenant, guest, payment.voucher.code)
+    if payment.status in ('failed', 'review'):
+        session.pop('mk_ref', None)
+        return _mikrotik_page(site, tenant, error=f"Payment not completed: {payment.message or 'The payment was not completed.'}", tab='buy')
+    timed_out = (datetime.utcnow() - payment.created_at).total_seconds() > 120 and not request.args.get('again')
+    return _mikrotik_page(site, tenant, view='wait', ref=ref, timed_out=timed_out,
+                          info={'amount': f'{payment.charged:.0f}', 'currency': payment.currency, 'phone': payment.phone,
+                                'package': payment.package_name, 'gift_phone': payment.gift_phone or ''})
+
+
+def _mikrotik_connect(site, tenant, guest, code):
+    """Paid: show the code and log the phone in on the router with it (the router asks SafeNet's RADIUS)."""
+    cfg = portal_config(tenant)
+    if cfg.get('logo_version'):
+        cfg['logo_url'] = url_for('portal_logo', slug=tenant.slug, v=cfg['logo_version'])
+    th = portal_ui.theme(cfg)
+    lang = request.cookies.get('sn_lang') if request.cookies.get('sn_lang') in portal_ui.LANGS else th['language']
+    t = lambda key: portal_ui.t(lang, key)
+    e = portal_ui.e
+    body = (f'<div class="alert ok" role="alert">{portal_ui.icon("check", 18)}<span>{t("paid_ok")}</span></div>'
+            f'<div class="codebox"><div><small>{t("your_code")}</small><b id="vcode">{e(code)}</b></div></div>'
+            f'<p class="hint" style="margin-top:6px">{t("keep_code")}</p>'
+            f'<form id="mk" method="post" action="{e(guest["login"])}">'
+            f'<input type="hidden" name="username" value="{e(code)}"><input type="hidden" name="password" value="{e(code)}">'
+            f'<input type="hidden" name="dst" value="{e(guest.get("orig", ""))}">'
+            f'<button class="btn" type="submit">{portal_ui.icon("wifi", 20, 2.4)} {t("connect")}</button></form>'
+            '<script>setTimeout(function(){document.getElementById("mk").submit();},1200);</script>')
+    resp = make_response(portal_ui.page(th, lang, body, hero_extra=False, lang_url=url_for('mikrotik_portal', token=site.portal_token)))
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -6079,8 +6221,16 @@ def add_router():
 def router_script(router_id):
     router = owned_or_404(Router, router_id)
     hub = db.session.get(VpnServer, 1)
+    site = db.session.get(Site, router.site_id) if router.site_id else None
+    site = site if site is not None and site.tenant_id == router.tenant_id else tenant_sites(router.tenant_id)[0]
+    if not site.portal_token:
+        site.portal_token = secrets.token_urlsafe(12)[:16]
+        db.session.commit()
+    base = Config.PUBLIC_URL or request.host_url.rstrip('/')
     return render_template('routers/script.html', router=router, hub=hub, online=_router_online(router),
-                           private_key=secretbox.decrypt(router.private_key_enc), config=Config)
+                           private_key=secretbox.decrypt(router.private_key_enc), config=Config,
+                           login_html=base + url_for('mikrotik_login_file', token=site.portal_token),
+                           portal_host=urlparse(base).hostname)
 
 
 @app.route('/routers/<int:router_id>/toggle', methods=['POST'])

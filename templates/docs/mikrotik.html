@@ -9,7 +9,7 @@
     <div class="box">MikroTik</div><span class="arr">⇄</span>
     <div class="box hl">SafeNet<small>secure VPN tunnel</small></div>
 </div>
-<p>Your MikroTik keeps running its own hotspot and login page. SafeNet adds a secure VPN tunnel to the router, and the router asks SafeNet whether each voucher code or customer account is valid, how long it lasts and how fast it may go. It works from any internet connection, even without a fixed public IP.</p>
+<p>Your MikroTik keeps running the hotspot, and guests see <strong>your SafeNet login page</strong>: your logo, packages bought with mobile money, and vouchers. SafeNet adds a secure VPN tunnel to the router, and the router asks SafeNet whether each code is valid, how long it lasts and how fast it may go. It works from any internet connection, even without a fixed public IP.</p>
 
 <h2 id="need">What you need</h2>
 <ul>
@@ -30,7 +30,8 @@
 <h2 id="script">3. Paste the script into the router</h2>
 <ol class="steps">
     <li><strong>Open a terminal</strong>In Winbox or WebFig, click <strong>New Terminal</strong>.</li>
-    <li><strong>Paste and run</strong>Paste the whole script and press Enter. It creates the VPN tunnel, points the hotspot at SafeNet, and allows one device per code.</li>
+    <li><strong>Paste and run</strong>Paste the whole script and press Enter. It creates the VPN tunnel, points the hotspot at SafeNet, allows one device per code, and replaces the hotspot's login page with your SafeNet page (it also lets phones reach SafeNet before they log in).</li>
+    <li><strong>Ran an older script before?</strong>Then the router still shows its old login page. Open the router's page in SafeNet again and run just the last four lines (under <em>SafeNet's login page on the hotspot</em>).</li>
     <li><strong>Check the connection</strong>Run:
         <pre><code>/interface wireguard peers print</code></pre>
         A recent "last-handshake" means the tunnel works. Within a minute the router shows as <strong>Connected</strong> on SafeNet's Routers page.</li>
@@ -39,8 +40,9 @@
 <h2 id="test">4. Test it</h2>
 <ol class="steps">
     <li><strong>Make a voucher</strong>In SafeNet: <strong>Vouchers → Generate</strong>, one voucher for 1 hour.</li>
-    <li><strong>Log in</strong>Join the hotspot Wi-Fi. On the MikroTik login page, type the voucher code as both the username and the password.</li>
+    <li><strong>Log in</strong>Join the hotspot Wi-Fi. Your SafeNet login page opens: open <strong>Voucher</strong> and type the code, or buy the cheapest package and enter your PIN. You're connected straight after.</li>
     <li><strong>See it in SafeNet</strong>The session appears on the <strong>Live</strong> page with its data usage.</li>
 </ol>
-<div class="note tip"><i class="bi bi-info-circle"></i><p>Speed limits from your SafeNet plans are sent to the MikroTik automatically. Buying packages with mobile money on the login page is available with Omada access points and the SafeNet gateway box; on MikroTik, sell vouchers.</p></div>
+<div class="note tip"><i class="bi bi-info-circle"></i><p>Speed limits from your SafeNet plans are sent to the MikroTik automatically. Changes in <strong>Portal settings</strong> and <strong>Packages</strong> show on the login page straight away; nothing to update on the router.</p></div>
+<div class="note warn"><i class="bi bi-exclamation-triangle"></i><p><strong>Still the old page?</strong> Check <code>/file print where name~"login.html"</code> shows a new file in the hotspot folder, and that <code>/ip hotspot walled-garden print</code> lists <code>{{ public_host }}</code>. If the router has a custom hotspot folder (<em>IP → Hotspot → Server Profiles → HTML Directory</em>), the script puts the page there too.</p></div>
 {% endblock %}
