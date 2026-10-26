@@ -5508,15 +5508,40 @@ def _wifi_qr_text(ssid, password=None):
     return f'WIFI:T:WPA;S:{esc(ssid)};P:{esc(password)};;' if password else f'WIFI:T:nopass;S:{esc(ssid)};;'
 
 
-@app.route('/sites/<int:site_id>/wifi-qr')
+def _site_ssid(site):
+    """The guest Wi-Fi name: set on the site, made by SafeNet (Omada), or the one Reyee guests are on (Ruijie Cloud)."""
+    if site.join_ssid:
+        return site.join_ssid
+    try:
+        names = [p.get('ssid') for p in json.loads(site.ruijie_clients or '[]') if p.get('ssid')]
+    except ValueError:
+        names = []
+    return max(set(names), key=names.count) if names else ''
+
+
+@app.route('/sites/<int:site_id>/wifi-qr', methods=['GET', 'POST'])
 @login_required
 @role_required('staff')
 def wifi_qr(site_id):
-    """Printable 'scan to join our Wi-Fi' QR codes for a site: an A4 poster, or table cards (?layout=cards)."""
+    """Printable 'scan to join our Wi-Fi' QR codes for a site: an A4 poster, or table cards (?layout=cards).
+    When SafeNet doesn't know the Wi-Fi name (MikroTik, Ruijie RG-AP, gateway box), it asks for it first."""
     site = owned_or_404(Site, site_id)
-    if not site.join_ssid:
-        flash(tr('Add the Wi-Fi name for {site} first (Rename / edit).', site=site.name), 'warning')
-        return redirect(url_for('sites_page'))
+    if request.method == 'POST':
+        _check_csrf()
+        if not current_user.has_role('admin'):
+            abort(403)
+        ssid, password = request.form.get('wifi_ssid', '').strip()[:32], request.form.get('wifi_password', '')
+        if not ssid:
+            flash(tr('Enter the Wi-Fi name guests join.'), 'warning')
+        elif password and not 8 <= len(password) <= 63:
+            flash(tr('A Wi-Fi password has 8 to 63 characters. Leave it empty for an open network.'), 'danger')
+        else:
+            site.wifi_ssid, site.wifi_password = ssid, password[:63] or None
+            db.session.commit()
+        return redirect(url_for('wifi_qr', site_id=site.id))
+    ssid = _site_ssid(site)
+    if not ssid:
+        return render_template('wifi_qr_setup.html', site=site)
     tenant = current_tenant()
     cfg = portal_config(tenant)
     hs = _hotspot_settings(tenant)
@@ -5528,8 +5553,8 @@ def wifi_qr(site_id):
     networks = [{'name': n['name'], 'logo': url_for('static', filename='img/' + portal_ui.NETWORKS[n['id']]['logo']) + f'?v={portal_ui.LOGOS_VERSION}'}
                 for n in payment_networks(tenant) if n['id'] in portal_ui.NETWORKS]
     size = request.args.get('size') if request.args.get('size') in PAPER_SIZES else 'A4'
-    return render_template('wifi_qr.html', site=site, ssid=site.join_ssid, password=site.wifi_password,
-                           qr_text=_wifi_qr_text(site.join_ssid, site.wifi_password), name=hs['name'], support=hs['support'],
+    return render_template('wifi_qr.html', site=site, ssid=ssid, password=site.wifi_password,
+                           qr_text=_wifi_qr_text(ssid, site.wifi_password), name=hs['name'], support=hs['support'],
                            color=th['color'], dark=th['dark'], app_url=_guest_app_link(tenant),
                            layout='cards' if request.args.get('layout') == 'cards' else 'poster',
                            packages=packages if request.args.get('packages') != '0' else [], has_packages=bool(packages),

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Wi-Fi QR code') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Wi-Fi QR code for {site}', site=site.name) }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-qr-code"></i> {{ _('Which Wi-Fi do guests join?') }}</div>
+            <div class="card-body">
+                <p class="small text-muted">{{ _("The QR code joins guests' phones to your Wi-Fi in one scan, then your login page opens. Type the Wi-Fi name exactly as phones show it (capital letters too).") }}</p>
+                {% if current_user.has_role('admin') %}
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3"><label class="form-label">{{ _('Wi-Fi name') }}</label>
+                        <input name="wifi_ssid" class="form-control" maxlength="32" required autofocus placeholder="{{ _('e.g. Zulu Free WiFi') }}"></div>
+                    <div class="mb-3"><label class="form-label">{{ _('Wi-Fi password') }}</label>
+                        <input name="wifi_password" class="form-control" maxlength="63" placeholder="{{ _('Leave empty for an open Wi-Fi (usual for hotspots)') }}"></div>
+                    <button class="btn btn-primary" type="submit"><i class="bi bi-qr-code"></i> {{ _('Make the QR code') }}</button>
+                </form>
+                {% else %}
+                <p class="mb-0">{{ _('Ask the owner to add the Wi-Fi name for this site.') }}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

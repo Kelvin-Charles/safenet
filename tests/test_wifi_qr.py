@@ -29,9 +29,21 @@ def login(u):
 c = login('owner')
 p = c.get('/sites').text
 assert f'/sites/{SID}/wifi-qr' in p and 'Guest Wi-Fi name (for the QR code)' in p
-# no Wi-Fi name yet: asked to add it
-r = c.get(f'/sites/{SID}/wifi-qr', follow_redirects=True)
-assert 'Add the Wi-Fi name' in html.unescape(r.text)
+# no Wi-Fi name yet (MikroTik, RG-AP, gateway box): the QR page asks for it, then shows the code
+r = html.unescape(c.get(f'/sites/{SID}/wifi-qr').text)
+assert 'Which Wi-Fi do guests join?' in r and 'name="wifi_ssid"' in r
+assert 'has 8 to 63 characters' in html.unescape(c.post(f'/sites/{SID}/wifi-qr', data={'csrf_token': tok(r), 'wifi_ssid': 'Shop WiFi',
+                                                                                       'wifi_password': 'abc'}, follow_redirects=True).text)
+q = html.unescape(c.post(f'/sites/{SID}/wifi-qr', data={'csrf_token': tok(r), 'wifi_ssid': 'Shop WiFi', 'wifi_password': ''},
+                         follow_redirects=True).text)
+assert '"WIFI:T:nopass;S:Shop WiFi;;"' in q
+assert login('staffer').post(f'/sites/{SID}/wifi-qr', data={'csrf_token': tok(r), 'wifi_ssid': 'Hack'}).status_code in (400, 403)
+# Reyee sites: the Wi-Fi name the guests are on, from Ruijie Cloud
+with app.app_context():
+    import json as _json
+    rs = Site(tenant_id=TID, name='Reyee', ruijie_clients=_json.dumps([{'ssid': 'U-SMART CONNECT'}, {'ssid': 'U-SMART CONNECT'}, {'ssid': 'Staff'}]))
+    db.session.add(rs); db.session.commit(); RS = rs.id
+assert '"WIFI:T:nopass;S:U-SMART CONNECT;;"' in html.unescape(c.get(f'/sites/{RS}/wifi-qr').text)
 # a too-short password is refused; then saved
 assert 'has 8 to 63 characters' in html.unescape(c.post(f'/sites/{SID}/edit', data={'csrf_token': tok(p), 'name': 'Main site', 'wifi_ssid': 'Zulu Free WiFi',
                                                                                     'wifi_password': 'short'}, follow_redirects=True).text)
