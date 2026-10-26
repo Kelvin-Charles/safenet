@@ -52,7 +52,10 @@
                     </div>
                     {{ field(form.phone) }}
                     {{ field(form.account_name) }}
-                    <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> {{ _('Request withdrawal') }}</button>
+                    <div class="mb-3"><label class="form-label">{{ _('Your SafeNet password') }}</label>
+                        <input type="password" name="password" class="form-control" autocomplete="current-password" required>
+                        <small class="text-muted">{{ _('Then we send a code by SMS to your business phone; enter it and the money is sent straight away.') }}</small></div>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> {{ _('Withdraw') }}</button>
                 </form>
                 {% else %}
                 <p class="text-muted mb-0">{{ _('You can withdraw once your balance reaches {amount}.', amount=cur ~ ' ' ~ '{:,}'.format(min_withdrawal)) }}</p>
@@ -79,6 +82,7 @@
                                     {% if w.status == 'paid' %}<span class="badge bg-success">{{ _('Paid') }}</span><small class="d-block text-muted">{{ _('Ref {reference}', reference=w.reference) }}</small>
                                     {% elif w.status == 'requested' %}<span class="badge bg-warning text-dark">{{ _('Pending') }}</span>
                                     {% elif w.status == 'sending' %}<span class="badge bg-info text-dark">{{ _('Being sent') }}</span>
+                                    {% elif w.status == 'verifying' %}<a class="badge bg-secondary text-decoration-none" href="{{ url_for('confirm_withdrawal', wid=w.id) }}">{{ _('Enter the SMS code') }}</a>
                                     {% else %}<span class="badge bg-danger">{{ _('Rejected') }}</span>{% if w.note %}<small class="d-block text-muted">{{ w.note }}</small>{% endif %}{% endif %}
                                 </td>
                             </tr>

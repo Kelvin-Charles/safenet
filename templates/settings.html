@@ -14,7 +14,9 @@
                     {{ form.hidden_tag() }}
                     <div class="row">
                         <div class="col-md-8">{{ field(form.name) }}</div>
-                        <div class="col-md-4">{{ field(form.phone) }}</div>
+                        <div class="col-md-4">{{ field(form.phone) }}
+                            <small class="text-muted d-block" style="margin-top:-8px">{{ _('Withdrawal codes are sent here. Changing it needs SafeNet to approve.') }}</small>
+                            {% if tenant.phone_pending %}<small class="text-warning d-block"><i class="bi bi-hourglass-split"></i> {{ _('Change to {phone} waiting for approval', phone=tenant.phone_pending) }}</small>{% endif %}</div>
                     </div>
                     {{ field(form.hotspot_name) }}
                     <div class="row">

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Confirm withdrawal') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Confirm withdrawal') }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-shield-lock"></i> {{ _('Enter the code we sent') }}</div>
+            <div class="card-body">
+                <p>{{ _('Withdraw') }} <strong>{{ w.tenant.currency }} {{ '{:,.0f}'.format(w.amount) }}</strong> {{ _('to') }} <strong>{{ w.destination }}</strong>.</p>
+                <p class="small text-muted">{{ _('We sent a 6-digit code by SMS to your business phone {phone}. It works for {n} minutes.', phone=masked, n=minutes) }}</p>
+                <form method="POST" autocomplete="off">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input name="code" class="form-control form-control-lg text-center mb-3" inputmode="numeric" maxlength="6" pattern="\d{6}"
+                           autocomplete="one-time-code" placeholder="000000" required autofocus style="letter-spacing:6px;font-weight:700">
+                    <button class="btn btn-primary w-100" type="submit"><i class="bi bi-check-circle"></i> {{ _('Confirm and send the money') }}</button>
+                </form>
+                <div class="d-flex justify-content-between mt-3">
+                    {% if can_resend %}
+                    <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-link btn-sm p-0" name="action" value="resend">{{ _('Send a new code') }}</button></form>
+                    {% else %}<span></span>{% endif %}
+                    <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-link btn-sm p-0 text-danger" name="action" value="cancel" formnovalidate>{{ _('Cancel') }}</button></form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

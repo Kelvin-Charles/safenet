@@ -33,6 +33,9 @@ class Tenant(db.Model):
     sms_changed_at = db.Column(db.DateTime)              # when the owner last switched SMS on or off
     # Owner notifications (all off until the owner turns them on; SMS ones cost like guest SMS)
     notify_phone = db.Column(db.String(16))              # 255XXXXXXXXX; empty = the business phone
+    # The business phone (signup) gets the withdrawal codes, so a change waits for the platform admin's approval
+    phone_pending = db.Column(db.String(20))
+    phone_pending_at = db.Column(db.DateTime)
     notify_sale_sms = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     notify_daily_sms = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     notify_daily_email = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
@@ -616,6 +619,11 @@ class Withdrawal(db.Model):
     processed_by_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='SET NULL'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     processed_at = db.Column(db.DateTime)
+    # 'verifying': waiting for the code sent by SMS to the business phone (not counted against the balance yet)
+    otp_hash = db.Column(db.String(64))
+    otp_expires_at = db.Column(db.DateTime)
+    otp_tries = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    otp_sends = db.Column(db.Integer, nullable=False, default=0, server_default='0')
 
     tenant = db.relationship('Tenant')
     requested_by = db.relationship('Admin', foreign_keys=[requested_by_id])

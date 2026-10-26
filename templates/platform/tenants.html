@@ -10,6 +10,28 @@
     <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ tenants|selectattr('status', 'equalto', 'active')|list|length }}</div><div class="stat-label">Active</div></div></div>
     <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ tenants|selectattr('status', 'equalto', 'suspended')|list|length }}</div><div class="stat-label">Suspended</div></div></div>
 </div>
+{% set asking = tenants|selectattr('phone_pending')|list %}
+{% if asking %}
+<div class="card mb-4 border-warning">
+    <div class="card-header"><i class="bi bi-telephone"></i> Business phone changes to approve ({{ asking|length }})</div>
+    <div class="card-body">
+        <p class="small text-muted">Withdrawal codes go to the business phone. Approve only when you are sure the business asked for it (for example, call the current number).</p>
+        <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Tenant</th><th>Current phone</th><th>New phone</th><th>Asked</th><th></th></tr></thead>
+            <tbody>
+            {% for t in asking %}
+            <tr><td>{{ t.name }}</td><td>{{ t.phone }}</td><td><strong>{{ t.phone_pending }}</strong></td>
+                <td class="small text-muted">{{ t.phone_pending_at.strftime('%d %b %H:%M') if t.phone_pending_at }}</td>
+                <td class="text-nowrap"><form method="POST" action="{{ url_for('platform_phone_change', tid=t.id) }}" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-success" name="action" value="approve">Approve</button>
+                    <button class="btn btn-sm btn-outline-danger" name="action" value="reject">Reject</button></form></td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
 <div class="card">
     <div class="card-header"><i class="bi bi-buildings"></i> All tenants</div>
     <div class="card-body">

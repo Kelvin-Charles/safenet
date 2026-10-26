@@ -40,6 +40,7 @@ from app import app, db, tenant_balance, _lipa_provider_code
 import migrations
 from models import Admin, Tenant, Payment, Withdrawal
 app.config.update(TESTING=True)
+PW = 'password1'
 tok = lambda h: re.search(r'name="csrf_token"[^>]*value="([^"]+)"', h).group(1)
 now = datetime.utcnow()
 with app.app_context():
@@ -59,7 +60,7 @@ co, cs = login('owner'), login('boss')
 # --- the tenant chooses where the money goes
 e = co.get('/earnings').text
 assert 'Lipa Namba (merchant till)' in e and 'Bank account' in e and 'Vodacom M-Pesa' in e
-w = lambda **d: html.unescape(co.post('/earnings/withdraw', data={'csrf_token': tok(e), 'amount': 10000, 'phone': '0684000001', **d},
+w = lambda **d: html.unescape(co.post('/earnings/withdraw', data={'csrf_token': tok(e), 'password': PW, 'amount': 10000, 'phone': '0684000001', **d},
                                       follow_redirects=True).text)
 assert 'Enter the Lipa Namba' in w(method='lipa', lipa_namba='')
 assert 'Choose the network' in w(method='lipa', lipa_namba='48001268')
@@ -170,7 +171,7 @@ e = co.get('/earnings').text
 for d in (dict(method='mobile', phone='0754000111', account_name='Asha Juma'),
           dict(method='bank', bank_name='NMB', bank_account='2041000111', account_name='Zulu Connect Ltd'),
           dict(method='lipa', lipa_namba='55667788', lipa_network='Airtel Money')):
-    assert 'requested' in html.unescape(co.post('/earnings/withdraw', data={'csrf_token': tok(e), 'amount': 5000, **{'phone': '0684000001', **d}},
+    assert 'requested' in html.unescape(co.post('/earnings/withdraw', data={'csrf_token': tok(e), 'password': PW, 'amount': 5000, **{'phone': '0684000001', **d}},
                                                 follow_redirects=True).text), d
 with app.app_context():
     SM, SB, SL = [x.id for x in Withdrawal.query.filter_by(status='requested').order_by(Withdrawal.id)]

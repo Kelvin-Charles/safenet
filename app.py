@@ -5301,6 +5301,47 @@ def reset_password(token):
 # ---------------------------------------------------------------------------
 # Tenant settings and team
 # ---------------------------------------------------------------------------
+def _ask_phone_change(tenant, wanted):
+    """The business phone gets the withdrawal codes: the first one is saved, a change waits for the platform admin."""
+    same = lambda a, b: (_normalize_tz_phone(a or '') or (a or '')) == (_normalize_tz_phone(b or '') or (b or ''))
+    if not tenant.phone:
+        tenant.phone = wanted or None
+        return
+    if not wanted or same(wanted, tenant.phone) or same(wanted, tenant.phone_pending):
+        return                         # nothing new asked (the form shows the phone in use)
+    tenant.phone_pending, tenant.phone_pending_at = wanted[:20], datetime.utcnow()
+    for admin in Admin.query.filter_by(is_superadmin=True, is_active=True):
+        send_mail(admin.email, f'Phone change request: {tenant.name}',
+                  f'{tenant.name} asked to change its business phone from {tenant.phone} to {wanted}.\n'
+                  f'Withdrawal codes go to this phone. Approve or reject it at {_link("platform_tenants")}\n')
+    flash(tr('Your business phone change to {phone} is waiting for SafeNet to approve it. Until then, codes still go to {old}.',
+             phone=wanted, old=tenant.phone), 'info')
+
+
+@app.route('/platform/tenants/<int:tid>/phone', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_phone_change(tid):
+    _check_csrf()
+    tenant = db.session.get(Tenant, tid) or abort(404)
+    if not tenant.phone_pending:
+        return redirect(url_for('platform_tenants'))
+    old, new = tenant.phone, tenant.phone_pending
+    if request.form.get('action') == 'approve':
+        tenant.phone = new
+        flash(f'{tenant.name}: business phone changed to {new}.', 'success')
+        for number in {_normalize_tz_phone(old or ''), _normalize_tz_phone(new)} - {None}:
+            send_sms_async(number, f'SafeNet: the business phone of {tenant.name} is now {new}. Withdrawal codes go there. '
+                                   f'If you did not ask for this, call SafeNet now.')
+    else:
+        flash(f'{tenant.name}: phone change to {new} rejected.', 'info')
+        if _normalize_tz_phone(old or ''):
+            send_sms_async(_normalize_tz_phone(old), f'SafeNet: the change of your business phone to {new} was not approved.')
+    tenant.phone_pending = tenant.phone_pending_at = None
+    db.session.commit()
+    return redirect(url_for('platform_tenants'))
+
+
 @app.route('/settings', methods=['GET', 'POST'])
 @login_required
 @role_required('admin')
@@ -5309,7 +5350,7 @@ def tenant_settings():
     form = TenantSettingsForm(obj=tenant)
     if form.validate_on_submit():
         tenant.name = form.name.data.strip()
-        tenant.phone = (form.phone.data or '').strip() or None
+        _ask_phone_change(tenant, (form.phone.data or '').strip())
         tenant.hotspot_name = (form.hotspot_name.data or '').strip() or None
         tenant.support_phone = (form.support_phone.data or '').strip() or None
         tenant.currency = form.currency.data.strip().upper()
@@ -5318,7 +5359,7 @@ def tenant_settings():
         db.session.commit()
         flash(tr('Settings saved.'), 'success')
         return redirect(url_for('tenant_settings'))
-    return render_template('settings.html', form=form)
+    return render_template('settings.html', form=form, tenant=tenant)
 
 
 def _manageable(member):
@@ -5926,13 +5967,31 @@ def request_withdrawal():
         db.session.rollback()
         flash(tr('You can withdraw up to {cur} {amount}.', cur=tenant.currency, amount=f'{balance:,.0f}'), 'danger')
         return redirect(url_for('earnings'))
+    # the owner's password, then a code by SMS to the business phone (which only the platform admin can change)
+    if _rate_limited('wdpass', f'admin:{current_user.id}', 5, 15):
+        db.session.rollback()
+        flash(tr('Too many wrong passwords. Please wait a few minutes and try again.'), 'danger')
+        return redirect(url_for('earnings'))
+    if not current_user.check_password(request.form.get('password') or ''):
+        _rate_hit('wdpass', f'admin:{current_user.id}')
+        db.session.commit()
+        flash(tr('Your password is not right.'), 'danger')
+        return redirect(url_for('earnings'))
     w = Withdrawal(tenant_id=tenant.id, amount=amount, phone=phone, account_name=account_name, method=method,
                    requested_by_id=current_user.id)
     if method == 'lipa':
         w.lipa_namba, w.lipa_network = lipa_namba, form.lipa_network.data
     elif method == 'bank':
         w.bank_name, w.bank_account = bank_name[:80], bank_account[:40]
-    db.session.add(w)
+    code_phone = _normalize_tz_phone(tenant.phone or '')
+    if code_phone and sms_is_configured():
+        w.status = 'verifying'
+        db.session.add(w)
+        db.session.flush()
+        _send_withdrawal_code(w, code_phone)
+        db.session.commit()
+        return redirect(url_for('confirm_withdrawal', wid=w.id))
+    db.session.add(w)                  # no business phone (or no SMS): the platform admin checks and pays it
     db.session.commit()
     for admin in Admin.query.filter_by(is_superadmin=True, is_active=True):
         send_mail(admin.email, f'Withdrawal request: {tenant.name} {tenant.currency} {amount:,.0f}',
@@ -5941,6 +6000,90 @@ def request_withdrawal():
     flash(tr('Withdrawal of {cur} {amount} requested. You will get an email when it is paid.', cur=tenant.currency,
              amount=f'{amount:,.0f}'), 'success')
     return redirect(url_for('earnings'))
+
+
+WITHDRAWAL_CODE_MINUTES = 10
+
+
+def _withdrawal_code_hash(w, code):
+    return hmac.new(Config.SECRET_KEY.encode(), f'withdrawal:{w.id}:{code}'.encode(), hashlib.sha256).hexdigest()
+
+
+def _send_withdrawal_code(w, phone):
+    """A new 6-digit code by SMS for this withdrawal. Caller commits."""
+    code = f'{secrets.randbelow(10 ** 6):06d}'
+    w.otp_hash, w.otp_tries = _withdrawal_code_hash(w, code), 0
+    w.otp_expires_at = datetime.utcnow() + timedelta(minutes=WITHDRAWAL_CODE_MINUTES)
+    w.otp_sends = (w.otp_sends or 0) + 1
+    send_sms_async(phone, f'SafeNet: your code to withdraw {w.tenant.currency} {w.amount:,.0f} to {w.destination} is {code}. '
+                          f'It expires in {WITHDRAWAL_CODE_MINUTES} minutes. Never share it with anyone.')
+
+
+@app.route('/earnings/withdraw/<int:wid>/confirm', methods=['GET', 'POST'])
+@login_required
+@role_required('owner')
+def confirm_withdrawal(wid):
+    """The code sent to the business phone: then the payout goes out straight away (no platform admin needed)."""
+    w = Withdrawal.query.filter_by(id=wid, tenant_id=tenant_id()).first_or_404()
+    if w.status != 'verifying':
+        return redirect(url_for('earnings'))
+    phone = _normalize_tz_phone(w.tenant.phone or '')
+    if request.method == 'POST':
+        _check_csrf()
+        if request.form.get('action') == 'resend':
+            if (w.otp_sends or 0) >= 3:
+                flash(tr('No more codes for this withdrawal. Start again.'), 'danger')
+            elif phone:
+                _send_withdrawal_code(w, phone)
+                flash(tr('A new code was sent.'), 'info')
+            db.session.commit()
+            return redirect(url_for('confirm_withdrawal', wid=w.id))
+        if request.form.get('action') == 'cancel':
+            w.status, w.note, w.otp_hash = 'rejected', 'Cancelled before the code was entered', None
+            db.session.commit()
+            flash(tr('Withdrawal cancelled.'), 'info')
+            return redirect(url_for('earnings'))
+        code = re.sub(r'\D', '', request.form.get('code') or '')
+        if not w.otp_hash or w.otp_expires_at < datetime.utcnow():
+            flash(tr('The code has expired. Ask for a new one.'), 'danger')
+            return redirect(url_for('confirm_withdrawal', wid=w.id))
+        if (w.otp_tries or 0) >= 5:
+            flash(tr('Too many wrong codes. Ask for a new one.'), 'danger')
+            return redirect(url_for('confirm_withdrawal', wid=w.id))
+        if not hmac.compare_digest(w.otp_hash, _withdrawal_code_hash(w, code)):
+            w.otp_tries = (w.otp_tries or 0) + 1
+            db.session.commit()
+            flash(tr('That code is not right.'), 'danger')
+            return redirect(url_for('confirm_withdrawal', wid=w.id))
+        # the code is right: check the balance again (one at a time), then pay
+        tenant = Tenant.query.filter_by(id=w.tenant_id).with_for_update().one()
+        w = Withdrawal.query.filter_by(id=wid).with_for_update().one()
+        balance, _, _ = tenant_balance(tenant.id)
+        if w.amount > balance:
+            w.status, w.note, w.otp_hash = 'rejected', 'More than the balance', None
+            db.session.commit()
+            flash(tr('You can withdraw up to {cur} {amount}.', cur=tenant.currency, amount=f'{balance:,.0f}'), 'danger')
+            return redirect(url_for('earnings'))
+        w.status, w.otp_hash = 'requested', None
+        db.session.commit()
+        options = _payout_options(w)
+        w = Withdrawal.query.filter_by(id=wid).with_for_update().one()
+        error = _send_payout_now(w, options[0]) if options else 'No payout service is set up for this kind of withdrawal.'
+        if error:
+            log.warning('withdrawal %s left for the platform admin: %s', wid, error)
+            for admin in Admin.query.filter_by(is_superadmin=True, is_active=True):
+                send_mail(admin.email, f'Withdrawal to pay by hand: {tenant.name} {tenant.currency} {w.amount:,.0f}',
+                          f'{tenant.name} confirmed a withdrawal of {tenant.currency} {w.amount:,.0f} to {w.destination} with the '
+                          f'code sent to its phone, but it could not be sent automatically: {error}\n\n'
+                          f'Send it at {_link("platform_payouts")}\n')
+            flash(tr('Confirmed. SafeNet will send {cur} {amount} to {dest} shortly.', cur=tenant.currency,
+                     amount=f'{w.amount:,.0f}', dest=w.destination), 'success')
+        else:
+            flash(tr('{cur} {amount} is on its way to {dest}.', cur=tenant.currency, amount=f'{w.amount:,.0f}', dest=w.destination), 'success')
+        return redirect(url_for('earnings'))
+    masked = f'0{phone[3:6]} ••• {phone[-3:]}' if phone else ''
+    return render_template('withdraw_confirm.html', w=w, masked=masked, minutes=WITHDRAWAL_CODE_MINUTES,
+                           can_resend=(w.otp_sends or 0) < 3)
 
 
 @app.route('/settings/payments', methods=['GET', 'POST'])
@@ -6176,13 +6319,11 @@ def send_payout(wid):
         return back
     if not w.payout_ref:
         w.payout_ref = f'WD{w.id}X{secrets.token_hex(3).upper()}'
-    try:
-        if via == 'snippe':
-            creds = _platform_snippe_creds()
-            bank = request.values.get('bank') or (w.bank_name if w.bank_name in snippe.BANKS else '')
-            name = w.account_name or w.tenant.name
-            target = dict(bank=bank, account=w.bank_account) if w.method == 'bank' else dict(phone=w.phone)
-            if request.method == 'GET':
+    if request.method == 'GET':          # check first: receiver, fee, balance
+        try:
+            if via == 'snippe':
+                creds = _platform_snippe_creds()
+                bank = request.values.get('bank') or (w.bank_name if w.bank_name in snippe.BANKS else '')
                 db.session.commit()
                 info = {}
                 for key, call in (('fee', lambda: snippe.payout_fee(w.amount, creds)), ('balance', lambda: snippe.balance(creds))):
@@ -6191,12 +6332,47 @@ def send_payout(wid):
                     except snippe.SnippeError as e:
                         log.info('snippe %s for payout %s: %s', key, wid, e)
                 return render_template('platform/payout_send.html', w=w, via=via, options=options, names=paylib.PROVIDERS,
-                                       snippe_info=info, name=name, bank=bank, banks=snippe.BANKS, preview=None, providers=[])
-            _check_csrf()
+                                       snippe_info=info, name=w.account_name or w.tenant.name, bank=bank, banks=snippe.BANKS,
+                                       preview=None, providers=[])
+            providers, provider_code = [], None
+            if w.method == 'lipa':
+                providers = clickpesa.lipa_namba_providers()
+                provider_code = _lipa_provider_code(providers, w.lipa_network, request.values.get('provider'))
+            target = dict(phone=w.phone) if w.method == 'mobile' else dict(lipa_namba=w.lipa_namba, provider_code=provider_code)
+            db.session.commit()
+            preview = clickpesa.preview_payout(w.amount, w.payout_ref, **target) if (w.method == 'mobile' or provider_code) else None
+            return render_template('platform/payout_send.html', w=w, via=via, options=options, names=paylib.PROVIDERS,
+                                   preview=preview, providers=providers, provider_code=provider_code)
+        except (clickpesa.ClickPesaError, snippe.SnippeError) as e:
+            db.session.rollback()
+            flash(f'{paylib.PROVIDERS[via]}: {e}', 'danger')
+            return back
+    _check_csrf()
+    error = _send_payout_now(w, via, bank=request.values.get('bank'), provider=request.values.get('provider'))
+    if error:
+        flash(error, 'danger')
+        return back if not error.startswith('Choose') else redirect(url_for('send_payout', wid=w.id, via=via))
+    flash(f'{w.tenant.currency} {w.amount:,.0f} sent to {w.destination}.' if w.status == 'paid' else
+          f'Payout to {w.destination} accepted by {paylib.PROVIDERS[via]}. It shows as paid once {paylib.PROVIDERS[via]} confirms it.',
+          'success')
+    return back
+
+
+def _send_payout_now(w, via, bank=None, provider=None):
+    """Send a withdrawal (status 'requested', row locked) through `via`. Commits. Returns None, or why it wasn't sent
+    (then it stays in the platform admin's queue)."""
+    wid = w.id
+    if not w.payout_ref:
+        w.payout_ref = f'WD{w.id}X{secrets.token_hex(3).upper()}'
+    try:
+        if via == 'snippe':
+            creds = _platform_snippe_creds()
+            bank = bank or (w.bank_name if w.bank_name in snippe.BANKS else '')
+            name = w.account_name or w.tenant.name
             if w.method == 'bank' and bank not in snippe.BANKS:
                 db.session.rollback()
-                flash('Choose the bank.', 'danger')
-                return redirect(url_for('send_payout', wid=w.id, via=via))
+                return 'Choose the bank.'
+            target = dict(bank=bank, account=w.bank_account) if w.method == 'bank' else dict(phone=w.phone)
             tx = snippe.create_payout(w.amount, w.payout_ref, creds, name, narration=f'SafeNet earnings {w.tenant.name}',
                                       webhook_url=_link('snippe_webhook') if creds.webhook_key else None, **target)
             w.payout_id = str(tx.get('reference') or '')[:64] or None
@@ -6206,21 +6382,13 @@ def send_payout(wid):
             done = w.payout_status.lower() in snippe.PAYOUT_DONE
             settled_ref = w.payout_id or w.payout_ref
         else:
-            providers, provider_code = [], None
+            provider_code = None
             if w.method == 'lipa':
-                providers = clickpesa.lipa_namba_providers()
-                provider_code = _lipa_provider_code(providers, w.lipa_network, request.values.get('provider'))
+                provider_code = _lipa_provider_code(clickpesa.lipa_namba_providers(), w.lipa_network, provider)
+                if not provider_code:
+                    db.session.rollback()
+                    return 'Choose the Lipa Namba provider.'
             target = dict(phone=w.phone) if w.method == 'mobile' else dict(lipa_namba=w.lipa_namba, provider_code=provider_code)
-            if request.method == 'GET':
-                db.session.commit()
-                preview = clickpesa.preview_payout(w.amount, w.payout_ref, **target) if (w.method == 'mobile' or provider_code) else None
-                return render_template('platform/payout_send.html', w=w, via=via, options=options, names=paylib.PROVIDERS,
-                                       preview=preview, providers=providers, provider_code=provider_code)
-            _check_csrf()
-            if w.method == 'lipa' and not provider_code:
-                db.session.rollback()
-                flash('Choose the Lipa Namba provider.', 'danger')
-                return redirect(url_for('send_payout', wid=w.id, via=via))
             tx = clickpesa.create_payout(w.amount, w.payout_ref, **target)
             w.payout_status = str(tx.get('status') or 'AUTHORIZED')[:16]
             w.payout_fee = Decimal(str(tx.get('fee') or 0))
@@ -6236,17 +6404,14 @@ def send_payout(wid):
             changes['payout_ref'] = None
         Withdrawal.query.filter_by(id=wid).update(changes)
         db.session.commit()
-        flash(msg, 'danger')
-        return back
+        return msg
     w.status, w.payout_error, w.payout_provider = 'sending', None, via
-    w.processed_by_id = current_user.id
+    if current_user and getattr(current_user, 'is_authenticated', False) and current_user.is_superadmin:
+        w.processed_by_id = current_user.id
     if done:
         _finish_withdrawal(w, 'paid', reference=settled_ref[:64])
     db.session.commit()
-    flash(f'{w.tenant.currency} {w.amount:,.0f} sent to {w.destination}.' if w.status == 'paid' else
-          f'Payout to {w.destination} accepted by {paylib.PROVIDERS[via]}. It shows as paid once {paylib.PROVIDERS[via]} confirms it.',
-          'success')
-    return back
+    return None
 
 
 @app.route('/platform/payouts/<int:wid>/check', methods=['POST'])

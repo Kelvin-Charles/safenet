@@ -19,6 +19,7 @@ from app import app, db, _hash_key, tenant_balance
 import migrations
 from models import Admin, Tenant, Package, Payment, Gateway, Withdrawal
 app.config.update(TESTING=True)
+PW = 'password1'
 tok = lambda h: re.search(r'name="csrf_token"[^>]*value="([^"]+)"', h).group(1)
 
 assert secretbox.decrypt(secretbox.encrypt('abc')) == 'abc' and secretbox.decrypt('garbage') == '' and secretbox.encrypt('') is None
@@ -74,16 +75,16 @@ r = cb.get('/earnings'); assert 'straight into your own ClickPesa' in r.text
 
 # --- withdrawals (owner only)
 ca = login('ownera'); cad = login('admina')
-r = cad.get('/earnings'); assert r.status_code == 200 and 'Request withdrawal' not in r.text
-assert cad.post('/earnings/withdraw', data={'csrf_token': tok(r.text), 'amount': 1000, 'phone': '0684000009'}).status_code == 302
+r = cad.get('/earnings'); assert r.status_code == 200 and 'Your SafeNet password' not in r.text
+assert cad.post('/earnings/withdraw', data={'csrf_token': tok(r.text), 'password': PW, 'amount': 1000, 'phone': '0684000009'}).status_code == 302
 with app.app_context(): assert Withdrawal.query.count() == 0
-r = ca.get('/earnings'); assert '1,800' in r.text and 'Request withdrawal' in r.text
-r = ca.post('/earnings/withdraw', data={'csrf_token': tok(r.text), 'amount': 400, 'phone': '0684000009'}, follow_redirects=True); assert 'minimum withdrawal' in r.text
-r = ca.post('/earnings/withdraw', data={'csrf_token': tok(r.text), 'amount': 5000, 'phone': '0684000009'}, follow_redirects=True); assert 'up to TZS 1,800' in r.text
-r = ca.post('/earnings/withdraw', data={'csrf_token': tok(r.text), 'amount': 1200, 'phone': '0712 000 009', 'account_name': 'Asha'}, follow_redirects=True)
+r = ca.get('/earnings'); assert '1,800' in r.text and 'Your SafeNet password' in r.text
+r = ca.post('/earnings/withdraw', data={'csrf_token': tok(r.text), 'password': PW, 'amount': 400, 'phone': '0684000009'}, follow_redirects=True); assert 'minimum withdrawal' in r.text
+r = ca.post('/earnings/withdraw', data={'csrf_token': tok(r.text), 'password': PW, 'amount': 5000, 'phone': '0684000009'}, follow_redirects=True); assert 'up to TZS 1,800' in r.text
+r = ca.post('/earnings/withdraw', data={'csrf_token': tok(r.text), 'password': PW, 'amount': 1200, 'phone': '0712 000 009', 'account_name': 'Asha'}, follow_redirects=True)
 assert 'Withdrawal of TZS 1,200 requested' in r.text and any('boss@x.tz' == o[0] for o in outbox)
 with app.app_context(): assert tenant_balance(A)[0] == Decimal('600')
-r = ca.post('/earnings/withdraw', data={'csrf_token': tok(r.text), 'amount': 1000, 'phone': '0684000009'}, follow_redirects=True); assert 'up to TZS 600' in r.text
+r = ca.post('/earnings/withdraw', data={'csrf_token': tok(r.text), 'password': PW, 'amount': 1000, 'phone': '0684000009'}, follow_redirects=True); assert 'up to TZS 600' in r.text
 
 # --- platform payouts
 cs = login('boss')
@@ -95,7 +96,7 @@ assert 'marked paid' in r.text and outbox[-1][0] == 'ownera@x.tz' and 'MP123' in
 r = cs.post(f'/platform/payouts/{wid}', data={'csrf_token': tok(r.text), 'action': 'reject'}, follow_redirects=True); assert 'already processed' in r.text
 with app.app_context(): assert tenant_balance(A)[0] == Decimal('600')
 # a rejected request returns the money
-r = ca.get('/earnings'); ca.post('/earnings/withdraw', data={'csrf_token': tok(r.text), 'amount': 600, 'phone': '0684000009'})
+r = ca.get('/earnings'); ca.post('/earnings/withdraw', data={'csrf_token': tok(r.text), 'password': PW, 'amount': 600, 'phone': '0684000009'})
 with app.app_context(): w2 = Withdrawal.query.filter_by(status='requested').one().id; assert tenant_balance(A)[0] == 0
 r = cs.get('/platform/payouts'); cs.post(f'/platform/payouts/{w2}', data={'csrf_token': tok(r.text), 'action': 'reject', 'note': 'wrong number'})
 with app.app_context(): assert tenant_balance(A)[0] == Decimal('600')
