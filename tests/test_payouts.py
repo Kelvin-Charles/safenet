@@ -2,7 +2,7 @@
 import html, os, re, sys
 from datetime import datetime
 from decimal import Decimal
-os.environ.update(DB_PASSWORD='x', CLICKPESA_CLIENT_ID='platform-id', CLICKPESA_API_KEY='platform-key', MIN_WITHDRAWAL='500',
+os.environ.update(CLICKPESA_PAYOUTS='1', DB_PASSWORD='x', CLICKPESA_CLIENT_ID='platform-id', CLICKPESA_API_KEY='platform-key', MIN_WITHDRAWAL='500',
                   SECRET_KEY='test-secret-key-long-enough')
 sys.path.insert(0, os.getcwd())
 import config; config.Config.SQLALCHEMY_DATABASE_URI = 'sqlite://'

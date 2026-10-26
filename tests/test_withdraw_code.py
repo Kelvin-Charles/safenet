@@ -86,6 +86,20 @@ assert 'expired' in html.unescape(co.post(f'/earnings/withdraw/{W2}/confirm', da
 assert 'Withdrawal cancelled' in html.unescape(co.post(f'/earnings/withdraw/{W2}/confirm', data={'csrf_token': tok(page), 'action': 'cancel'},
                                                        follow_redirects=True).text)
 
+# Lipa Namba goes through ClickPesa only: off until the platform admin switches ClickPesa payouts on
+assert 'Lipa Namba (merchant till)' not in html.unescape(co.get('/earnings').text)
+assert "Lipa Namba isn't available" in ask(password='password1', amount=3000, method='lipa', lipa_namba='48001268', lipa_network='Vodacom M-Pesa', account_name='ACME')
+with app.app_context():
+    w_ = Withdrawal(tenant_id=TID, amount=Decimal(3000), phone='255684000222', method='mobile')
+    assert appmod._payout_options(w_) == ['snippe']                  # mobile money: Snippe only while it's off
+cb = login('boss')
+pb = html.unescape(cb.get('/platform/billing').text)
+assert 'ClickPesa payouts (Lipa Namba withdrawals)' in pb
+cb.post('/platform/settings', data={'csrf_token': tok(pb), 'CLICKPESA_PAYOUTS': '1'})
+assert appmod.Config.CLICKPESA_PAYOUTS == 1 and 'Lipa Namba (merchant till)' in html.unescape(co.get('/earnings').text)
+cb.post('/platform/settings', data={'csrf_token': tok(pb), 'CLICKPESA_PAYOUTS': '0'})
+assert appmod.Config.CLICKPESA_PAYOUTS == 0
+
 # the business phone: a change waits for the platform admin, codes keep going to the old one
 s = co.get('/settings').text
 co.post('/settings', data={'csrf_token': tok(s), 'name': 'Zulu', 'phone': '0699 999 999', 'currency': 'TZS'})

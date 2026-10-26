@@ -18,9 +18,16 @@
             {% for key, label, value, default, decimal in knobs %}
             <div class="col-md-4 col-sm-6">
                 <label class="form-label small mb-1" for="{{ key }}">{{ label }}</label>
+                {% if key in switches %}
+                <select class="form-select" id="{{ key }}" name="{{ key }}">
+                    <option value="0"{{ ' selected' if not value }}>Off</option><option value="1"{{ ' selected' if value }}>On</option>
+                </select>
+                <small class="text-muted">{{ switches[key] }}</small>
+                {% else %}
                 <input class="form-control" type="number" id="{{ key }}" name="{{ key }}" min="0" step="{{ '0.1' if decimal else '1' }}"
                        value="{{ '{:g}'.format(value) if decimal else value }}" required>
                 <small class="text-muted">Server default: {{ '{:g}'.format(default) if decimal else '{:,}'.format(default) }}</small>
+                {% endif %}
             </div>
             {% endfor %}
             <div class="col-12">

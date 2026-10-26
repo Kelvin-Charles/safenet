@@ -79,6 +79,7 @@ PLATFORM_KNOBS = (
     ('SMS_PRICE', 'Price of one SMS to guests (TZS)', int, 0, 1000),
     ('MIN_WITHDRAWAL', 'Minimum withdrawal (TZS)', int, 0, 10_000_000),
     ('BILLING_GRACE_DAYS', 'Days Wi-Fi keeps working after a subscription ends', int, 0, 60),
+    ('CLICKPESA_PAYOUTS', 'ClickPesa payouts (Lipa Namba withdrawals)', int, 0, 1),
 )
 _KNOB_DEFAULTS = {key: getattr(Config, key) for key, *_ in PLATFORM_KNOBS}
 _knobs_loaded_at = [0.0]
@@ -5924,6 +5925,8 @@ def earnings():
     withdrawals = scoped(Withdrawal).order_by(Withdrawal.created_at.desc()).limit(50).all()
     sms_history = SmsCharge.query.filter_by(tenant_id=tid).order_by(SmsCharge.id.desc()).limit(100).all()
     form = WithdrawalForm(phone=tenant.phone or '')
+    if not Config.CLICKPESA_PAYOUTS:            # Lipa Namba is paid through ClickPesa only (switch in Platform: Billing)
+        form.method.choices = [c for c in form.method.choices if c[0] != 'lipa']
     return render_template('earnings.html', stats=stats, withdrawals=withdrawals, form=form,
                            fee_percent=_fee_percent(tenant), min_withdrawal=Config.MIN_WITHDRAWAL, sms_price=Config.SMS_PRICE,
                            sms_history=sms_history,
@@ -5943,6 +5946,9 @@ def request_withdrawal():
         flash(tr('Enter a valid mobile number, e.g. 0712 345 678.'), 'danger')
         return redirect(url_for('earnings'))
     method = form.method.data if form.method.data in ('mobile', 'lipa', 'bank') else 'mobile'
+    if method == 'lipa' and not Config.CLICKPESA_PAYOUTS:
+        flash(tr("Withdrawing to a Lipa Namba isn't available right now. Choose mobile money or a bank."), 'danger')
+        return redirect(url_for('earnings'))
     account_name = (form.account_name.data or '').strip() or None
     lipa_namba = re.sub(r'\D', '', form.lipa_namba.data or '')
     bank_name, bank_account = (form.bank_name.data or '').strip(), (form.bank_account.data or '').strip()
@@ -6192,7 +6198,7 @@ def test_payment_settings():
 
 def _payouts_ready(provider=None):
     """Can SafeNet send payouts itself through this provider (or through any)?"""
-    ready = {'clickpesa': clickpesa.is_configured(clickpesa.platform_credentials()),
+    ready = {'clickpesa': bool(Config.CLICKPESA_PAYOUTS) and clickpesa.is_configured(clickpesa.platform_credentials()),
              'snippe': snippe.is_configured(_platform_snippe_creds())}
     return ready.get(provider, False) if provider else ready
 
@@ -6879,7 +6885,8 @@ def platform_billing():
                            omada_ac_app=bool((db.session.get(PlatformSetting, 'omada_ac_client_id') or PlatformSetting()).value),
                            omada_hosted=_omada_hosted_available(),
                            knobs=[(key, label, getattr(Config, key), _KNOB_DEFAULTS[key], kind is float)
-                                  for key, label, kind, _lo, _hi in PLATFORM_KNOBS])
+                                  for key, label, kind, _lo, _hi in PLATFORM_KNOBS],
+                           switches={'CLICKPESA_PAYOUTS': "Off: businesses can't choose Lipa Namba, and payouts go through Snippe only."})
 
 
 @app.route('/platform/payment-provider', methods=['POST'])
@@ -6911,6 +6918,8 @@ def platform_settings_save():
     _check_csrf()
     values = {}
     for key, label, kind, lo, hi in PLATFORM_KNOBS:
+        if key not in request.form:          # not on the form that was sent: keep it
+            continue
         raw = (request.form.get(key) or '').strip().replace(',', '')
         try:
             value = kind(raw)

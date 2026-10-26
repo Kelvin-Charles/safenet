@@ -1,7 +1,7 @@
 """Provider errors never show keys, tokens or account IDs (ClickPesa echoed its client id in a payout error)."""
 import os, re, sys
 CID = 'ID1y5EcPESL9cDfaSXu1saR0aFnuZKsC'
-os.environ.update(DB_PASSWORD='x', SECRET_KEY='k' * 40, CLICKPESA_CLIENT_ID=CID, CLICKPESA_API_KEY='SKtestKey0987654321abc')
+os.environ.update(CLICKPESA_PAYOUTS='1', DB_PASSWORD='x', SECRET_KEY='k' * 40, CLICKPESA_CLIENT_ID=CID, CLICKPESA_API_KEY='SKtestKey0987654321abc')
 sys.path.insert(0, os.getcwd())
 import config; config.Config.SQLALCHEMY_DATABASE_URI = 'sqlite://'
 import safetext, clickpesa, snippe
