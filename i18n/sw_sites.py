@@ -347,6 +347,7 @@ SW = {
     'We sent a 6-digit code by SMS to your business phone {phone}. It works for {n} minutes.': 'Tumetuma namba ya tarakimu 6 kwa SMS kwenye simu ya biashara yako {phone}. Inafanya kazi kwa dakika {n}.',
     'to': 'kwa',
     "Withdrawing to a Lipa Namba isn't available right now. Choose mobile money or a bank.": 'Kutoa pesa kwenda Lipa Namba hakupatikani kwa sasa. Chagua pesa kwa simu au benki.',
+    'At these sites': 'Katika maeneo haya',
     'Add a site': 'Ongeza eneo',
     'Your plan allows {n} site.': 'Mpango wako unaruhusu eneo {n}.',
     'Your plan allows {n} sites.': 'Mpango wako unaruhusu maeneo {n}.',

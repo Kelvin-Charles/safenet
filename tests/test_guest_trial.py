@@ -20,7 +20,7 @@ with app.app_context():
     a = Admin(username='owner', email='o@x.tz', tenant_id=TID, role='owner', email_verified_at=datetime.utcnow()); a.set_password('password1')
     db.session.add_all([a, Package(tenant_id=TID, name='Siku 1', price=Decimal(1000), validity_minutes=1440),
                         Plan(tenant_id=TID, name='Trial 2M', group_name='kariakoo-trial', download_speed='2M', upload_speed='1M')])
-    tenant_sites(TID)[0].portal_token = 'mktok'
+    tenant_sites(TID)[0].portal_token = 'mktok'; SITE = tenant_sites(TID)[0].id
     db.session.commit()
     PLAN = Plan.query.filter_by(name='Trial 2M').one().id
 
@@ -38,7 +38,7 @@ def guest(mac):
 
 # off: no button
 assert 'Try free' not in guest('AA:00:00:00:00:01').get('/mikrotik/mktok', base_url=H).text
-r = c.post('/settings/free-trial', data={'csrf_token': tok(p), 'minutes': 30, 'plan_id': PLAN, 'who': 'new', 'every': 'once'}, follow_redirects=True)
+r = c.post('/settings/free-trial', data={'csrf_token': tok(p), 'sites': [SITE], 'minutes': 30, 'plan_id': PLAN, 'who': 'new', 'every': 'once'}, follow_redirects=True)
 assert 'Free trial button switched on: 30 min' in html.unescape(r.text) or 'Free trial button switched on' in html.unescape(r.text)
 with app.app_context():
     t = db.session.get(Tenant, TID)
@@ -68,7 +68,7 @@ assert 'for new customers' in html.unescape(guest('AA:00:00:00:00:02').post('/mi
 assert 'connect to the Wi-Fi again' in html.unescape(app.test_client().post('/mikrotik/mktok/trial', base_url=H).text)
 
 # everyone, once a day: the paying phone gets it; the first phone again only after a day
-c.post('/settings/free-trial', data={'csrf_token': tok(p), 'minutes': 60, 'who': 'all', 'every': 'day'})
+c.post('/settings/free-trial', data={'csrf_token': tok(p), 'sites': [SITE], 'minutes': 60, 'who': 'all', 'every': 'day'})
 assert 'name="username"' in guest('AA:00:00:00:00:02').post('/mikrotik/mktok/trial', base_url=H).text
 assert 'already had its free trial today' in html.unescape(guest('AA:00:00:00:00:01').post('/mikrotik/mktok/trial', base_url=H).text)
 with app.app_context():
@@ -97,7 +97,7 @@ r = api.post('/api/portal/trial', json={'mac': 'AA:00:00:00:00:07'}, headers={'X
 assert r.status_code == 403 and 'today' in r.get_json()['error']
 assert api.post('/api/portal/trial', json={'mac': 'AA:00:00:00:00:08'}).status_code == 401
 # Reyee: the page shows the button and Ruijie's one-click login is set up for it (time, once a day, speed)
-c.post('/settings/free-trial', data={'csrf_token': tok(p), 'minutes': 30, 'plan_id': PLAN, 'who': 'all', 'every': 'once'})
+c.post('/settings/free-trial', data={'csrf_token': tok(p), 'sites': [SITE], 'minutes': 30, 'plan_id': PLAN, 'who': 'all', 'every': 'once'})
 with app.app_context():
     lc = appmod._ruijie_load_config(db.session.get(Tenant, TID))
 assert lc['custom_html']['login_options'] == ['voucher', 'pass'] and lc['oneclick']['oneclick_validity'] == '30'
@@ -106,7 +106,7 @@ fresh = app.test_client().get('/app/kariakoo/ruijie.js?s=mktok', base_url=H).tex
 assert 'trialbox' in fresh and 'Try free for' in fresh
 
 # off again: no button, and the route refuses
-c.post('/settings/free-trial', data={'csrf_token': tok(p), 'minutes': 0, 'who': 'all', 'every': 'day'})
+c.post('/settings/free-trial', data={'csrf_token': tok(p), 'sites': [SITE], 'minutes': 0, 'who': 'all', 'every': 'day'})
 assert "isn't available" in html.unescape(guest('AA:00:00:00:00:03').post('/mikrotik/mktok/trial', base_url=H).text)
 with app.app_context():
     assert appmod._ruijie_load_config(db.session.get(Tenant, TID))['custom_html']['login_options'] == ['voucher']

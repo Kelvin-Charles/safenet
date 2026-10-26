@@ -127,6 +127,7 @@ class Site(db.Model):
     ruijie_group_name = db.Column(db.String(128))
     ruijie_packages = db.Column(db.Text)                 # JSON: the project's voucher packages, read when saved
     ruijie_error = db.Column(db.String(255))
+    guest_trial_off = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())   # no "Try free" button here
     ruijie_synced_at = db.Column(db.DateTime)            # guests online last read from Ruijie Cloud (one worker a minute)
     ruijie_clients = db.Column(db.Text(length=16777215))   # JSON: phones on the Wi-Fi then, as Ruijie Cloud lists them
     ruijie_clients_at = db.Column(db.DateTime)

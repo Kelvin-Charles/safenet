@@ -1897,7 +1897,7 @@ def _portal_preview(tenant, th, lang, here):
         return portal_ui.login_page(th, lang, packages=packages, tab=tab, error=error, preview=True, simulate=True,
                                     buy_enabled=buy_enabled, lang_url=here, networks=networks,
                                     action=url(view='sim-login'), buy_action=url(view='sim-buy'),
-                                    trial=_guest_trial(tenant) if equip in ('omada', 'ruijie', 'mikrotik') else None,
+                                    trial=_guest_trial(tenant, site) if equip in ('omada', 'ruijie', 'mikrotik', 'gateway') else None,
                                     trial_action=url(view='sim-login'), logo_base=url_for('static', filename='img/'))
 
     def online(user, seconds, new_code=None):
@@ -2053,7 +2053,7 @@ def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, exter
                     for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True),
                                             site.id).order_by(Package.sort_order, Package.price)]
         html_out = portal_ui.login_page(th, lang, packages=packages, error=error, tab=tab, external=external,
-                                        trial=_guest_trial(tenant), trial_action=base + '/trial',
+                                        trial=_guest_trial(tenant, site), trial_action=base + '/trial',
                                         action=base + '/login', buy_action=base + '/buy',
                                         buy_enabled=paylib.is_ready(_tenant_account(tenant)),
                                         lang_url=base, networks=payment_networks(tenant),
@@ -2179,7 +2179,7 @@ def omada_login(token):
 def omada_trial(token):
     site, tenant = _omada_site(token)
     guest = _omada_guest(site.portal_token)
-    problem = _guest_trial_problem(tenant, guest.get('clientMac'))
+    problem = _guest_trial_problem(tenant, guest.get('clientMac'), site)
     if problem:
         return _omada_page(site, tenant, error=problem, tab='buy')
     code = _guest_trial_code(tenant, site, guest['clientMac'])
@@ -2343,7 +2343,7 @@ def mikrotik_buy(token):
 def mikrotik_trial(token):
     site, tenant = _mikrotik_site(token)
     guest = _mikrotik_guest(token)
-    problem = _guest_trial_problem(tenant, guest.get('mac') if guest.get('login') else None)
+    problem = _guest_trial_problem(tenant, guest.get('mac') if guest.get('login') else None, site)
     if problem:
         return _mikrotik_page(site, tenant, error=problem, tab='buy')
     return _mikrotik_connect(site, tenant, guest, _guest_trial_code(tenant, site, guest['mac']), message='trial_ok')
@@ -3054,7 +3054,7 @@ def wifidog_trial(token):
         abort(404)
     base = f'/wifidog/{site.portal_token}/guest'
     guest = _wifidog_guest(site.portal_token)
-    problem = _guest_trial_problem(tenant, guest.get('mac') if guest.get('gw_address') else None)
+    problem = _guest_trial_problem(tenant, guest.get('mac') if guest.get('gw_address') else None, site)
     if problem:
         return _hotspot_page(site, tenant, base, error=problem, tab='buy')
     code = _guest_trial_code(tenant, site, guest['mac'])
@@ -3493,7 +3493,7 @@ def _ruijie_portal_pages(site, tenant, th):
     pages = {}
     for lang in portal_ui.LANGS:
         full = portal_ui.login_page(th, lang, packages=packages, buy_enabled=can_buy, networks=networks, logo_base='img/', lang_url='#',
-                                    trial=_guest_trial(tenant) and {**_guest_trial(tenant), 'every': 'day'})
+                                    trial=_guest_trial(tenant, site) and {**_guest_trial(tenant, site), 'every': 'day'})
         body = re.search(r'<body class="([^"]*)">(.*)<script>(.*?)</script>\s*</body>', full, re.S)
         card = lambda html: re.search(r'<div class="card">(.*?)</div>\s*<div class="foot">', html, re.S).group(1)
         mark = 987654321                 # stands for the amount (formatted by money(), so it can't be a plain word)
@@ -3547,10 +3547,10 @@ def guest_app_ruijie_page(slug):
     return resp
 
 
-def _ruijie_load_config(tenant):
+def _ruijie_load_config(tenant, site=None):
     """Ruijie's settings for the uploaded page. The free trial button uses Ruijie's one-click login, which Ruijie
     itself limits per phone per day (Ruijie reads these when the page is uploaded)."""
-    trial = _guest_trial(tenant)
+    trial = _guest_trial(tenant, site)
     plan = db.session.get(Plan, tenant.guest_trial_plan_id) if trial and tenant.guest_trial_plan_id else None
     mbps = lambda speed: str(min(1000, -(-ruijie.kbps(speed) // 1024))) if speed else '0'      # kbps -> whole Mbps, rounded up
     return {'post_url': 'http://www.google.com',
@@ -3581,7 +3581,7 @@ def _ruijie_portal_zip(site, tenant):
                         z.writestr(arc, f.read().replace('{/*SAFENET_CONFIG*/}', json.dumps(config), 1)
                                    .replace('/*PORTAL_COPY*/', logic, 1))
                 elif arc == 'loadConfig.json':
-                    z.writestr(arc, 'loadConfig(' + json.dumps(_ruijie_load_config(tenant), indent=2) + ');')
+                    z.writestr(arc, 'loadConfig(' + json.dumps(_ruijie_load_config(tenant, site), indent=2) + ');')
                 else:
                     z.write(path, arc)
         for info in portal_ui.NETWORKS.values():          # the network logos on the page
@@ -4026,6 +4026,7 @@ def portal_settings():
                            package_count=scoped(Package).filter_by(is_active=True, show_on_portal=True).count(),
                            hotspot_name=_hotspot_settings(tenant)['name'], app_url=_guest_app_link(tenant),
                            trial_minutes=[(m, format_minutes(m)) for m in GUEST_TRIAL_MINUTES], trial=tenant,
+                           trial_sites=tenant_sites(tenant.id),
                            plans=scoped(Plan).filter_by(is_active=True).order_by(Plan.name).all(),
                            trial_stats=_free_trial_stats(tenant.id))
 
@@ -4034,16 +4035,18 @@ GUEST_TRIAL_BATCH = 'Free trial button'
 GUEST_TRIAL_MINUTES = (15, 30, 60, 120, 240, 1440)
 
 
-def _guest_trial(tenant):
-    """The "Try free" offer on the login page: {'minutes': n} or None when it's off."""
-    return {'minutes': tenant.guest_trial_minutes, 'every': tenant.guest_trial_every} \
-        if tenant is not None and tenant.guest_trial_minutes else None
+def _guest_trial(tenant, site=None):
+    """The "Try free" offer on the login page at this site: {'minutes': n, 'every': ...}, or None when it's off
+    (for the business, or for this site)."""
+    if tenant is None or not tenant.guest_trial_minutes or (site is not None and site.guest_trial_off):
+        return None
+    return {'minutes': tenant.guest_trial_minutes, 'every': tenant.guest_trial_every}
 
 
-def _guest_trial_problem(tenant, mac):
-    """Why this phone can't have the free trial now, or None."""
+def _guest_trial_problem(tenant, mac, site=None):
+    """Why this phone can't have the free trial now (at this site), or None."""
     device = _mac_key(mac)
-    if not _guest_trial(tenant):
+    if not _guest_trial(tenant, site):
         return "Free trial isn't available here."
     if not device:
         return 'Please connect to the Wi-Fi again and open any website to get the free trial.'
@@ -4085,6 +4088,9 @@ def guest_trial_settings():
     plan = scoped(Plan).filter_by(id=request.form.get('plan_id', type=int)).first()
     tenant.guest_trial_plan_id = plan.id if plan else None
     tenant.guest_trial_who = 'all' if request.form.get('who') == 'all' else 'new'
+    chosen = set(request.form.getlist('sites', type=int))
+    for site in tenant_sites(tenant.id):
+        site.guest_trial_off = site.id not in chosen
     tenant.guest_trial_every = 'day' if request.form.get('every') == 'day' else 'once'
     db.session.commit()
     flash(tr('Free trial button switched on: {d} free.', d=format_minutes(tenant.guest_trial_minutes)) if tenant.guest_trial_minutes
@@ -4839,9 +4845,16 @@ def api_gateway_config():
     return jsonify(tenant=t.slug, hotspot_name=hotspot['name'], support=hotspot['support'],
                    terms=hotspot['terms'], currency=hotspot['currency'], acct_interim_seconds=60,
                    block_tethering=t.block_tethering,
-                   gateway=g.api_gateway.name if g.api_gateway else None, trial=_guest_trial(t),
+                   gateway=g.api_gateway.name if g.api_gateway else None,
+                   trial=_guest_trial(t, _gateway_site()),
                    portal={k: cfg.get(k) for k in ('color', 'style', 'title', 'message', 'language',
                                                    'show_voucher', 'show_packages', 'logo_version', 'sms')})
+
+
+def _gateway_site():
+    """The site of the calling gateway box (one without a site belongs to the main site)."""
+    site = db.session.get(Site, g.api_gateway.site_id) if g.api_gateway and g.api_gateway.site_id else None
+    return site if site is not None and site.tenant_id == g.api_tenant.id else tenant_sites(g.api_tenant.id)[0]
 
 
 @app.route('/api/portal/trial', methods=['POST'])
@@ -4850,10 +4863,10 @@ def api_portal_trial():
     """The gateway box's "Try free" button: a free code for this phone, if the business's rules allow it."""
     data = request.get_json(silent=True) or {}
     mac = str(data.get('mac') or '')[:17]
-    problem = _guest_trial_problem(g.api_tenant, mac)
+    site = _gateway_site()
+    problem = _guest_trial_problem(g.api_tenant, mac, site)
     if problem:
         return jsonify(error=problem), 403
-    site = db.session.get(Site, g.api_gateway.site_id) if g.api_gateway and g.api_gateway.site_id else None
     return jsonify(code=_guest_trial_code(g.api_tenant, site, mac), minutes=g.api_tenant.guest_trial_minutes)
 
 

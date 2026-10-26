@@ -92,6 +92,10 @@
                             <option value="once"{{ ' selected' if trial.guest_trial_every != 'day' }}>{{ _('Once per phone') }}</option>
                             <option value="day"{{ ' selected' if trial.guest_trial_every == 'day' }}>{{ _('Once per phone per day') }}</option>
                         </select></div>
+                    <div class="col-12"><label class="form-label small mb-1">{{ _('At these sites') }}</label>
+                        <div class="d-flex flex-wrap gap-3">
+                            {% for st in trial_sites %}<label class="form-check small mb-0"><input class="form-check-input" type="checkbox" name="sites" value="{{ st.id }}"{{ ' checked' if not st.guest_trial_off }}> {{ st.name }}</label>{% endfor %}
+                        </div></div>
                     <div class="col-12"><button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-check-circle"></i> {{ _('Save free trial') }}</button>
                         <span class="small text-muted ms-2">{{ _('{n} phones tried it, {b} bought a package afterwards.', n=trial_stats.free_used, b=trial_stats.free_bought) }}</span></div>
                 </form>

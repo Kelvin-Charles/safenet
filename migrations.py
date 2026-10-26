@@ -224,6 +224,7 @@ def run():
     _add_column('sites', 'ruijie_group_name', 'VARCHAR(128)')
     _add_column('sites', 'ruijie_packages', 'TEXT')
     _add_column('sites', 'ruijie_error', 'VARCHAR(255)')
+    _add_column('sites', 'guest_trial_off', 'BOOLEAN NOT NULL DEFAULT 0')
     _add_column('sites', 'ruijie_synced_at', 'DATETIME')
     _add_column('sites', 'ruijie_clients', 'MEDIUMTEXT')
     _add_column('sites', 'ruijie_clients_at', 'DATETIME')
