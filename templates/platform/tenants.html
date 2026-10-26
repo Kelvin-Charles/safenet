@@ -10,6 +10,23 @@
     <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ tenants|selectattr('status', 'equalto', 'active')|list|length }}</div><div class="stat-label">Active</div></div></div>
     <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ tenants|selectattr('status', 'equalto', 'suspended')|list|length }}</div><div class="stat-label">Suspended</div></div></div>
 </div>
+{% if my_business %}
+<div class="card mb-4 border-primary" id="separate">
+    <div class="card-header"><i class="bi bi-person-gear"></i> Your login is both the platform and the business "{{ my_business.name }}"</div>
+    <div class="card-body">
+        <p class="small mb-2">Give <strong>{{ my_business.name }}</strong> its own owner login, and keep this login for the platform only (tenants, billing, payouts).
+            Nothing moves: its sites, vouchers, sales and balance stay with {{ my_business.name }}. Afterwards, log in with the new login to run that business,
+            or open it from here with <em>Log in as owner</em>.</p>
+        <form method="POST" action="{{ url_for('platform_separate') }}" class="row g-2" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-3"><input name="username" class="form-control form-control-sm" placeholder="New username, e.g. jriit" required></div>
+            <div class="col-md-4"><input name="email" type="email" class="form-control form-control-sm" placeholder="Email for that login" required></div>
+            <div class="col-md-3"><input name="password" type="password" class="form-control form-control-sm" placeholder="Password (10+ characters)" autocomplete="new-password" required></div>
+            <div class="col-md-2 d-grid"><button class="btn btn-primary btn-sm" type="submit" onclick="return confirm('Separate your platform login from {{ my_business.name }}?')">Separate</button></div>
+        </form>
+    </div>
+</div>
+{% endif %}
 {% set asking = tenants|selectattr('phone_pending')|list %}
 {% if asking %}
 <div class="card mb-4 border-warning">

@@ -5786,7 +5786,8 @@ def platform_tenants():
     revenue = dict(db.session.query(Payment.tenant_id, func.coalesce(func.sum(Payment.amount), 0))
                    .filter(Payment.status == 'paid').group_by(Payment.tenant_id).all())
     owners = {a.tenant_id: a for a in Admin.query.filter_by(role='owner').order_by(Admin.id.desc())}
-    return render_template('platform/tenants.html', tenants=tenants, users=count(RadUser),
+    mine = db.session.get(Tenant, current_user.tenant_id) if current_user.tenant_id and not session.get('impersonator_id') else None
+    return render_template('platform/tenants.html', my_business=mine, tenants=tenants, users=count(RadUser),
                            vouchers=count(Voucher), gateways=count(Gateway), nas=count(Nas),
                            revenue=revenue, owners=owners, now=datetime.utcnow(),
                            default_fee=Config.PLATFORM_FEE_PERCENT, balances={t.id: tenant_balance(t.id)[0] for t in tenants},
@@ -5845,6 +5846,44 @@ def platform_switch(tid):
     session.pop('site_id', None)
     flash(f'You are now managing {tenant.name}.', 'info')
     return redirect(url_for('dashboard'))
+
+
+@app.route('/platform/separate', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_separate():
+    """Make the platform admin's own login platform-only: the business it belonged to gets its own owner login
+    (typed here). Sites, vouchers, sales and balance stay with the business."""
+    _check_csrf()
+    if session.get('impersonator_id') or not current_user.tenant_id:
+        return redirect(url_for('platform_tenants'))
+    tenant = db.session.get(Tenant, current_user.tenant_id)
+    username = (request.form.get('username') or '').strip().lower()[:64]
+    email = (request.form.get('email') or '').strip().lower()[:120]
+    password = request.form.get('password') or ''
+    problem = None
+    if not re.fullmatch(r'[a-z0-9._-]{3,64}', username):
+        problem = 'Choose a username of 3 or more letters or numbers (no spaces).'
+    elif '@' not in email:
+        problem = 'Enter an email address for the business login.'
+    elif len(password) < 10:
+        problem = 'The password needs at least 10 characters.'
+    elif Admin.query.filter(or_(func.lower(Admin.username) == username, func.lower(Admin.email) == email)).first():
+        problem = 'That username or email is already used by another login.'
+    if problem:
+        flash(problem, 'danger')
+        return redirect(url_for('platform_tenants') + '#separate')
+    owner = Admin(username=username, email=email, tenant_id=tenant.id, role='owner', is_superadmin=False,
+                  email_verified_at=datetime.utcnow(), language=current_user.language)
+    owner.set_password(password)
+    db.session.add(owner)
+    current_user.tenant_id = None           # platform only from now on
+    session.pop('tenant_id', None); session.pop('site_id', None)
+    db.session.commit()
+    app.logger.info('platform admin %s is now platform-only; %s got owner login %s', current_user.username, tenant.name, username)
+    flash(f'Done. Your login is now for the platform only. {tenant.name} has its own owner login "{username}": '
+          f'log in with it to run your Wi-Fi business, or use "Log in as owner" here.', 'success')
+    return redirect(url_for('platform_tenants'))
 
 
 @app.route('/platform/impersonate/<int:tid>', methods=['POST'])

@@ -28,6 +28,9 @@ def current_tenant():
 def tenant_id():
     tenant = current_tenant()
     if not tenant:
+        if current_user.is_authenticated and current_user.is_superadmin:
+            # a platform-only account: business pages need a business opened first (Platform: Tenants -> Manage)
+            abort(redirect(url_for('platform_tenants')))
         abort(403)
     return tenant.id
 
