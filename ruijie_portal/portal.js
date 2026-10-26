@@ -137,7 +137,8 @@ Portal = {
     document.querySelectorAll("form").forEach(function (form) {
       form.addEventListener("submit", function (ev) {
         ev.preventDefault();
-        if (form.querySelector("input[name=package_id]")) self.buy(form);
+        if (form.classList.contains("trialbox")) self.trial();
+        else if (form.querySelector("input[name=package_id]")) self.buy(form);
         else if (form.querySelector("#code")) self.voucher(form.querySelector("#code").value);
       }, true);
     });
@@ -268,9 +269,20 @@ Portal = {
     location.href = url;
   },
 
+  // free trial: Ruijie's one-click login (Ruijie allows it once per phone per day)
+  trial() {
+    const self = this;
+    this.authenticate(null, "pass").then(function (r) {
+      location.href = r.result.logonUrl;
+    }, function (message) {
+      self.render(message || self.text("trial_refused"), "buy");
+    });
+  },
+
   // Ruijie's login: resolves with its answer, or rejects with the message to show
-  authenticate(code) {
-    const body = { lang: "en_US", authType: "voucher", account: code, sessionId: this.param("sessionId") };
+  authenticate(code, kind) {
+    const body = { lang: "en_US", authType: kind || "voucher", sessionId: this.param("sessionId") };
+    if (code) body.account = code;
     return new Promise(function (resolve, reject) {
       $.post({
         url: "/api/auth/general",

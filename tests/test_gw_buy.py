@@ -8,7 +8,7 @@ portal.firewall_allow = lambda *a: None
 portal.firewall_deny = lambda *a: None
 portal._set_elements = lambda name: {}
 portal.radius_account = lambda *a, **k: None
-portal.radius_authenticate = lambda u, p, m, i: (u == '55556666', {27: [(86400).to_bytes(4, 'big')]})
+portal.radius_authenticate = lambda u, p, m, i: (u in ('55556666', '77778888'), {27: [(86400).to_bytes(4, 'big')]})
 state = {'status': 'pending', 'calls': []}
 def fake_api(method, path, body=None, timeout=25):
     state['calls'].append((method, path, body))
@@ -19,7 +19,11 @@ def fake_api(method, path, body=None, timeout=25):
         return {'reference': 'SNABC123', 'status': 'pending', 'amount': '1000', 'currency': 'TZS', 'phone': '255712345678', 'package': '1 Day',
                 'gift_phone': body.get('gift_phone') or ''}
     if path == '/api/gateway/auth':
-        return {'ok': body['username'] == '55556666', 'session_timeout': 86400}
+        return {'ok': body['username'] in ('55556666', '77778888'), 'session_timeout': 86400}
+    if path == '/api/portal/trial':
+        if state.get('trial_used'): raise portal.ApiError('This phone has already had a free trial. Choose a package to keep browsing.')
+        state['trial_used'] = True
+        return {'code': '77778888', 'minutes': 30}
     if path in ('/api/gateway/accounting', '/api/gateway/sessions/check'):
         return {}
     if path.startswith('/api/portal/purchase/'):
@@ -80,6 +84,16 @@ for ph in ('0712345678', '0712345678', 'bad'):
     post('/buy', {'package_id': '7', 'phone': ph, 'agree': '1'})
 # rate limit: 3 per 10 min
 s, body, _ = post('/buy', {'package_id': '7', 'phone': '0712345678', 'agree': '1'}); assert 'Too many payment requests' in body
+# free trial button: off until the business switches it on; one tap logs the phone in with the free code
+s, body, _ = get('/'); assert 'action="/trial"' not in body
+portal.branding['trial'] = {'minutes': 30, 'every': 'once'}
+portal.sessions.clear()
+s, body, _ = get('/'); assert 'action="/trial"' in body and 'Try free for' in body
+s, body, _ = post('/trial', {'dst': ''})
+trial_calls = [c_ for c_ in state['calls'] if c_[1] == '/api/portal/trial']
+assert trial_calls and trial_calls[-1][2]['mac'] == 'aa:bb:cc:00:00:01' and '77778888' in body and 'aa:bb:cc:00:00:01' in portal.sessions, body[-800:]
+portal.sessions.clear()
+s, body, _ = post('/trial', {'dst': ''}); assert 'already had a free trial' in body
 # no packages -> buy section hidden
 portal._packages_cache.update(at=time.time(), items=[])
 s, body, _ = get('/'); assert 'Buy one' not in body and 'Enter your voucher' in body

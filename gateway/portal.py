@@ -249,6 +249,7 @@ def refresh_branding():
     apply_antishare(data.get('block_tethering', True))
     if data.get('tenant'):
         branding['tenant'] = data['tenant']       # for the link to the guest app
+    branding['trial'] = data.get('trial')         # the business's "Try free" button (None: off)
     branding.update(name=data.get('hotspot_name') or branding['name'],
                     support=data.get('support') or '', terms=data.get('terms') or branding['terms'],
                     **{k: portal.get(k) for k in ('color', 'style', 'title', 'message', 'language',
@@ -720,7 +721,8 @@ def _theme():
 
 def login_page(dst='', error='', lang='en', tab=None):
     return ui.login_page(_theme(), lang, packages=portal_packages(), dst=dst, error=error, tab=tab,
-                         buy_enabled=bool(SAFENET_API_URL), networks=portal_networks(), logo_base='/img/')
+                         buy_enabled=bool(SAFENET_API_URL), networks=portal_networks(), logo_base='/img/',
+                         trial=branding.get('trial') if SAFENET_API_URL else None, trial_action='/trial')
 
 
 def app_url(code):
@@ -874,6 +876,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._redirect(self._portal_url('/'))
         if path == '/buy':
             return self._buy(form, ip, mac, dst, lang)
+        if path == '/trial':
+            return self._trial(ip, mac, dst, lang)
         if path != '/login':
             return self._redirect(self._portal_url('/'))
 
@@ -895,6 +899,21 @@ class PortalHandler(BaseHTTPRequestHandler):
             return verr(error)
         self._send(200, status_page(session, dst, lang=lang))
 
+
+    def _trial(self, ip, mac, dst, lang):
+        """'Try free': SafeNet makes a free code for this phone (if the business's rules allow), then log in with it."""
+        err = lambda message: self._send(200, login_page(dst, message, lang, tab='buy'))
+        if not mac:
+            return err("We couldn't identify your device. Turn Wi-Fi off and on, then try again.")
+        try:
+            data = safenet_api('POST', '/api/portal/trial', {'mac': mac, 'ip': ip})
+        except ApiError as e:
+            log.info('free trial refused mac=%s: %s', mac, e)
+            return err(str(e) if 'unreachable' not in str(e) else "We can't reach the server right now. Please try again.")
+        session, error = login(mac, ip, data['code'], data['code'])
+        if error:
+            return err(error)
+        self._send(200, status_page(session, dst, lang=lang))
 
     def _buy(self, form, ip, mac, dst, lang):
         err = lambda message: self._send(200, login_page(dst, message, lang, tab='buy'))

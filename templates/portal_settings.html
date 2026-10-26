@@ -95,7 +95,8 @@
                     <div class="col-12"><button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-check-circle"></i> {{ _('Save free trial') }}</button>
                         <span class="small text-muted ms-2">{{ _('{n} phones tried it, {b} bought a package afterwards.', n=trial_stats.free_used, b=trial_stats.free_bought) }}</span></div>
                 </form>
-                <p class="small text-muted mt-2 mb-0">{{ _('Works on the SafeNet login page with Omada, Ruijie RG-AP and MikroTik.') }}</p>
+                <p class="small text-muted mt-2 mb-0">{{ _('Works on the SafeNet login page with Omada, Ruijie RG-AP, MikroTik and the SafeNet gateway box.') }}
+                    {{ _("Reyee access points use Ruijie's own one-click login for it: once per phone per day, for everyone. After changing it, download the Reyee login page again and upload it to Ruijie Cloud.") }}</p>
             </div>
         </div>
         <div class="card" id="guest-app">

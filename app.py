@@ -3471,11 +3471,13 @@ RUIJIE_PAGE_TEXT = {
     'en': {'timeout': "We didn't hear back about your payment. If money left your account, use the code sent to you by SMS.",
            'failed': 'Payment not completed: {reason}', 'bad_code': "That code didn't work. Check it and try again.",
            'login_failed': "Paid, but connecting didn't work yet. Tap Connect with your code below.",
-           'unreachable': "Buying isn't available on this Wi-Fi right now. If you have a voucher, use the Voucher tab."},
+           'unreachable': "Buying isn't available on this Wi-Fi right now. If you have a voucher, use the Voucher tab.",
+           'trial_refused': 'The free trial is used up on this phone today. Choose a package to connect.'},
     'sw': {'timeout': 'Hatujapata jibu la malipo yako. Kama pesa imekatwa, tumia namba uliyotumiwa kwa SMS.',
            'failed': 'Malipo hayajakamilika: {reason}', 'bad_code': 'Namba hiyo haikufanya kazi. Iangalie kisha ujaribu tena.',
            'login_failed': 'Umelipa, lakini kuunganisha bado hakujafanikiwa. Bonyeza Unganisha ukiwa na namba yako hapa chini.',
-           'unreachable': 'Kununua hakupatikani kwenye Wi-Fi hii sasa. Kama una vocha, tumia sehemu ya Vocha.'},
+           'unreachable': 'Kununua hakupatikani kwenye Wi-Fi hii sasa. Kama una vocha, tumia sehemu ya Vocha.',
+           'trial_refused': 'Jaribio la bure limeshatumika kwenye simu hii leo. Chagua kifurushi ili kuunganishwa.'},
 }
 
 
@@ -3489,7 +3491,8 @@ def _ruijie_portal_pages(site, tenant, th):
     networks = payment_networks(tenant)
     pages = {}
     for lang in portal_ui.LANGS:
-        full = portal_ui.login_page(th, lang, packages=packages, buy_enabled=can_buy, networks=networks, logo_base='img/', lang_url='#')
+        full = portal_ui.login_page(th, lang, packages=packages, buy_enabled=can_buy, networks=networks, logo_base='img/', lang_url='#',
+                                    trial=_guest_trial(tenant) and {**_guest_trial(tenant), 'every': 'day'})
         body = re.search(r'<body class="([^"]*)">(.*)<script>(.*?)</script>\s*</body>', full, re.S)
         card = lambda html: re.search(r'<div class="card">(.*?)</div>\s*<div class="foot">', html, re.S).group(1)
         mark = 987654321                 # stands for the amount (formatted by money(), so it can't be a plain word)
@@ -3543,6 +3546,20 @@ def guest_app_ruijie_page(slug):
     return resp
 
 
+def _ruijie_load_config(tenant):
+    """Ruijie's settings for the uploaded page. The free trial button uses Ruijie's one-click login, which Ruijie
+    itself limits per phone per day (Ruijie reads these when the page is uploaded)."""
+    trial = _guest_trial(tenant)
+    plan = db.session.get(Plan, tenant.guest_trial_plan_id) if trial and tenant.guest_trial_plan_id else None
+    mbps = lambda speed: str(min(1000, -(-ruijie.kbps(speed) // 1024))) if speed else '0'      # kbps -> whole Mbps, rounded up
+    return {'post_url': 'http://www.google.com',
+            'oneclick': {'oneclick_validity': str(min(720, trial['minutes'])) if trial else '0',
+                         'oneclick_qos': {'up_rate': mbps(plan.upload_speed) if plan else '0',
+                                          'down_rate': mbps(plan.download_speed) if plan else '0'},
+                         'oneclick_times': '1' if trial else '0'},
+            'custom_html': {'login_options': ['voucher', 'pass'] if trial else ['voucher'], 'lang': ['en_US']}}
+
+
 def _ruijie_portal_zip(site, tenant):
     """Ruijie Cloud's custom HTML login page (Captive Portal -> Custom HTML), made for this site: the same page
     guests get from SafeNet (packages, mobile money, voucher), logging them in through Ruijie with the code."""
@@ -3563,10 +3580,7 @@ def _ruijie_portal_zip(site, tenant):
                         z.writestr(arc, f.read().replace('{/*SAFENET_CONFIG*/}', json.dumps(config), 1)
                                    .replace('/*PORTAL_COPY*/', logic, 1))
                 elif arc == 'loadConfig.json':
-                    z.writestr(arc, 'loadConfig(' + json.dumps({
-                        'post_url': 'http://www.google.com',
-                        'oneclick': {'oneclick_validity': '0', 'oneclick_qos': {'up_rate': '0', 'down_rate': '0'}, 'oneclick_times': '0'},
-                        'custom_html': {'login_options': ['voucher'], 'lang': ['en_US']}}, indent=2) + ');')
+                    z.writestr(arc, 'loadConfig(' + json.dumps(_ruijie_load_config(tenant), indent=2) + ');')
                 else:
                     z.write(path, arc)
         for info in portal_ui.NETWORKS.values():          # the network logos on the page
@@ -4824,9 +4838,22 @@ def api_gateway_config():
     return jsonify(tenant=t.slug, hotspot_name=hotspot['name'], support=hotspot['support'],
                    terms=hotspot['terms'], currency=hotspot['currency'], acct_interim_seconds=60,
                    block_tethering=t.block_tethering,
-                   gateway=g.api_gateway.name if g.api_gateway else None,
+                   gateway=g.api_gateway.name if g.api_gateway else None, trial=_guest_trial(t),
                    portal={k: cfg.get(k) for k in ('color', 'style', 'title', 'message', 'language',
                                                    'show_voucher', 'show_packages', 'logo_version', 'sms')})
+
+
+@app.route('/api/portal/trial', methods=['POST'])
+@portal_api
+def api_portal_trial():
+    """The gateway box's "Try free" button: a free code for this phone, if the business's rules allow it."""
+    data = request.get_json(silent=True) or {}
+    mac = str(data.get('mac') or '')[:17]
+    problem = _guest_trial_problem(g.api_tenant, mac)
+    if problem:
+        return jsonify(error=problem), 403
+    site = db.session.get(Site, g.api_gateway.site_id) if g.api_gateway and g.api_gateway.site_id else None
+    return jsonify(code=_guest_trial_code(g.api_tenant, site, mac), minutes=g.api_tenant.guest_trial_minutes)
 
 
 @app.route('/api/gateway/logo')

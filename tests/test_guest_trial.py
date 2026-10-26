@@ -81,7 +81,33 @@ with app.app_context():
     ok, msg, info = appmod._gateway_authenticate(db.session.get(Tenant, TID), v2.code, v2.code, 'AA:00:00:00:00:01')
     assert ok, msg
     assert v2.plan_id is None                      # no speed chosen this time: no limit
+# the gateway box: its settings carry the offer, and SafeNet makes the free code for the phone it names
+with app.app_context():
+    from models import Gateway
+    gw = Gateway(tenant_id=TID, name='Box', key_prefix='gwkey', key_hash=appmod._hash_key('gwkey'), site_id=tenant_sites(TID)[0].id)
+    db.session.add(gw); db.session.commit()
+api = app.test_client()
+cfg = api.get('/api/gateway/config', headers={'X-SafeNet-Key': 'gwkey'}).get_json()
+assert cfg['trial'] == {'minutes': 60, 'every': 'day'}
+r = api.post('/api/portal/trial', json={'mac': 'AA:00:00:00:00:07', 'ip': '10.10.0.7'}, headers={'X-SafeNet-Key': 'gwkey'})
+assert r.status_code == 200 and r.get_json()['minutes'] == 60
+with app.app_context():
+    assert Voucher.query.filter_by(code=r.get_json()['code']).one().first_mac == 'aa:00:00:00:00:07'
+r = api.post('/api/portal/trial', json={'mac': 'AA:00:00:00:00:07'}, headers={'X-SafeNet-Key': 'gwkey'})
+assert r.status_code == 403 and 'today' in r.get_json()['error']
+assert api.post('/api/portal/trial', json={'mac': 'AA:00:00:00:00:08'}).status_code == 401
+# Reyee: the page shows the button and Ruijie's one-click login is set up for it (time, once a day, speed)
+c.post('/settings/free-trial', data={'csrf_token': tok(p), 'minutes': 30, 'plan_id': PLAN, 'who': 'all', 'every': 'once'})
+with app.app_context():
+    lc = appmod._ruijie_load_config(db.session.get(Tenant, TID))
+assert lc['custom_html']['login_options'] == ['voucher', 'pass'] and lc['oneclick']['oneclick_validity'] == '30'
+assert lc['oneclick']['oneclick_times'] == '1' and lc['oneclick']['oneclick_qos'] == {'up_rate': '1', 'down_rate': '2'}
+fresh = app.test_client().get('/app/kariakoo/ruijie.js?s=mktok', base_url=H).text
+assert 'trialbox' in fresh and 'Try free for' in fresh
+
 # off again: no button, and the route refuses
 c.post('/settings/free-trial', data={'csrf_token': tok(p), 'minutes': 0, 'who': 'all', 'every': 'day'})
 assert "isn't available" in html.unescape(guest('AA:00:00:00:00:03').post('/mikrotik/mktok/trial', base_url=H).text)
+with app.app_context():
+    assert appmod._ruijie_load_config(db.session.get(Tenant, TID))['custom_html']['login_options'] == ['voucher']
 print('GUEST TRIAL OK')

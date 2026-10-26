@@ -26,7 +26,7 @@ portal.safenet_api = fake_api
 def no_radius(*a): raise AssertionError('RADIUS must not be used in API mode')
 portal.radius_authenticate = no_radius
 portal.refresh_branding()
-assert portal.branding == {'name': 'Tenant WiFi', 'support': '0755', 'terms': 'Be nice'}
+assert portal.branding == {'name': 'Tenant WiFi', 'support': '0755', 'terms': 'Be nice', 'trial': None}
 from http.server import ThreadingHTTPServer; portal.Server.server_bind = ThreadingHTTPServer.server_bind
 srv = portal.Server(('127.0.0.1', 18081), portal.PortalHandler); threading.Thread(target=srv.serve_forever, daemon=True).start()
 def post(path, data):
