@@ -58,13 +58,14 @@ def test(account):
         raise PaymentError(str(e)) from None
 
 
-def start(account, amount, phone, reference, network=None, webhook_url=None):
+def start(account, amount, phone, reference, network=None, webhook_url=None, payer=None):
     """Send the PIN prompt. Returns {'provider_id', 'status' ('pending'), 'channel'}; raises PaymentError."""
     if account.provider == 'snippe':
         if amount < snippe.MIN_AMOUNT:
             raise PaymentError(f'Mobile-money payments start from TZS {snippe.MIN_AMOUNT:,}.')
         try:
-            data = snippe.create_payment(amount, phone, reference, account.creds, webhook_url=webhook_url)
+            data = snippe.create_payment(amount, phone, reference, account.creds, webhook_url=webhook_url,
+                                         customer=snippe.customer(*payer) if payer else None)
         except snippe.SnippeError as e:
             raise PaymentError("We couldn't send the payment request. Check the number and try again.", str(e)) from None
         if not data.get('reference'):

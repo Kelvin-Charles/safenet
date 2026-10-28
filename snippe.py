@@ -9,6 +9,7 @@ Webhooks: X-Webhook-Signature = hex HMAC-SHA256(signing key, "{X-Webhook-Timesta
 import hashlib
 import hmac
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -68,6 +69,12 @@ def _request(method, path, creds, body=None, idempotency_key=None, timeout=20):
 def test_credentials(creds):
     """Raises SnippeError if Snippe rejects the key."""
     _request('GET', '/v1/payments/balance', creds)
+
+
+def customer(first, last):
+    """The payer as Snippe shows it (Customer column), e.g. the site and the business: 'JRIIT Hostel' 'SafeNet WiFi'."""
+    clean = lambda text, default: re.sub(r'\s+', ' ', re.sub(r"[^\w .'&-]", ' ', str(text or ''))).strip()[:40] or default
+    return {'firstname': clean(first, 'WiFi'), 'lastname': clean(last, 'Guest'), 'email': Config.SNIPPE_CUSTOMER_EMAIL}
 
 
 def create_payment(amount, phone, reference, creds, webhook_url=None, customer=None):

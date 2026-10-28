@@ -8,7 +8,7 @@ sys.path.insert(0, os.getcwd())
 import config; config.Config.SQLALCHEMY_DATABASE_URI = 'sqlite://'
 import clickpesa, snippe
 sent = []
-snippe.create_payment = lambda amount, phone, ref, creds, webhook_url=None, customer=None: sent.append(('snippe', amount)) or {'reference': 'r-' + ref, 'status': 'pending'}
+snippe.create_payment = lambda amount, phone, ref, creds, webhook_url=None, customer=None: sent.append(('snippe', amount, customer)) or {'reference': 'r-' + ref, 'status': 'pending'}
 snippe.get_payment = lambda ref, creds: {'status': 'completed', 'amount': {'value': 1026, 'currency': 'TZS'}}
 clickpesa.preview_ussd_push = lambda a, p, r, c=None: ['AIRTEL-MONEY']
 clickpesa.initiate_ussd_push = lambda a, p, r, c=None: sent.append(('clickpesa', a)) or {'id': 'TX', 'status': 'PROCESSING'}
@@ -34,7 +34,9 @@ with app.app_context():
 
     # a Snippe sale: the guest is asked for 1,026; the sale, the SafeNet Pay fee and the business's share stay on 1,000
     p, error, _ = _start_purchase(t, site, pkg, '0684000111', 'airtel')
-    assert not error and sent[-1] == ('snippe', 1026)
+    assert not error and sent[-1][:2] == ('snippe', 1026)
+    # Snippe's Customer column shows the site and the business
+    assert (sent[-1][2]['firstname'], sent[-1][2]['lastname']) == (tenant_sites(t.id)[0].name, 'Cafe')
     assert (p.amount, p.customer_fee, p.charged, p.fee_amount, p.net_amount) == (1000, 26, 1026, 30, 970)
     p = _refresh_payment(p.reference, force=True)
     assert p.status == 'paid' and p.voucher.price == 1000          # 1,026 collected: not short

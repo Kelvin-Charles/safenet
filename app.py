@@ -4732,8 +4732,10 @@ def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=
     db.session.add(payment)
     db.session.commit()
     try:
+        site = db.session.get(Site, site_id) if site_id else None
         tx = paylib.start(account, payment.charged, phone, payment.reference, network or None,
-                            webhook_url=_link('snippe_webhook') if account.provider == 'snippe' else None)
+                          webhook_url=_link('snippe_webhook') if account.provider == 'snippe' else None,
+                          payer=(site.name if site else 'WiFi', tenant.name))      # shown as the customer in Snippe
         payment.provider_id, payment.channel = tx['provider_id'], tx['channel']
         payment.provider_status = tx['provider_status']
     except paylib.PaymentError as e:
@@ -6809,7 +6811,8 @@ def billing_pay():
     db.session.commit()
     try:
         tx = paylib.start(account, sp.amount, phone, sp.reference,
-                            webhook_url=_link('snippe_webhook') if account.provider == 'snippe' else None)
+                          webhook_url=_link('snippe_webhook') if account.provider == 'snippe' else None,
+                          payer=((db.session.get(Tenant, sp.tenant_id) or Tenant(name='SafeNet')).name, 'SafeNet plan'))
         sp.provider_id, sp.channel, sp.provider_status = tx['provider_id'], tx['channel'], tx['provider_status']
     except paylib.PaymentError as e:
         sp.status, sp.message = 'failed', e.detail
