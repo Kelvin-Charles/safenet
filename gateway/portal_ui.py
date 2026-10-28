@@ -177,6 +177,11 @@ T = {
 
 # Messages that come from the gateway or SafeNet in English
 MESSAGES_SW = {
+    "Insufficient balance on customer's account.": 'Salio la akaunti yako halitoshi.',
+    'Customer cancelled the payment.': 'Umeghairi malipo.',
+    'The payment request expired: the PIN was not entered in time.': 'Ombi la malipo limeisha muda: PIN haikuwekwa kwa wakati.',
+    'The payment was cancelled.': 'Malipo yameghairiwa.',
+    'The payment was not completed.': 'Malipo hayajakamilika.',
     "Free trial isn't available here.": 'Jaribio la bure halipatikani hapa.',
     'Please connect to the Wi-Fi again and open any website to get the free trial.': 'Tafadhali unganisha Wi-Fi tena na ufungue tovuti yoyote ili upate jaribio la bure.',
     'The free trial is for new customers. Choose a package to connect.': 'Jaribio la bure ni kwa wateja wapya. Chagua kifurushi ili kuunganishwa.',

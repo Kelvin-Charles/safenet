@@ -50,4 +50,18 @@ with app.app_context():
     # switched off in Platform settings (0 %): guests pay the price, Snippe's fee comes off the sale
     config.Config.SNIPPE_FEE_PERCENT = 0
     assert _customer_fee(snp, Decimal(1000)) == 0
+# a failed payment keeps Snippe's reason (shown to the guest and in Payments)
+from gateway import portal_ui
+assert paylib.failure_reason({'status': 'failed', 'failure_reason': "Insufficient balance on customer's account."}) == "Insufficient balance on customer's account."
+assert paylib.failure_reason({'status': 'expired'}) == 'The payment request expired: the PIN was not entered in time.'
+assert paylib.failure_reason({'status': 'failed', 'failure_reason': 'Payment failed.'}) == 'Payment failed.'
+assert portal_ui.tr('sw', "Payment not completed: Insufficient balance on customer's account.") == 'Malipo hayajakamilika: Salio la akaunti yako halitoshi.'
+with app.app_context():
+    db.session.query(PlatformSetting).filter_by(key='payment_provider').delete(); db.session.commit()
+    config.Config.SNIPPE_FEE_PERCENT = 2.5
+    snippe.get_payment = lambda ref, creds: {'status': 'failed', 'failure_reason': 'Customer cancelled the payment.', 'amount': {'value': 1026}}
+    t = Tenant.query.filter_by(slug='cafe').one(); pkg = Package.query.filter_by(tenant_id=t.id).first()
+    p3, error, _ = _start_purchase(t, tenant_sites(t.id)[0].id, pkg, '0684000333', 'airtel')
+    p3 = _refresh_payment(p3.reference, force=True)
+    assert p3.status == 'failed' and p3.message == 'Customer cancelled the payment.', (p3.status, p3.message)
 print('CUSTOMER FEE OK')

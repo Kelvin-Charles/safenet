@@ -95,6 +95,19 @@ def start(account, amount, phone, reference, network=None, webhook_url=None, pay
     return {'provider_id': tx.get('id'), 'status': 'pending', 'channel': tx.get('channel'), 'provider_status': status}
 
 
+SNIPPE_ENDED = {'expired': 'The payment request expired: the PIN was not entered in time.',
+                'voided': 'The payment was cancelled.'}
+
+
+def failure_reason(record):
+    """Why a Snippe payment didn't go through, as Snippe says it (e.g. "Insufficient balance on customer's account.")."""
+    status = (record.get('status') or '').lower()
+    reason = str(record.get('failure_reason') or '').strip()
+    if reason and reason.lower() not in ('payment failed', 'payment failed.'):
+        return reason[:200]
+    return SNIPPE_ENDED.get(status) or reason[:200] or 'The payment was not completed.'
+
+
 def check(account, reference, provider_id=None):
     """Where a payment stands: {'state': 'paid'|'failed'|'pending'|None, 'amount', 'channel', 'provider_status', 'message'}.
     state None = the provider doesn't know it (yet). Raises PaymentError if the provider can't be reached."""
@@ -110,7 +123,7 @@ def check(account, reference, provider_id=None):
                     'amount': Decimal(str(amount)) if amount is not None else None,
                     'channel': (channel.get('provider') if isinstance(channel, dict) else channel) or None,
                     'provider_status': status.upper() or None,
-                    'message': f'Snippe: {status}' if status in ('failed', 'voided', 'expired') else None}
+                    'message': failure_reason(record) if status in ('failed', 'voided', 'expired') else None}
         record = clickpesa.query_payment(reference, account.creds)
     except (snippe.SnippeError, clickpesa.ClickPesaError) as e:
         raise PaymentError(str(e)) from None
