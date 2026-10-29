@@ -7,6 +7,7 @@ from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, N
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
 from sqlalchemy import func, or_, and_, not_, desc, text
+from sqlalchemy.exc import IntegrityError
 import clickpesa
 import payments as paylib   # (app has a route called payments)
 import snippe
@@ -4610,15 +4611,26 @@ def portal_api(fn):
         key = request.headers.get('X-SafeNet-Key', '')
         tenant = gw = None
         if key:
-            gw = Gateway.query.filter_by(key_hash=_hash_key(key), is_active=True).first()
-            if gw:
+            gw = Gateway.query.filter_by(key_hash=_hash_key(key)).first()
+            if gw is None and Config.PORTAL_API_KEY and hmac.compare_digest(key.encode(), Config.PORTAL_API_KEY.encode()):
+                # the older shared key: register the box as a gateway of the default business (its main site),
+                # so it shows on the dashboard and can be renamed, moved to a site or switched off like any other
+                default = migrations.default_tenant()
+                try:
+                    db.session.add(Gateway(tenant_id=default.id, name='SafeNet gateway', key_prefix=key[:8], key_hash=_hash_key(key)))
+                    db.session.commit()
+                    app.logger.info('gateway with the shared key registered for %s', default.name)
+                except IntegrityError:          # another request registered it at the same moment
+                    db.session.rollback()
+                gw = Gateway.query.filter_by(key_hash=_hash_key(key)).first()
+            if gw is not None and gw.is_active:
                 tenant = gw.tenant
                 now = datetime.utcnow()
                 if not gw.last_seen_at or (now - gw.last_seen_at).total_seconds() > 60:
                     gw.last_seen_at, gw.last_ip = now, _client_ip()
                     db.session.commit()
-            elif Config.PORTAL_API_KEY and hmac.compare_digest(key.encode(), Config.PORTAL_API_KEY.encode()):
-                tenant = migrations.default_tenant()
+            else:
+                gw = None                     # unknown or switched off
         if tenant is None:
             return jsonify(error='unauthorized'), 401
         if tenant_blocked(tenant):
@@ -5500,7 +5512,8 @@ def sites_page():
     rows = []
     for site in items:
         view = _site_filters(tid, site)
-        rows.append({'site': site, 'gateways': scoped(Gateway).filter_by(site_id=site.id).count(),
+        here = or_(Gateway.site_id == site.id, *([Gateway.site_id.is_(None)] if site.id == items[0].id else []))  # no site: the main site
+        rows.append({'site': site, 'gateways': scoped(Gateway).filter(here).count(),
                      'routers': scoped(Router).filter_by(site_id=site.id).count(),
                      'packages': scoped(Package).filter_by(site_id=site.id).count(),
                      'online': view['sessions'](RadAcct.query.filter(RadAcct.acctstoptime.is_(None),
