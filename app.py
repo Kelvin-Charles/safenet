@@ -3263,6 +3263,7 @@ def _ruijie_push_site(site):
         payment = Payment.query.filter_by(voucher_id=vid).first()
         if payment is not None:
             _payment_sms(payment, db.session.get(Voucher, vid))      # held back until the code was final
+            db.session.commit()                                       # (its charge to the business)
     if missing:
         raise ruijie.RuijieError(tr('No Ruijie package lasts {d}. Create one in Ruijie Cloud, then press Read packages again.',
                                     d=', '.join(format_minutes(m) for m in sorted(missing))))
