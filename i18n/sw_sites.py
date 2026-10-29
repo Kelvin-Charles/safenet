@@ -349,6 +349,7 @@ SW = {
     "Withdrawing to a Lipa Namba isn't available right now. Choose mobile money or a bank.": 'Kutoa pesa kwenda Lipa Namba hakupatikani kwa sasa. Chagua pesa kwa simu au benki.',
     'At these sites': 'Katika maeneo haya',
     'Shared the Wi-Fi through a hotspot': 'Ameshiriki Wi-Fi kupitia hotspot',
+    'The "No sharing" lines stop guests from passing the internet on through their own phone or PC hotspot. Already ran the script before? Run those three lines too.': 'Mistari ya "No sharing" inazuia wateja kugawa intaneti kupitia hotspot ya simu au kompyuta yao. Ulishaendesha script hapo awali? Endesha mistari hiyo mitatu pia.',
     'Add a site': 'Ongeza eneo',
     'Your plan allows {n} site.': 'Mpango wako unaruhusu eneo {n}.',
     'Your plan allows {n} sites.': 'Mpango wako unaruhusu maeneo {n}.',

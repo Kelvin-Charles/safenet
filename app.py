@@ -2458,6 +2458,9 @@ OMADA_GUEST_STATES = {0: ('Connected', 'secondary'), 1: ('At the login page', 'w
 OMADA_AUTHORIZED = 2         # the controller's authStatus for a guest let online through the portal
 
 
+OMADA_SCAN_MINUTES = 10      # how often the access points look for guests' own hotspots
+
+
 def _omada_sync_site(site, api=None, now=None):
     """Copy each Omada guest's data usage from SafeNet's controller into their session, keep it 'online' while the
     phone is connected, close it when the phone has been gone a while, and open it again when the controller lets
@@ -2524,7 +2527,12 @@ def _omada_sync_site(site, api=None, now=None):
     tenant = db.session.get(Tenant, site.tenant_id)
     if tenant is not None and tenant.block_tethering:
         try:                       # an extra: it never stops the usage sync
-            rogues = api.rogue_aps(site.omada_site_id) or []
+            if not site.omada_scanned_at or (now - site.omada_scanned_at).total_seconds() >= OMADA_SCAN_MINUTES * 60:
+                site.omada_scanned_at = now          # the access points look around; the results are read from next minute
+                api.scan_rogue_aps(site.omada_site_id)
+            seen_since = (time.time() - OMADA_SCAN_MINUTES * 2 * 60) * 1000      # Omada's lastSeen is ms since 1970 (UTC)
+            rogues = [r for r in api.rogue_aps(site.omada_site_id) or []
+                      if not r.get('lastSeen') or float(r['lastSeen']) >= seen_since]   # hotspots still on, not old sightings
         except Exception as e:
             log.info('omada: site %s: rogue APs not readable: %s', site.id, e)
             rogues = []
@@ -6653,7 +6661,8 @@ def router_script(router_id):
     return render_template('routers/script.html', router=router, hub=hub, online=_router_online(router),
                            private_key=secretbox.decrypt(router.private_key_enc), config=Config,
                            login_html=base + url_for('mikrotik_login_file', token=site.portal_token),
-                           portal_host=urlparse(base).hostname)
+                           portal_host=urlparse(base).hostname,
+                           block_tethering=db.session.get(Tenant, router.tenant_id).block_tethering)
 
 
 @app.route('/routers/<int:router_id>/toggle', methods=['POST'])

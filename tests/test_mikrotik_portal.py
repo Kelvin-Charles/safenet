@@ -82,4 +82,5 @@ s = html.unescape(c.get(f'/routers/{RID}/script').text)
 assert '/ip hotspot walled-garden ip add action=accept dst-host=radius.example.tz' in s
 assert '/tool fetch url="https://radius.example.tz/mikrotik/mktok/login.html" dst-path=($d . "/login.html")' in s
 assert 'login-by=http-chap,http-pap,cookie' in s
+assert '/ip firewall filter add chain=forward hotspot=from-client ttl=equal:63 action=drop' in s     # no hotspot sharing (on by default)
 print('MIKROTIK PORTAL OK')

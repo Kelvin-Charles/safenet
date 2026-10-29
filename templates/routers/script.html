@@ -29,9 +29,14 @@
 /ip hotspot walled-garden add dst-host={{ portal_host }} comment="SafeNet"
 /ip hotspot walled-garden ip add action=accept dst-host={{ portal_host }} comment="SafeNet"
 /ip hotspot profile set [find] login-by=http-chap,http-pap,cookie
-:foreach p in=[/ip hotspot profile find] do={ :local d [/ip hotspot profile get $p html-directory]; :if ([:len $d] > 0) do={ /tool fetch url="{{ login_html }}" dst-path=($d . "/login.html") } }</pre>
+:foreach p in=[/ip hotspot profile find] do={ :local d [/ip hotspot profile get $p html-directory]; :if ([:len $d] > 0) do={ /tool fetch url="{{ login_html }}" dst-path=($d . "/login.html") } }{% if block_tethering %}
+# No sharing: drop what guests pass on through their own phone or PC hotspot (one hop more: TTL 63 or 127)
+/ip firewall filter remove [find comment="SafeNet: no hotspot sharing"]
+/ip firewall filter add chain=forward hotspot=from-client ttl=equal:63 action=drop comment="SafeNet: no hotspot sharing"
+/ip firewall filter add chain=forward hotspot=from-client ttl=equal:127 action=drop comment="SafeNet: no hotspot sharing"{% endif %}</pre>
         <button class="btn btn-outline-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('script').innerText).then(() => this.textContent = {{ _('Copied')|tojson|forceescape }})"><i class="bi bi-clipboard"></i> {{ _('Copy script') }}</button>
         <p class="small mt-3 mb-1"><i class="bi bi-window"></i> {{ _("The last lines replace the hotspot's own login page with yours from SafeNet (logo, packages, mobile money, vouchers). Already ran the script before? Run just those four lines.") }}</p>
+        {% if block_tethering %}<p class="small mb-1"><i class="bi bi-share"></i> {{ _("The \"No sharing\" lines stop guests from passing the internet on through their own phone or PC hotspot. Already ran the script before? Run those three lines too.") }}</p>{% endif %}
         <p class="small text-muted mt-3 mb-0">{{ _('Check:') }} <code>/interface wireguard peers print</code> {{ _('should show a recent "last-handshake", and this page will say "Connected" within a minute. Speed limits from your plans are sent to the router as') }} <code>Mikrotik-Rate-Limit</code>.</p>
         {% else %}
         <p>{{ _('Create a WireGuard interface on the router with these settings, then point its RADIUS client at SafeNet:') }}</p>

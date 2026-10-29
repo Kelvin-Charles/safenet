@@ -281,6 +281,10 @@ class OpenApi:
         for the site): bssid/mac, ssid, ..."""
         return self._pages(f'/sites/{site_id}/insight/rogueaps')
 
+    def scan_rogue_aps(self, site_id):
+        """Ask the site's access points to look for Wi-Fi networks around them (results in rogue_aps after ~30 s)."""
+        return self._call('POST', f'/sites/{site_id}/cmd/rogueaps/scan', {})
+
     def clients(self, site_id):
         """Phones the site's access points see now: mac, ip, trafficDown/trafficUp (bytes), uptime (s), active."""
         return self._pages(f'/sites/{site_id}/clients')

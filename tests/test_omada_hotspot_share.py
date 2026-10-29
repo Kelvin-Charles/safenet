@@ -13,7 +13,8 @@ from models import Admin, Tenant, Site, RadAcct, Voucher
 
 
 class FakeApi:
-    def __init__(self): self.cut, self.rogues, self.clients_now = [], [], []
+    def __init__(self): self.cut, self.rogues, self.clients_now, self.scans = [], [], [], 0
+    def scan_rogue_aps(self, site_id): self.scans += 1
     def unauth(self, site_id, mac): self.cut.append(mac)
     def clients(self, site_id): return self.clients_now
     def rogue_aps(self, site_id): return self.rogues
@@ -56,6 +57,15 @@ with app.app_context():
     assert RadAcct.query.filter_by(acctsessionid='11110001').one().acctstoptime is not None
     assert Voucher.query.filter_by(code='11110002').one().status == 'active'          # the other guest isn't touched
 assert api.cut == ['A4-11-22-33-44-55']
+assert api.scans == 1                         # the access points are asked to look around every 10 minutes, not every sync
+# a hotspot only seen long ago (switched off since) doesn't count
+import time as _t
+with app.app_context():
+    v = Voucher.query.filter_by(code='11110002').one()
+api.rogues = [{'bssid': 'BA-00-00-00-00-01', 'ssid': 'Old', 'lastSeen': (_t.time() - 3600) * 1000}]
+with app.app_context():
+    appmod._omada_sync_site(db.session.get(Site, SID), api)
+    assert Voucher.query.filter_by(code='11110002').one().status == 'active'
 # the business sees why, and can enable it again
 c = app.test_client(); r = c.get('/login'); c.post('/login', data={'username': 'owner', 'password': 'password1', 'csrf_token': tok(r.text)})
 page = html.unescape(c.get('/vouchers?state=disabled').text)

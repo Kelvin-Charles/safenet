@@ -114,6 +114,7 @@ class Site(db.Model):
     wifidog_gw_id = db.Column(db.String(64))            # last access point id seen
     omada_checked_at = db.Column(db.DateTime)          # last successful connection
     omada_synced_at = db.Column(db.DateTime)           # guests' data usage last read from SafeNet's controller
+    omada_scanned_at = db.Column(db.DateTime)          # access points last asked to look for guests' own hotspots
     # The guest Wi-Fi people join here (printed as a 'scan to join' QR code); Omada sites default to the SSID SafeNet made
     wifi_ssid = db.Column(db.String(32))
     wifi_password = db.Column(db.String(63))            # empty: an open network (usual for hotspots)
