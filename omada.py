@@ -276,6 +276,11 @@ class OpenApi:
         self._call('PUT', f'/users/{user_id}', body)
 
     # -- clients ---------------------------------------------------------
+    def rogue_aps(self, site_id):
+        """Wi-Fi networks the site's access points hear that aren't theirs (Insights -> Rogue APs; detection must be on
+        for the site): bssid/mac, ssid, ..."""
+        return self._pages(f'/sites/{site_id}/insight/rogueaps')
+
     def clients(self, site_id):
         """Phones the site's access points see now: mac, ip, trafficDown/trafficUp (bytes), uptime (s), active."""
         return self._pages(f'/sites/{site_id}/clients')
@@ -453,3 +458,17 @@ class OpenApiAdmin(OpenApi):
         self._token, self._token_until = token, _time.time() + max(60, int(result.get('expiresIn') or 3600) - 60)
         return token
 
+
+def own_hotspot(bssid, mac):
+    """True when a Wi-Fi network's address (bssid) is a hotspot made by the device with this address: Windows Mobile
+    Hotspot (and usually an iPhone's) uses the device's own address with the 'locally administered' bits of the first
+    byte changed, or the next address."""
+    def parts(x):
+        h = re.sub(r'[^0-9a-fA-F]', '', str(x or '')).lower()
+        return [int(h[i:i + 2], 16) for i in range(0, 12, 2)] if len(h) == 12 else None
+    b, m = parts(bssid), parts(mac)
+    if not b or not m or b == m:
+        return False
+    if b[1:] == m[1:] and (b[0] ^ m[0]) & ~0x0E == 0:
+        return True
+    return b[:5] == m[:5] and abs(b[5] - m[5]) == 1

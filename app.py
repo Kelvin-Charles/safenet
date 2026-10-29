@@ -1602,6 +1602,7 @@ def toggle_voucher(voucher_id):
     voucher = owned_or_404(Voucher, voucher_id)
     if voucher.status == 'disabled':
         voucher.status = 'active' if voucher.first_used_at else 'unused'
+        voucher.disabled_reason = None
         flash(tr('Voucher {code} enabled.', code=voucher.code), 'success')
     else:
         voucher.status = 'disabled'
@@ -1662,7 +1663,7 @@ def bulk_vouchers():
     elif action == 'enable':
         for v in items:
             if v.status == 'disabled':
-                v.status = 'active' if v.first_used_at else 'unused'
+                v.status, v.disabled_reason = ('active' if v.first_used_at else 'unused'), None
                 changed += 1
         db.session.commit()
         flash(tr('{n} vouchers enabled.', n=changed), 'success')
@@ -2518,6 +2519,29 @@ def _omada_sync_site(site, api=None, now=None):
         db.session.flush()
         rows.append(row)
         log.info('omada: %s online on %s without the login page; session opened', mac, username)
+
+    # hotspot sharing: a guest's PC or phone making its own Wi-Fi (the access points hear it as a rogue AP)
+    tenant = db.session.get(Tenant, site.tenant_id)
+    if tenant is not None and tenant.block_tethering:
+        try:                       # an extra: it never stops the usage sync
+            rogues = api.rogue_aps(site.omada_site_id) or []
+        except Exception as e:
+            log.info('omada: site %s: rogue APs not readable: %s', site.id, e)
+            rogues = []
+        for rogue in rogues:
+            bssid = rogue.get('bssid') or rogue.get('mac') or rogue.get('apMac')
+            for mac, c in seen.items():
+                if mac in done or not authorized(c) or not omada.own_hotspot(bssid, mac):
+                    continue
+                cut_off(mac, f'shared the Wi-Fi through its own hotspot "{rogue.get("ssid") or bssid}"')
+                for row in [r for r in rows if (r.callingstationid or '').upper() == mac]:
+                    row.acctstoptime, row.acctterminatecause = now, 'Admin-Reset'
+                    rows.remove(row)
+                    voucher = Voucher.query.filter_by(tenant_id=site.tenant_id, code=row.username).first()
+                    if voucher is not None and voucher.status != 'disabled':
+                        voucher.status, voucher.disabled_reason = 'disabled', 'Shared the Wi-Fi through a hotspot'
+                        log.warning('omada: site %s: voucher %s disabled: %s shared it through hotspot %r',
+                                    site.id, voucher.code, mac, rogue.get('ssid'))
 
     counters = {c.radacct_id: c for c in OmadaCounter.query.filter(OmadaCounter.radacct_id.in_([r.radacctid for r in rows]))} if rows else {}
     for row in rows:

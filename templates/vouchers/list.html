@@ -133,6 +133,7 @@
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 {% if v.status == 'disabled' %}
                                 <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-check-circle"></i> {{ _('Enable') }}</button>
+                                {% if v.disabled_reason %}<small class="d-block text-danger">{{ _('Shared the Wi-Fi through a hotspot') if v.disabled_reason == 'Shared the Wi-Fi through a hotspot' else v.disabled_reason }}</small>{% endif %}
                                 {% else %}
                                 <button type="submit" class="btn btn-sm btn-outline-warning"><i class="bi bi-slash-circle"></i> {{ _('Disable') }}</button>
                                 {% endif %}

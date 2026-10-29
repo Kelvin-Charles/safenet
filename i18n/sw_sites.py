@@ -348,6 +348,7 @@ SW = {
     'to': 'kwa',
     "Withdrawing to a Lipa Namba isn't available right now. Choose mobile money or a bank.": 'Kutoa pesa kwenda Lipa Namba hakupatikani kwa sasa. Chagua pesa kwa simu au benki.',
     'At these sites': 'Katika maeneo haya',
+    'Shared the Wi-Fi through a hotspot': 'Ameshiriki Wi-Fi kupitia hotspot',
     'Add a site': 'Ongeza eneo',
     'Your plan allows {n} site.': 'Mpango wako unaruhusu eneo {n}.',
     'Your plan allows {n} sites.': 'Mpango wako unaruhusu maeneo {n}.',

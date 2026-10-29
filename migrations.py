@@ -229,6 +229,7 @@ def run():
     _add_column('sites', 'ruijie_clients', 'MEDIUMTEXT')
     _add_column('sites', 'ruijie_clients_at', 'DATETIME')
     _add_column('vouchers', 'ruijie_state', 'VARCHAR(8)')
+    _add_column('vouchers', 'disabled_reason', 'VARCHAR(120)')
     _add_column('tenants', 'guest_trial_minutes', 'INTEGER NOT NULL DEFAULT 0')
     _add_column('tenants', 'phone_pending', 'VARCHAR(20)')
     _add_column('tenants', 'phone_pending_at', 'DATETIME')
