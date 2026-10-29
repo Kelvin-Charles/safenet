@@ -2638,6 +2638,7 @@ def start_background_jobs():
         threading.Thread(target=_omada_sync_loop, name='omada-usage', daemon=True).start()
     threading.Thread(target=_daily_summary_loop, name='daily-summary', daemon=True).start()
     threading.Thread(target=_ruijie_loop, name='ruijie-cloud', daemon=True).start()
+    threading.Thread(target=_payments_sync_loop, name='payments-sync', daemon=True).start()
 
 
 def _openapi_admin():
@@ -4546,6 +4547,44 @@ def _payment_sms(payment, voucher):
                                        f'Keep it to reconnect.' + help_line, 'voucher')
 
 
+PAYMENT_UNKNOWN_MINUTES = 30     # a provider that still doesn't know a payment by then never got it
+
+
+def _payments_sync_due():
+    """Keep SafeNet in step with Snippe/ClickPesa: settle every unfinished payment of the last two days (a guest who
+    closed the page, a webhook that never came), and look again at ones marked failed only because the provider
+    didn't answer in time (it may have taken the money)."""
+    now = datetime.utcnow()
+    since = now - timedelta(days=2)
+    lost = Payment.query.filter(Payment.status == 'failed', Payment.created_at >= since,
+                                or_(Payment.message.like('%unreachable%'), Payment.message.like('%timed out%'))).all()
+    for p in lost:
+        p.status, p.message, p.checked_at = 'pending', 'Checking again with the payment provider', None
+        log.info('payment %s: checking again with %s (was failed: no answer in time)', p.reference, p.provider)
+    db.session.commit()
+    refs = [r for (r,) in db.session.query(Payment.reference).filter(
+        Payment.status == 'pending', Payment.created_at >= since,
+        or_(Payment.checked_at.is_(None), Payment.checked_at <= now - timedelta(seconds=50))).order_by(Payment.id).limit(100)]
+    for ref in refs:
+        try:
+            p = _refresh_payment(ref, force=True)
+            if p is not None and p.status != 'pending':
+                log.info('payment %s settled by the sync: %s', ref, p.status)
+        except Exception:
+            db.session.rollback()
+            log.exception('payment sync %s failed', ref)
+
+
+def _payments_sync_loop():
+    while True:
+        time.sleep(60)
+        try:
+            with app.app_context():
+                _payments_sync_due()
+        except Exception:
+            log.exception('payment sync failed')
+
+
 def _refresh_payment(reference, force=False):
     """Checks a pending payment with its provider. Locks the row so a payment is
     fulfilled exactly once even if the webhook and the portal poll race."""
@@ -4562,10 +4601,15 @@ def _refresh_payment(reference, force=False):
         except paylib.PaymentError as e:
             log.warning('%s query %s failed: %s', payment.provider, reference, e)
             result = {'state': None}
+        if result.get('provider_id') and not payment.provider_id:
+            payment.provider_id = str(result['provider_id'])[:64]        # found by our reference after a lost answer
+        if result['state'] is None and (now - payment.created_at).total_seconds() > PAYMENT_UNKNOWN_MINUTES * 60:
+            payment.status = 'failed'                  # the provider never heard of it: the request didn't get through
+            payment.message = 'The payment request did not reach the mobile-money network.'
         if result['state']:
             payment.provider_status = result.get('provider_status') or payment.provider_status
             payment.channel = result.get('channel') or payment.channel
-            payment.message = (result.get('message') or payment.message or '')[:255] or None
+            payment.message = (result.get('message') or '')[:255] or None
             if result['state'] == 'paid':
                 collected = result.get('amount')
                 if collected is not None and collected < payment.charged:
@@ -4783,6 +4827,11 @@ def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=
         payment.provider_id, payment.channel = tx['provider_id'], tx['channel']
         payment.provider_status = tx['provider_status']
     except paylib.PaymentError as e:
+        if e.unsure:        # e.g. a timeout: the PIN prompt may well have gone out; it's checked again until known
+            log.warning('%s payment %s: no clear answer (%s); checking again', paylib.name(account), payment.reference, e.detail)
+            payment.message = 'Waiting for the payment provider'
+            db.session.commit()
+            return payment, None, 200
         log.warning('%s payment %s failed: %s', paylib.name(account), payment.reference, e.detail)
         payment.status, payment.message = 'failed', e.detail
         db.session.commit()
@@ -7142,6 +7191,11 @@ def snippe_webhook():
     if not ref:
         return jsonify(received=True)
     payment = Payment.query.filter_by(provider='snippe', provider_id=ref).first()
+    ours = str(((event.get('data') or {}).get('metadata') or {}).get('order_reference') or '')[:20]
+    by_ours = False
+    if payment is None and ours:            # its answer to our request was lost: the payment has no Snippe id yet
+        payment = Payment.query.filter(Payment.provider == 'snippe', Payment.reference == ours, Payment.provider_id.is_(None)).first()
+        by_ours = payment is not None
     sub = None if payment else SubscriptionPayment.query.filter_by(method='snippe', provider_id=ref).first()
     payout = None if payment or sub else Withdrawal.query.filter_by(payout_provider='snippe', payout_id=ref).first()
     if payment is None and sub is None and payout is None:
@@ -7151,6 +7205,11 @@ def snippe_webhook():
                                  account.creds.webhook_key):
         log.warning('snippe webhook for %s: bad or missing signature', ref)
         return jsonify(error='invalid signature'), 401
+    if by_ours:                             # signed by Snippe: now it's safe to tie the two together
+        payment.provider_id = ref
+        if payment.status == 'failed':
+            payment.status = 'pending'
+        db.session.commit()
     try:
         if payment:
             _refresh_payment(payment.reference, force=True)

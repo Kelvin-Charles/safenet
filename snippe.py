@@ -93,6 +93,20 @@ def create_payment(amount, phone, reference, creds, webhook_url=None, customer=N
     return _request('POST', '/v1/payments', creds, body, idempotency_key=reference) or {}
 
 
+def find_payment(order_reference, creds, pages=5):
+    """A payment by our own reference (kept in its metadata), from Snippe's latest payments: for when Snippe made the
+    payment but its answer to us was lost (a timeout). None if it isn't among the latest pages."""
+    for page in range(pages):
+        data = _request('GET', f'/v1/payments?limit=100&offset={page * 100}', creds) or {}
+        items = data.get('items') or []
+        for p in items:
+            if (p.get('metadata') or {}).get('order_reference') == order_reference:
+                return p
+        if len(items) < 100:
+            return None
+    return None
+
+
 def get_payment(snippe_reference, creds):
     """Latest state of a Snippe payment, or None if Snippe doesn't know it."""
     try:

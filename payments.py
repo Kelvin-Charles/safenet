@@ -18,10 +18,12 @@ Account = namedtuple('Account', 'provider creds owner')
 
 
 class PaymentError(Exception):
-    """`str(e)` is safe to show a guest; `detail` is for the payment record."""
-    def __init__(self, message, detail=None):
+    """`str(e)` is safe to show a guest; `detail` is for the payment record. `unsure`: the provider couldn't be reached
+    or didn't answer in time, so the request may have gone through (the payment stays pending and is checked again)."""
+    def __init__(self, message, detail=None, unsure=False):
         super().__init__(message)
         self.detail = (detail or message)[:255]
+        self.unsure = unsure
 
 
 def platform_account(provider, creds=None):
@@ -67,7 +69,8 @@ def start(account, amount, phone, reference, network=None, webhook_url=None, pay
             data = snippe.create_payment(amount, phone, reference, account.creds, webhook_url=webhook_url,
                                          customer=snippe.customer(*payer) if payer else None)
         except snippe.SnippeError as e:
-            raise PaymentError("We couldn't send the payment request. Check the number and try again.", str(e)) from None
+            raise PaymentError("We couldn't send the payment request. Check the number and try again.", str(e),
+                               unsure='unreachable' in str(e)) from None
         if not data.get('reference'):
             raise PaymentError("We couldn't send the payment request. Please try again.", 'Snippe returned no reference')
         status = (data.get('status') or 'pending').lower()
@@ -88,7 +91,8 @@ def start(account, amount, phone, reference, network=None, webhook_url=None, pay
                                'No mobile-money method available for this number')
         tx = clickpesa.initiate_ussd_push(amount, phone, reference, account.creds) or {}
     except clickpesa.ClickPesaError as e:
-        raise PaymentError("We couldn't send the payment request. Check the number and try again.", str(e)) from None
+        raise PaymentError("We couldn't send the payment request. Check the number and try again.", str(e),
+                           unsure='unreachable' in str(e)) from None
     status = (tx.get('status') or '').upper() or None
     if status == 'FAILED':
         raise PaymentError("We couldn't send the payment request. Check the number and try again.", 'ClickPesa: FAILED')
@@ -113,7 +117,8 @@ def check(account, reference, provider_id=None):
     state None = the provider doesn't know it (yet). Raises PaymentError if the provider can't be reached."""
     try:
         if account.provider == 'snippe':
-            record = snippe.get_payment(provider_id, account.creds) if provider_id else None
+            # no Snippe id yet (its answer to the request was lost): find it by our reference
+            record = snippe.get_payment(provider_id, account.creds) if provider_id else snippe.find_payment(reference, account.creds)
             if not record:
                 return {'state': None}
             status = (record.get('status') or '').lower()
@@ -123,7 +128,8 @@ def check(account, reference, provider_id=None):
                     'amount': Decimal(str(amount)) if amount is not None else None,
                     'channel': (channel.get('provider') if isinstance(channel, dict) else channel) or None,
                     'provider_status': status.upper() or None,
-                    'message': failure_reason(record) if status in ('failed', 'voided', 'expired') else None}
+                    'message': failure_reason(record) if status in ('failed', 'voided', 'expired') else None,
+                    'provider_id': record.get('reference')}
         record = clickpesa.query_payment(reference, account.creds)
     except (snippe.SnippeError, clickpesa.ClickPesaError) as e:
         raise PaymentError(str(e)) from None
