@@ -1517,7 +1517,8 @@ def _returning_code(tid, mac):
     candidates = [c for (c,) in db.session.query(Voucher.code).filter(Voucher.tenant_id == tid, Voucher.first_mac == dashed.lower().replace('-', ':'),
                                                                      Voucher.status == 'active', Voucher.expires_at > now)
                   .order_by(Voucher.expires_at.desc()).limit(5)]
-    used = db.session.query(RadAcct.username).filter(RadAcct.callingstationid == dashed) \
+    forms = (dashed, dashed.replace('-', ':'))               # MikroTik writes the address with colons
+    used = db.session.query(RadAcct.username).filter(RadAcct.callingstationid.in_(forms)) \
         .order_by(RadAcct.acctstarttime.desc()).limit(20).all()
     names = [u for (u,) in used if u not in candidates]
     if names:
@@ -1527,7 +1528,7 @@ def _returning_code(tid, mac):
     for code in candidates:
         # not if an admin disconnected it after this phone last logged in with it
         last = db.session.query(func.max(RadAcct.acctstarttime)).filter(RadAcct.username == code,
-                                                                          RadAcct.callingstationid == dashed).scalar()
+                                                                          RadAcct.callingstationid.in_(forms)).scalar()
         kicked = SessionKick.query.filter(SessionKick.tenant_id == tid, SessionKick.username == code,
                                           *([SessionKick.created_at >= last] if last else [])).first()
         if not kicked:
@@ -2312,8 +2313,15 @@ def mikrotik_portal(token):
                                   'ip': request.args.get('ip', '')[:45] or known.get('ip', '')}
         error = request.args.get('error', '')[:200]
         return redirect(url_for('mikrotik_portal', token=token, error=error or None, lang=request.args.get('lang')))
-    if not _mikrotik_guest(token).get('login'):
+    guest = _mikrotik_guest(token)
+    if not guest.get('login'):
         return _mikrotik_page(site, tenant, error='Please connect to the Wi-Fi again and open any website to get here.')
+    if not request.args.get('error'):
+        # a phone that paid and still has time: logged straight back in, no login page (if the router turns the code
+        # down it comes back with an error, and then the page is shown)
+        code = _returning_code(tenant.id, guest.get('mac'))
+        if code:
+            return _mikrotik_connect(site, tenant, guest, code, message='welcome_back', delay=0)
     return _mikrotik_page(site, tenant, error=request.args.get('error', '')[:200], tab='voucher' if request.args.get('error') else None)
 
 
@@ -2377,7 +2385,7 @@ def mikrotik_wait(token):
                                 'package': payment.package_name, 'gift_phone': payment.gift_phone or ''})
 
 
-def _mikrotik_connect(site, tenant, guest, code, message='paid_ok'):
+def _mikrotik_connect(site, tenant, guest, code, message='paid_ok', delay=1200):
     """Paid (or a free trial): show the code and log the phone in on the router with it (the router asks SafeNet's RADIUS)."""
     cfg = portal_config(tenant)
     if cfg.get('logo_version'):
@@ -2393,7 +2401,7 @@ def _mikrotik_connect(site, tenant, guest, code, message='paid_ok'):
             f'<input type="hidden" name="username" value="{e(code)}"><input type="hidden" name="password" value="{e(code)}">'
             f'<input type="hidden" name="dst" value="{e(guest.get("orig", ""))}">'
             f'<button class="btn" type="submit">{portal_ui.icon("wifi", 20, 2.4)} {t("connect")}</button></form>'
-            '<script>setTimeout(function(){document.getElementById("mk").submit();},1200);</script>')
+            f'<script>setTimeout(function(){{document.getElementById("mk").submit();}},{int(delay)});</script>')
     resp = make_response(portal_ui.page(th, lang, body, hero_extra=False, lang_url=url_for('mikrotik_portal', token=site.portal_token)))
     resp.headers['Cache-Control'] = 'no-store'
     return resp
