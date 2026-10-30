@@ -436,6 +436,13 @@ class RadPostAuth(db.Model):
 
 
 
+# Sites a voucher works at; none means every site of its business
+voucher_sites = db.Table(
+    'voucher_sites',
+    db.Column('voucher_id', db.Integer, db.ForeignKey('vouchers.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('site_id', db.Integer, db.ForeignKey('sites.id', ondelete='CASCADE'), primary_key=True, index=True))
+
+
 class Voucher(db.Model):
     """Prepaid access code: username and password are both `code`.
 
@@ -464,6 +471,11 @@ class Voucher(db.Model):
     expires_at = db.Column(db.DateTime)
 
     plan = db.relationship('Plan', backref='vouchers')
+    sites = db.relationship('Site', secondary=voucher_sites, lazy='selectin')
+
+    def works_at(self, site):
+        """True if the code may be used at this site (no sites chosen: all of them)."""
+        return site is None or not self.sites or any(s.id == site.id for s in self.sites)
 
     @property
     def state(self):

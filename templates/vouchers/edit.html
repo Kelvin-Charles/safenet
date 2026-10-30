@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Edit vouchers') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{% if one %}{{ _('Edit voucher {code}', code=one.code) }}{% else %}{{ _('Edit {n} vouchers', n=items|length) }}{% endif %}{% endblock %}
+
+{% macro change(name) %}{% if not one %}<input class="form-check-input me-1 change-box" type="checkbox" name="change_{{ name }}" value="1" data-for="{{ name }}">{% endif %}{% endmacro %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-pencil"></i>
+                {% if one %}{{ _('Voucher') }} <strong class="font-monospace">{{ one.code }}</strong>{% if one.first_used_at %} · <small class="text-muted">{{ _('in use since {date}', date=one.first_used_at.strftime('%d %b %H:%M')) }}</small>{% endif %}
+                {% else %}{{ _('{n} vouchers', n=items|length) }} <small class="text-muted">{{ _('Tick what you want to change; the rest stays as it is.') }}</small>{% endif %}
+            </div>
+            <div class="card-body">
+                <form method="POST" novalidate>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    {% for k, v in keep.items() %}{% if v %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endif %}{% endfor %}
+                    <fieldset class="mb-3" data-field="plan">
+                        <label class="form-label">{{ change('plan') }}{{ _('Plan') }}</label>
+                        <select name="plan_id" class="form-select">
+                            <option value="0">{{ _('-- No Plan --') }}</option>
+                            {% for p in plans %}<option value="{{ p.id }}" {{ 'selected' if one and one.plan_id == p.id }}>{{ p.name }}</option>{% endfor %}
+                        </select>
+                        <small class="form-text text-muted">{{ _('Speed limits and other attributes come from the plan.') }}</small>
+                    </fieldset>
+                    <fieldset class="mb-3" data-field="validity">
+                        <label class="form-label">{{ change('validity') }}{{ _('Valid for') }}</label>
+                        <div class="input-group" style="max-width:320px">
+                            <input type="number" name="validity_value" class="form-control" min="1" value="{{ validity_value }}">
+                            <select name="validity_unit" class="form-select">
+                                <option value="hours" {{ 'selected' if validity_unit == 'hours' }}>{{ _('Hours') }}</option>
+                                <option value="days" {{ 'selected' if validity_unit == 'days' }}>{{ _('Days') }}</option>
+                            </select>
+                        </div>
+                        <small class="form-text text-muted">{{ _('For a voucher already in use, the end moves too: counted from its first login.') }}</small>
+                    </fieldset>
+                    <fieldset class="mb-3" data-field="price">
+                        <label class="form-label">{{ change('price') }}{{ _('Price') }}</label>
+                        <div class="input-group" style="max-width:320px"><span class="input-group-text">{{ currency }}</span>
+                            <input type="text" name="price" class="form-control" value="{{ '%.0f'|format(one.price) if one and one.price is not none else '' }}" inputmode="decimal"></div>
+                        <small class="form-text text-muted">{{ _('Free trial vouchers keep no price.') }}</small>
+                    </fieldset>
+                    <fieldset class="mb-3" data-field="devices">
+                        <label class="form-label">{{ change('devices') }}{{ _('Devices per voucher') }}</label>
+                        <input type="number" name="max_devices" class="form-control" min="1" max="10" style="max-width:160px" value="{{ one.max_devices if one else 1 }}">
+                    </fieldset>
+                    {% if sites|length > 1 %}
+                    <fieldset data-field="sites">
+                        {% if not one %}<div class="mb-1">{{ change('sites') }}<span class="form-label">{{ _('Change the sites') }}</span></div>{% endif %}
+                        {% include "vouchers/_sites.html" %}
+                    </fieldset>
+                    {% endif %}
+                    {% if ruijie %}<div class="alert alert-warning small">{{ _('Codes already made on Ruijie Cloud keep the package they were made with there: changes here apply to the other sites.') }}</div>{% endif %}
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('vouchers', batch=keep.batch or None, state=keep.state or None, search=keep.search or None) }}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> {{ _('Cancel') }}</a>
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> {{ _('Save') }}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% if not one %}
+<script>
+document.querySelectorAll('.change-box').forEach(function (box) {
+    var set = document.querySelector('[data-field="' + box.dataset.for + '"]');
+    function sync() { set.querySelectorAll('input:not(.change-box), select').forEach(function (el) { el.style.opacity = box.checked ? 1 : .5; }); }
+    box.addEventListener('change', sync); sync();
+});
+</script>
+{% endif %}
+{% endblock %}

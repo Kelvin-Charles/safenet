@@ -88,6 +88,7 @@
                 <span><strong id="bulk-count">0</strong> {{ _('selected') }}
                     {% if pagination.total > pagination.items|length %}· <a href="#" id="bulk-all">{{ _('Select all {n} vouchers matching this list', n='{:,}'.format(pagination.total)) }}</a>{% endif %}</span>
                 <span class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" type="submit" name="action" value="edit"><i class="bi bi-pencil"></i> {{ _('Edit') }}</button>
                     <button class="btn btn-sm btn-outline-warning" type="submit" name="action" value="disable" data-confirm="{{ _('Disable these vouchers? Phones using them are disconnected.') }}"><i class="bi bi-slash-circle"></i> {{ _('Disable') }}</button>
                     <button class="btn btn-sm btn-outline-success" type="submit" name="action" value="enable" data-confirm="{{ _('Enable these vouchers?') }}"><i class="bi bi-check-circle"></i> {{ _('Enable') }}</button>
                     <button class="btn btn-sm btn-outline-danger" type="submit" name="action" value="delete" data-confirm="{{ _('Delete these vouchers for good? Phones using them are disconnected.') }}"><i class="bi bi-trash"></i> {{ _('Delete') }}</button>
@@ -127,8 +128,9 @@
                             {% elif st == 'expired' %}<span class="badge bg-secondary">{{ _('Expired') }}</span>
                             {% else %}<span class="badge bg-danger">{{ _('Disabled') }}</span>{% endif %}
                         </td>
-                        <td><a href="{{ url_for('vouchers', batch=v.batch) }}" class="small">{{ v.batch }}</a></td>
+                        <td><a href="{{ url_for('vouchers', batch=v.batch) }}" class="small">{{ v.batch }}</a>{% if v.sites %}<small class="d-block text-muted"><i class="bi bi-geo-alt"></i> {{ v.sites|map(attribute='name')|join(', ') }}</small>{% endif %}</td>
                         <td class="text-nowrap">
+                            <a href="{{ url_for('edit_vouchers', ids=v.id) }}" class="btn btn-sm btn-outline-primary" title="{{ _('Edit') }}"><i class="bi bi-pencil"></i></a>
                             <form method="POST" action="{{ url_for('toggle_voucher', voucher_id=v.id) }}" style="display:inline;">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 {% if v.status == 'disabled' %}

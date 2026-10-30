@@ -345,7 +345,7 @@ def _site_filters(tid, site):
         here = or_(here, not_(or_(RadAcct.calledstationid.in_(names(None) or ['-']), RadAcct.nasipaddress.in_(ips(None) or ['-']))))
     return {'sessions': lambda q: q.filter(mine, here),
             'payments': lambda q: q.filter(Payment.site_id == site.id),
-            'vouchers': lambda q: q.filter(Voucher.site_id == site.id),
+            'vouchers': lambda q: q.filter(or_(Voucher.site_id == site.id, Voucher.sites.any(Site.id == site.id))),
             'devices': lambda q: q.filter_by(site_id=site.id)}
 
 
@@ -1431,8 +1431,11 @@ def _new_group_name(plan_name):
     return name
 
 
-def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_devices=1, is_free=False, site_id=None):
-    """Adds `count` vouchers (and their RADIUS rows) to the session; caller commits."""
+def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_devices=1, is_free=False, site_id=None, sites=None):
+    """Adds `count` vouchers (and their RADIUS rows) to the session; caller commits. `sites`: the only sites they
+    work at (none: all); the first Reyee one among them (else the first) is their home site."""
+    if sites:
+        site_id = next((x for x in sites if x.ruijie_ready), sites[0]).id
     # Codes double as RADIUS usernames, so avoid clashes with both tables.
     taken = {c for (c,) in db.session.query(Voucher.code)}
     taken |= {u for (u,) in db.session.query(RadCheck.username).distinct()}
@@ -1445,6 +1448,8 @@ def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_device
                           code=code, plan_id=plan.id if plan else None, batch=batch,
                           validity_minutes=minutes, price=None if is_free else price,
                           max_devices=max_devices or 1, is_free=bool(is_free), site_id=site_id, ruijie_state=ruijie_state)
+        if sites:
+            voucher.sites = list(sites)
         db.session.add(voucher)
         db.session.add(RadCheck(username=code, attribute='Cleartext-Password', op=':=', value=code))
         if plan:
@@ -1506,8 +1511,8 @@ def _mac_key(mac):
     return (mac or '').strip().lower().replace('-', ':')[:17] or None
 
 
-def _returning_code(tid, mac):
-    """The voucher a phone already paid for and can still use (time left, not disabled), so a guest
+def _returning_code(tid, mac, site=None):
+    """The voucher a phone already paid for and can still use (time left, not disabled) at this site, so a guest
     who reconnects is let back in without typing the code again. None if there is none."""
     raw = re.sub(r'[^0-9A-Fa-f]', '', mac or '').upper()
     if len(raw) != 12:
@@ -1525,6 +1530,9 @@ def _returning_code(tid, mac):
         candidates += [c for (c,) in db.session.query(Voucher.code).filter(Voucher.tenant_id == tid, Voucher.code.in_(names),
                                                                           Voucher.status == 'active', Voucher.expires_at > now)
                        .order_by(Voucher.expires_at.desc())]
+    if site is not None and candidates:
+        allowed = {v.code for v in Voucher.query.filter(Voucher.tenant_id == tid, Voucher.code.in_(candidates)) if v.works_at(site)}
+        candidates = [c for c in candidates if c in allowed]
     for code in candidates:
         # not if an admin disconnected it after this phone last logged in with it
         last = db.session.query(func.max(RadAcct.acctstarttime)).filter(RadAcct.username == code,
@@ -1534,10 +1542,10 @@ def _returning_code(tid, mac):
         if not kicked:
             return code
     # a package bought in the guest app for this phone, not started yet: it starts now
-    waiting = db.session.query(Voucher.code).filter(
+    waiting = [v for v in Voucher.query.filter(
         Voucher.tenant_id == tid, Voucher.first_mac == dashed.lower().replace('-', ':'), Voucher.first_used_at.is_(None),
-        Voucher.status == 'unused', Voucher.is_free.is_(False)).order_by(Voucher.id).first()
-    return waiting[0] if waiting else None
+        Voucher.status == 'unused', Voucher.is_free.is_(False)).order_by(Voucher.id).limit(5) if v.works_at(site)]
+    return waiting[0].code if waiting else None
 
 
 def _free_trial_stats(tid):
@@ -1568,15 +1576,122 @@ def generate_vouchers():
         batch = (form.batch.data or '').strip() or \
             ('Free trial ' if form.is_free.data else '') + datetime.utcnow().strftime('%Y%m%d-%H%M%S')
 
+        sites = _picked_sites()
+        if sites is False:
+            flash(tr('Choose at least one site, or All sites.'), 'danger')
+            return render_template('vouchers/generate.html', form=form, currency=current_tenant().currency,
+                                   sites=tenant_sites(), picked=[])
         _create_vouchers(form.count.data, plan, minutes, price, batch, max_devices=form.max_devices.data,
-                         is_free=form.is_free.data, site_id=site_for_new_things().id)
+                         is_free=form.is_free.data, site_id=site_for_new_things().id, sites=sites)
         db.session.commit()
         _ruijie_push_soon()
 
         flash(tr('{n} vouchers created in batch "{batch}".', n=form.count.data, batch=batch), 'success')
         return redirect(url_for('vouchers', batch=batch))
 
-    return render_template('vouchers/generate.html', form=form, currency=current_tenant().currency)
+    return render_template('vouchers/generate.html', form=form, currency=current_tenant().currency, sites=tenant_sites(),
+                           picked=None)
+
+
+def _picked_sites():
+    """The sites ticked on a voucher form: [] for all sites, False if none was ticked."""
+    if request.form.get('sites_all') or not request.form.get('sites_form') or len(tenant_sites()) < 2:
+        return []
+    ids = {int(x) for x in request.form.getlist('sites') if x.isdigit()}
+    sites = [x for x in tenant_sites() if x.id in ids]
+    return sites or False
+
+
+VOUCHER_EDIT_FIELDS = ('plan', 'validity', 'price', 'devices', 'sites')
+
+
+def _vouchers_to_edit():
+    """The vouchers an edit is for: ?ids=1,2 (or ids fields), or every voucher matching the list's filters."""
+    src = request.form if request.method == 'POST' else request.args
+    if src.get('scope') == 'all':
+        return _voucher_query(src.get('batch', ''), src.get('state', ''), src.get('search', '').strip()).all()
+    ids = [int(x) for x in ','.join(src.getlist('ids')).split(',') if x.strip().isdigit()]
+    return _voucher_query().filter(Voucher.id.in_(ids)).order_by(Voucher.id).all() if ids else []
+
+
+@app.route('/vouchers/edit', methods=['GET', 'POST'])
+@login_required
+def edit_vouchers():
+    """Change a voucher's plan (speed), validity, price, devices and sites, or those of many vouchers at once."""
+    if current_user.is_viewer:
+        flash(tr("You don't have permission to open that page."), 'warning')
+        return redirect(url_for('vouchers'))
+    items = _vouchers_to_edit()
+    if not items:
+        flash(tr('No vouchers selected.'), 'warning')
+        return redirect(url_for('vouchers'))
+    plans = scoped(Plan).filter_by(is_active=True).order_by(Plan.name).all()
+    one = items[0] if len(items) == 1 else None
+    src = request.form if request.method == 'POST' else request.args
+    keep = {k: src.get(k, '') for k in ('scope', 'batch', 'state', 'search')}
+    keep['ids'] = ','.join(str(v.id) for v in items) if keep['scope'] != 'all' else ''
+    if request.method == 'POST':
+        _check_csrf()
+        change = {f for f in VOUCHER_EDIT_FIELDS if one or request.form.get('change_' + f)}
+        problem, plan, minutes, price, devices, sites = None, None, None, None, None, None
+        if 'plan' in change:
+            pid = request.form.get('plan_id', type=int) or 0
+            plan = scoped(Plan).filter_by(id=pid).first() if pid else None
+            if pid and plan is None:
+                problem = tr('Choose a plan.')
+        if 'validity' in change:
+            value = request.form.get('validity_value', type=int) or 0
+            minutes = value * (1440 if request.form.get('validity_unit') == 'days' else 60)
+            if not 60 <= minutes <= 366 * 1440:
+                problem = tr('Choose a validity between 1 hour and 366 days.')
+        if 'price' in change:
+            raw = (request.form.get('price') or '').replace(',', '').strip()
+            if raw and not re.fullmatch(r'\d{1,9}(\.\d{1,2})?', raw):
+                problem = tr('Enter the price as a number, e.g. 1000.')
+            price = Decimal(raw) if raw else None
+        if 'devices' in change:
+            devices = request.form.get('max_devices', type=int) or 0
+            if not 1 <= devices <= 10:
+                problem = tr('Choose between 1 and 10 devices.')
+        if 'sites' in change:
+            sites = _picked_sites()
+            if sites is False:
+                problem = tr('Choose at least one site, or All sites.')
+        if not change:
+            problem = tr('Tick what you want to change.')
+        if problem:
+            flash(problem, 'danger')
+            return redirect(url_for('edit_vouchers', **{k: v for k, v in keep.items() if v}))
+        now = datetime.utcnow()
+        for v in items:
+            if 'plan' in change and v.plan_id != (plan.id if plan else None):
+                v.plan_id = plan.id if plan else None
+                RadUserGroup.query.filter_by(username=v.code).delete()
+                if plan:
+                    db.session.add(RadUserGroup(username=v.code, groupname=plan.group_name, priority=1))
+            if 'validity' in change:
+                v.validity_minutes = minutes
+                if v.first_used_at:                       # already started: the end moves with it
+                    v.expires_at = v.first_used_at + timedelta(minutes=minutes)
+                    if v.expires_at <= now and v.status == 'active':
+                        disconnect_subscriber(v.tenant_id, v.code)
+            if 'price' in change and not v.is_free:
+                v.price = price
+            if 'devices' in change:
+                v.max_devices = devices
+            if 'sites' in change:
+                v.sites = list(sites)
+                if sites and not any(x.id == v.site_id for x in sites):
+                    v.site_id = next((x for x in sites if x.ruijie_ready), sites[0]).id
+        db.session.commit()
+        flash(tr('{n} vouchers updated. Speed and time changes apply the next time a phone connects.', n=len(items)), 'success')
+        return redirect(url_for('vouchers', batch=keep['batch'] or None, state=keep['state'] or None, search=keep['search'] or None))
+    first = one or items[0]
+    days = first.validity_minutes % 1440 == 0
+    return render_template('vouchers/edit.html', items=items, one=one, plans=plans, sites=tenant_sites(), keep=keep,
+                           currency=current_tenant().currency, validity_value=first.validity_minutes // (1440 if days else 60),
+                           validity_unit='days' if days else 'hours', picked=[x.id for x in first.sites],
+                           ruijie=any(v.ruijie_state for v in items))
 
 
 @app.route('/vouchers/print')
@@ -1638,6 +1753,11 @@ def bulk_vouchers():
     batch, state, search = request.form.get('batch', ''), request.form.get('state', ''), request.form.get('search', '').strip()
     back = redirect(url_for('vouchers', batch=batch or None, state=state or None, search=search or None))
     action = request.form.get('action')
+    if action == 'edit':
+        if request.form.get('scope') == 'all':
+            return redirect(url_for('edit_vouchers', scope='all', batch=batch or None, state=state or None, search=search or None))
+        ids = ','.join(x for x in request.form.getlist('ids') if x.isdigit())
+        return redirect(url_for('edit_vouchers', ids=ids) if ids else back)
     if action not in ('disable', 'enable', 'delete'):
         flash(tr('Choose what to do with the vouchers.'), 'warning')
         return back
@@ -2103,7 +2223,7 @@ def _omada_let_in(site, tenant, guest, username, password):
     if not _omada_site_matches(site, tenant, guest.get('site')):
         log.warning('omada: site %s got a guest from controller site %r', site.id, (guest.get('site') or '')[:64])
         return None, "This login page belongs to another Wi-Fi network. Reconnect to the Wi-Fi and try again."
-    ok, message, info = _gateway_authenticate(tenant, username, password, mac)
+    ok, message, info = _gateway_authenticate(tenant, username, password, mac, site)
     _log_auth(username, ok)
     if not ok:
         db.session.commit()
@@ -2139,7 +2259,7 @@ def omada_portal(token):
     site, tenant = _omada_site(token)
     if request.args.get('clientMac'):
         session['omada'] = {'token': site.portal_token, **{k: request.args.get(k, '')[:500] for k in OMADA_PARAMS}}
-        code = _returning_code(tenant.id, request.args.get('clientMac'))
+        code = _returning_code(tenant.id, request.args.get('clientMac'), site)
         if code:
             guest = _omada_guest(site.portal_token)
             info, error = _omada_let_in(site, tenant, guest, code, code)
@@ -2319,7 +2439,7 @@ def mikrotik_portal(token):
     if not request.args.get('error'):
         # a phone that paid and still has time: logged straight back in, no login page (if the router turns the code
         # down it comes back with an error, and then the page is shown)
-        code = _returning_code(tenant.id, guest.get('mac'))
+        code = _returning_code(tenant.id, guest.get('mac'), site)
         if code:
             return _mikrotik_connect(site, tenant, guest, code, message='welcome_back', delay=0)
     return _mikrotik_page(site, tenant, error=request.args.get('error', '')[:200], tab='voucher' if request.args.get('error') else None)
@@ -2450,7 +2570,7 @@ def _omada_guest_check(site, mac, now=None):
         if account.is_active and not (account.expires_at and account.expires_at <= now):
             return account.username, account, 'customer account'
         return None, account, 'customer account disabled or expired'
-    code = _returning_code(site.tenant_id, mac)            # a voucher this phone may still use (any of the business's sites)
+    code = _returning_code(site.tenant_id, mac, site)      # a voucher this phone may still use here
     voucher = Voucher.query.filter_by(tenant_id=site.tenant_id, code=code).first() if code else None
     if voucher is not None and voucher.state == 'active':
         return voucher.code, voucher, 'voucher'
@@ -2891,7 +3011,7 @@ def _wifidog_back_to_gateway(guest, token):
 def _wifidog_let_in(site, tenant, guest, username, password):
     """Check the code and create the one-time token. Returns (redirect URL, error)."""
     mac = _wifidog_mac(guest.get('mac'))
-    ok, message, info = _gateway_authenticate(tenant, username, password, mac)
+    ok, message, info = _gateway_authenticate(tenant, username, password, mac, site)
     _log_auth(username, ok)
     if not ok:
         db.session.commit()
@@ -3043,7 +3163,7 @@ def wifidog(token, rest):
         site.wifidog_seen_at = datetime.utcnow()
         site.wifidog_gw_id = (request.args.get('gw_id') or site.wifidog_gw_id or '')[:64] or None
         db.session.commit()
-        code = _returning_code(tenant.id, request.args.get('mac'))
+        code = _returning_code(tenant.id, request.args.get('mac'), site)
         if code:
             back, error = _wifidog_let_in(site, tenant, _wifidog_guest(site.portal_token), code, code)
             if back:
@@ -4907,7 +5027,7 @@ def _devices_in_use(username, mac):
     return {m for (m,) in rows if m and m.upper() != me}
 
 
-def _gateway_authenticate(tenant, username, password, mac=None):
+def _gateway_authenticate(tenant, username, password, mac=None, site=None):
     """Same rules FreeRADIUS applies. Returns (ok, message, info)."""
     now = datetime.utcnow()
     voucher = Voucher.query.filter_by(code=username).with_for_update().first()
@@ -4920,6 +5040,8 @@ def _gateway_authenticate(tenant, username, password, mac=None):
     if voucher:
         if voucher.status == 'disabled' or (voucher.expires_at and voucher.expires_at <= now):
             return False, 'Voucher expired or disabled', None
+        if not voucher.works_at(site):
+            return False, "This code doesn't work at this Wi-Fi.", None
         if mac and len(_devices_in_use(username, mac)) >= (voucher.max_devices or 1):
             return False, 'This code is already being used on another device.', None
         device = _mac_key(mac)
@@ -4994,7 +5116,7 @@ def api_gateway_auth():
     password = str(data.get('password', ''))[:128]
     if not username:
         return jsonify(ok=False, message='Enter your voucher code.')
-    ok, message, info = _gateway_authenticate(g.api_tenant, username, password, str(data.get('mac') or '')[:17])
+    ok, message, info = _gateway_authenticate(g.api_tenant, username, password, str(data.get('mac') or '')[:17], _gateway_site())
     _log_auth(username, ok)
     db.session.commit()
     return jsonify(ok=ok, message=message, **(info or {}))
@@ -5005,7 +5127,7 @@ def api_gateway_auth():
 def api_gateway_returning():
     """{"mac"} -> {"code"} of a voucher this phone paid for and can still use, so the gateway can
     let a returning guest straight back in. {} when there is none."""
-    code = _returning_code(g.api_tenant.id, str((request.get_json(silent=True) or {}).get('mac') or '')[:17])
+    code = _returning_code(g.api_tenant.id, str((request.get_json(silent=True) or {}).get('mac') or '')[:17], _gateway_site())
     return jsonify(code=code) if code else jsonify({})
 
 

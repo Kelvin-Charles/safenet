@@ -1,0 +1,25 @@
+{# Site picker: "All sites" or some of them. Needs `sites`, and `picked` (ids, or none for all sites). #}
+{% if sites|length > 1 %}
+<div class="mb-3" id="site-picker">
+    <input type="hidden" name="sites_form" value="1">
+    <label class="form-label">{{ _('Works at') }}</label>
+    <div class="form-check"><input class="form-check-input" type="checkbox" name="sites_all" value="1" id="sites-all" {{ 'checked' if not picked }}>
+        <label class="form-check-label" for="sites-all"><strong>{{ _('All sites') }}</strong> <small class="text-muted">{{ _('(also sites you add later)') }}</small></label></div>
+    <div class="d-flex flex-wrap gap-3 ms-4 mt-1" id="sites-some">
+        {% for s in sites %}
+        <div class="form-check"><input class="form-check-input site-pick" type="checkbox" name="sites" value="{{ s.id }}" id="site-{{ s.id }}" {{ 'checked' if picked and s.id in picked }}>
+            <label class="form-check-label" for="site-{{ s.id }}">{{ s.name }}{% if s.ruijie_ready %} <small class="text-muted">(Reyee)</small>{% endif %}</label></div>
+        {% endfor %}
+    </div>
+    <small class="form-text text-muted">{{ _('The code is refused at any other site of yours.') }}</small>
+</div>
+<script>
+(function () {
+    var all = document.getElementById('sites-all'), picks = document.querySelectorAll('.site-pick');
+    function sync() { picks.forEach(function (p) { p.disabled = all.checked; }); }
+    all.addEventListener('change', sync);
+    picks.forEach(function (p) { p.addEventListener('change', function () { if (p.checked) all.checked = false; sync(); }); });
+    sync();
+})();
+</script>
+{% endif %}
