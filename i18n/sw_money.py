@@ -228,4 +228,9 @@ SW = {
     'Enable these vouchers?': 'Washa vocha hizi?',
     'Delete these vouchers for good? Phones using them are disconnected.': 'Futa vocha hizi kabisa? Simu zinazozitumia zitatenganishwa.',
     'Select all on this page': 'Chagua zote kwenye ukurasa huu',
+    ', less {amount} paid for your SafeNet plan': ', ukitoa {amount} ulizolipia kifurushi chako cha SafeNet',
+    'Use my balance: {amount}': 'Tumia salio langu: {amount}',
+    'Your SafeNet Pay balance pays first. If it is less than the price, you get a PIN prompt for the rest.': 'Salio lako la SafeNet Pay linalipa kwanza. Likiwa pungufu ya bei, utapata ombi la PIN kulipia kiasi kilichobaki.',
+    '{amount} from your balance': '{amount} kutoka kwenye salio lako',
+    'Paid {cur} {amount} from your balance. Your service is paid until {date}.': 'Umelipa {cur} {amount} kutoka kwenye salio lako. Huduma yako imelipiwa hadi {date}.',
 }

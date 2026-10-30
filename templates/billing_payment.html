@@ -10,7 +10,7 @@
             <div class="card-body p-5" id="box">
                 <div class="spinner-border text-primary mb-3" role="status" id="spin"></div>
                 <h4 id="title">{{ _('Check your phone') }}</h4>
-                <p id="text">{{ _('Enter your mobile-money PIN to pay') }} <strong>{{ sp.currency }} {{ '{:,.0f}'.format(sp.amount) }}</strong>
+                <p id="text">{{ _('Enter your mobile-money PIN to pay') }} <strong>{{ sp.currency }} {{ '{:,.0f}'.format(sp.pushed) }}</strong>
                     {{ _('for {n} month of {plan}.', n=sp.months, plan=sp.plan_name) if sp.months == 1 else _('for {n} months of {plan}.', n=sp.months, plan=sp.plan_name) }} {{ _('We sent the prompt to {phone}.', phone=sp.phone) }}</p>
                 <p class="small text-muted mb-0" id="hint">{{ _('This page updates by itself.') }}</p>
                 <a href="{{ url_for('billing') }}" class="btn btn-outline-secondary mt-3 d-none" id="back">{{ _('Back to billing') }}</a>

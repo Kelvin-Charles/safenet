@@ -4513,7 +4513,13 @@ def tenant_balance(tid):
     earned, withdrawn = Decimal(str(earned)), Decimal(str(withdrawn))
     sms = db.session.query(func.coalesce(func.sum(SmsCharge.amount), 0)).filter(
         SmsCharge.tenant_id == tid, SmsCharge.method == 'balance').scalar()
-    return earned - withdrawn - Decimal(str(sms)), earned, withdrawn
+    return earned - withdrawn - Decimal(str(sms)) - plan_from_balance(tid), earned, withdrawn
+
+
+def plan_from_balance(tid):
+    """What the business paid (or is paying) for its SafeNet plan out of its balance."""
+    return Decimal(str(db.session.query(func.coalesce(func.sum(SubscriptionPayment.balance_amount), 0)).filter(
+        SubscriptionPayment.tenant_id == tid, SubscriptionPayment.status.in_(('pending', 'paid', 'review'))).scalar()))
 
 
 def _fulfil_payment(payment):
@@ -6076,6 +6082,7 @@ def earnings():
         'sms_count': sms_totals(tid)[0], 'sms_balance': Decimal(str(db.session.query(func.coalesce(func.sum(SmsCharge.amount), 0))
                                                                     .filter(SmsCharge.tenant_id == tid, SmsCharge.method == 'balance').scalar())),
         'sms_month': sms_totals(tid, _month_start()),
+        'plan_balance': plan_from_balance(tid),
         'cash': Decimal(str(scoped(Voucher).filter(Voucher.first_used_at.isnot(None), Voucher.batch != 'online-payments')
                             .with_entities(func.coalesce(func.sum(Voucher.price), 0)).scalar())),
     }
@@ -6481,8 +6488,9 @@ def platform_payouts():
 def _platform_profit():
     total = lambda q, col: Decimal(str(q.with_entities(func.coalesce(func.sum(col), 0)).scalar()))
     paid_platform = Payment.query.filter(Payment.status == 'paid', Payment.provider_account == 'platform')
-    subs = SubscriptionPayment.query.filter(SubscriptionPayment.status == 'paid', SubscriptionPayment.method.in_(tuple(paylib.PROVIDERS)))
-    snippe_subs = total(subs.filter(SubscriptionPayment.method == 'snippe'), SubscriptionPayment.amount)
+    subs = SubscriptionPayment.query.filter(SubscriptionPayment.status == 'paid',
+                                            SubscriptionPayment.method.in_(tuple(paylib.PROVIDERS) + ('balance',)))
+    snippe_subs = total(subs.filter(SubscriptionPayment.method == 'snippe'), SubscriptionPayment.amount - SubscriptionPayment.balance_amount)
     taken = PlatformWithdrawal.query.filter(PlatformWithdrawal.status.in_(('sending', 'paid')))
     p = dict(fees=total(paid_platform, Payment.fee_amount),
              sms=total(SmsCharge.query.filter_by(method='balance'), SmsCharge.amount),
@@ -6739,7 +6747,7 @@ def _reconcile_snippe(days):
             if SAFENET_REF.match(ref) and status == 'completed' and not (p or sp):
                 problem("Paid at Snippe with a SafeNet reference SafeNet doesn't have", ref, f'completed {gross:,.0f}', 'not found')
             continue
-        expected = ours.charged if p else ours.amount
+        expected = ours.charged if p else ours.pushed
         if status == 'completed':
             fees = _snippe_money(x, 'settlement', 'fees')
             net = _snippe_money(x, 'settlement', 'net') or gross - fees
@@ -6798,7 +6806,7 @@ def _reconcile_snippe(days):
     ours = dict(guest_n=paid_guests.count(), guest=total(paid_guests, Payment.amount) + total(paid_guests, Payment.customer_fee),
                 customer_fees=total(paid_guests, Payment.customer_fee), platform_fees=total(paid_guests, Payment.fee_amount),
                 tenants_net=total(paid_guests, Payment.net_amount),
-                sub_n=paid_subs.count(), sub=total(paid_subs, SubscriptionPayment.amount),
+                sub_n=paid_subs.count(), sub=total(paid_subs, SubscriptionPayment.amount - SubscriptionPayment.balance_amount),
                 out_n=sent.count(), out=total(sent, Withdrawal.amount), out_fees=total(sent, Withdrawal.payout_fee))
     # paid in SafeNet but not among Snippe's transactions at all (only when every page of the period was read;
     # the first hour is left out: a payment made just before the period may show at Snippe a moment later)
@@ -6810,7 +6818,7 @@ def _reconcile_snippe(days):
                 problem('Paid in SafeNet, not at Snippe', p.reference, 'not found', f'paid {p.charged:,.0f}')
         for sp in paid_subs.filter(SubscriptionPayment.created_at >= margin) if margin else paid_subs:
             if sp.reference not in seen:
-                problem('Paid in SafeNet, not at Snippe', sp.reference, 'not found', f'paid {sp.amount:,.0f}')
+                problem('Paid in SafeNet, not at Snippe', sp.reference, 'not found', f'paid {sp.pushed:,.0f}')
     if outs_complete:
         seen = {ref_of(x) for x in outs}
         for w in sent.filter(Withdrawal.created_at >= margin) if margin else sent:
@@ -7249,8 +7257,10 @@ def _fulfil_subscription(sp):
         send_mail(owner.email, 'SafeNet subscription renewed',
                   f'Thank you! We received {sp.currency} {sp.amount:,.0f} for {sp.months} month(s) of '
                   f'{sp.plan_name or "SafeNet"}.\nYour service is paid until {sp.period_end:%d %b %Y}.\nReference: {sp.reference}\n')
-    send_sms_async(sp.phone, f'SafeNet: we received {sp.currency} {sp.amount:,.0f}. Your service is paid until '
-                             f'{sp.period_end:%d %b %Y}. Ref {sp.reference}. Asante!', sp.reference)
+    if sp.phone:
+        send_sms_async(sp.phone, f'SafeNet: we received {sp.currency} {sp.amount:,.0f}'
+                                 f'{f" ({sp.balance_amount:,.0f} from your balance)" if sp.balance_amount else ""}. '
+                                 f'Your service is paid until {sp.period_end:%d %b %Y}. Ref {sp.reference}. Asante!', sp.reference)
 
 
 def _refresh_subscription(reference, force=False):
@@ -7273,8 +7283,8 @@ def _refresh_subscription(reference, force=False):
             sp.message = (result.get('message') or sp.message or '')[:255] or None
             if result['state'] == 'paid':
                 collected = result.get('amount')
-                if collected is not None and collected < sp.amount:
-                    sp.status, sp.message = 'review', f'Collected {collected}, expected {sp.amount}'
+                if collected is not None and collected < sp.pushed:
+                    sp.status, sp.message = 'review', f'Collected {collected}, expected {sp.pushed}'
                 else:
                     _fulfil_subscription(sp)
             elif result['state'] == 'failed':
@@ -7294,7 +7304,11 @@ def billing():
     return render_template('billing.html', plans=plans, history=history, months=BILLING_MONTHS,
                            can_pay=current_user.has_role('owner'), grace=Config.BILLING_GRACE_DAYS,
                            payments_ready=paylib.is_ready(_platform_account()), state=billing_state(tenant),
-                           default_phone=tenant.phone or '', sms_due=sms_due, sms_price=Config.SMS_PRICE)
+                           default_phone=tenant.phone or '', sms_due=sms_due, sms_price=Config.SMS_PRICE,
+                           balance=max(tenant_balance(tenant.id)[0], Decimal(0)))
+
+
+BILLING_MIN_PUSH = Decimal(1000)      # the smallest part asked by mobile money when the balance pays the rest
 
 
 @app.route('/billing/pay', methods=['POST'])
@@ -7309,29 +7323,43 @@ def billing_pay():
     if not plan or months not in BILLING_MONTHS:
         flash(tr('Choose a plan and a period.'), 'danger')
         return redirect(url_for('billing'))
-    if not phone:
-        flash(tr('Enter a valid mobile money number, e.g. 0712 345 678.'), 'danger')
-        return redirect(url_for('billing'))
     account = _platform_account()
+    tenant = Tenant.query.filter_by(id=tenant.id).with_for_update().one()      # one payment at a time spends the balance
     sms_count, sms_amount, sms_ids = _unbilled_sms(tenant.id)
     total = plan.amount_for(months) + sms_amount
-    problem = check_network(phone, None, total, networks=paylib.networks(account))
-    if problem:
-        flash(problem, 'danger')
-        return redirect(url_for('billing'))
-    if not paylib.is_ready(account):
-        flash(tr('Online payment is not available right now. Please contact SafeNet.'), 'danger')
-        return redirect(url_for('billing'))
+    # the business's SafeNet Pay balance first, then a PIN prompt for what's left (never less than the provider takes)
+    from_balance = Decimal(0)
+    if request.form.get('use_balance'):
+        from_balance = min(Decimal(int(max(tenant_balance(tenant.id)[0], Decimal(0)))), total)
+        if 0 < total - from_balance < BILLING_MIN_PUSH:
+            from_balance = max(total - BILLING_MIN_PUSH, Decimal(0))
+    pushed = total - from_balance
+    if pushed > 0:
+        problem = None if phone else tr('Enter a valid mobile money number, e.g. 0712 345 678.')
+        problem = problem or check_network(phone, None, pushed, networks=paylib.networks(account))
+        if not problem and not paylib.is_ready(account):
+            problem = tr('Online payment is not available right now. Please contact SafeNet.')
+        if problem:
+            db.session.rollback()
+            flash(problem, 'danger')
+            return redirect(url_for('billing'))
     sp = SubscriptionPayment(tenant_id=tenant.id, billing_plan_id=plan.id, plan_name=plan.name, months=months,
-                             amount=total, sms_amount=sms_amount, currency=plan.currency, phone=phone, method=account.provider,
+                             amount=total, sms_amount=sms_amount, balance_amount=from_balance, currency=plan.currency,
+                             phone=phone or _normalize_tz_phone(tenant.phone or ''), method=account.provider if pushed > 0 else 'balance',
                              reference='SB' + secrets.token_hex(6).upper(), created_by_id=current_user.id)
     db.session.add(sp)
     db.session.flush()
     if sms_ids:                  # these SMS are on this bill (released again if it isn't paid)
         SmsCharge.query.filter(SmsCharge.id.in_(sms_ids)).update({'subscription_payment_id': sp.id}, synchronize_session=False)
+    if pushed <= 0:              # the balance paid it all
+        _fulfil_subscription(sp)
+        db.session.commit()
+        flash(tr('Paid {cur} {amount} from your balance. Your service is paid until {date}.', cur=sp.currency,
+                 amount=f'{total:,.0f}', date=sp.period_end.strftime('%d %b %Y')), 'success')
+        return redirect(url_for('billing'))
     db.session.commit()
     try:
-        tx = paylib.start(account, sp.amount, phone, sp.reference,
+        tx = paylib.start(account, sp.pushed, phone, sp.reference,
                           webhook_url=_link('snippe_webhook') if account.provider == 'snippe' else None,
                           payer=((db.session.get(Tenant, sp.tenant_id) or Tenant(name='SafeNet')).name, 'SafeNet plan'))
         sp.provider_id, sp.channel, sp.provider_status = tx['provider_id'], tx['channel'], tx['provider_status']

@@ -837,6 +837,12 @@ class SubscriptionPayment(db.Model):
     paid_at = db.Column(db.DateTime)
 
     sms_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0, server_default='0')   # guest SMS included in amount
+    balance_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0, server_default='0')  # paid from its SafeNet Pay balance
+
+    @property
+    def pushed(self):
+        """What is asked by mobile money: the amount less what the business's balance paid."""
+        return self.amount - (self.balance_amount or 0)
 
     tenant = db.relationship('Tenant')
     billing_plan = db.relationship('BillingPlan')

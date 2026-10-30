@@ -36,7 +36,7 @@
                 <p class="text-muted mb-0">{{ _('Only the account owner can pay. Please ask them to renew.') }}</p>
                 {% elif not plans %}
                 <p class="text-muted mb-0">{{ _('No plans are available yet. Please contact SafeNet.') }}</p>
-                {% elif not payments_ready %}
+                {% elif not payments_ready and not balance %}
                 <p class="text-muted mb-0">{{ _("Online payment isn't available right now. Please contact SafeNet to renew.") }}</p>
                 {% else %}
                 <form method="POST" action="{{ url_for('billing_pay') }}" onsubmit="if(this.dataset.sent)return false;this.dataset.sent=1;var b=this.querySelector('button[type=submit]');b.disabled=true;b.innerHTML='<span class=&quot;spinner-border spinner-border-sm me-2&quot;></span>'+{{ _('Sending payment request…')|tojson|forceescape }};">
@@ -58,9 +58,16 @@
                         </div>
                         <div class="col-7">
                             <label class="form-label">{{ _('Mobile money number') }}</label>
-                            <input type="text" name="phone" class="form-control" value="{{ default_phone }}" placeholder="07XX XXX XXX" required>
+                            <input type="text" name="phone" class="form-control" value="{{ default_phone }}" placeholder="07XX XXX XXX">
                         </div>
                     </div>
+                    {% if balance %}
+                    <label class="d-flex gap-2 border rounded p-2 mt-2 bg-light" style="cursor:pointer">
+                        <input type="checkbox" name="use_balance" value="1" class="form-check-input mt-1" checked>
+                        <span><strong>{{ _('Use my balance: {amount}', amount=(state.plan.currency if state.plan else 'TZS') ~ ' ' ~ '{:,.0f}'.format(balance)) }}</strong>
+                            <small class="d-block text-muted">{{ _('Your SafeNet Pay balance pays first. If it is less than the price, you get a PIN prompt for the rest.') }}</small></span>
+                    </label>
+                    {% endif %}
                     <button type="submit" class="btn btn-primary mt-3 w-100"><i class="bi bi-send"></i> {{ _('Send payment request') }}</button>
                     {% if sms_due[0] %}<div class="alert alert-info small py-2 mt-2 mb-0"><i class="bi bi-chat-dots"></i> {{ _('{n} voucher SMS sent to your guests ({price} each) will be added:', n=sms_due[0], price=(state.plan.currency if state.plan else 'TZS') ~ ' ' ~ sms_price|string) }} <strong>{{ '{:,.0f}'.format(sms_due[1]) }}</strong> {{ _('on top of the plan.') }}</div>{% endif %}
                     <p class="small text-muted mt-2 mb-0">{{ _("You'll get a PIN prompt on your phone. Paying early adds time after your current period, so you never lose days.") }}</p>
@@ -83,7 +90,7 @@
                             <tr>
                                 <td><small>{{ p.created_at.strftime('%Y-%m-%d') }}</small><small class="d-block text-muted font-monospace">{{ p.reference }}</small></td>
                                 <td>{{ p.plan_name or '-' }} <small class="text-muted">× {{ p.months }}</small></td>
-                                <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}{% if p.sms_amount %}<small class="d-block text-muted">{{ _('incl. {amount} SMS', amount='{:,.0f}'.format(p.sms_amount)) }}</small>{% endif %}</td>
+                                <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}{% if p.sms_amount %}<small class="d-block text-muted">{{ _('incl. {amount} SMS', amount='{:,.0f}'.format(p.sms_amount)) }}</small>{% endif %}{% if p.balance_amount %}<small class="d-block text-muted">{{ _('{amount} from your balance', amount='{:,.0f}'.format(p.balance_amount)) }}</small>{% endif %}</td>
                                 <td><small>{% if p.period_end %}{{ p.period_start.strftime('%d %b') }} – {{ p.period_end.strftime('%d %b %Y') }}{% else %}-{% endif %}</small></td>
                                 <td>
                                     {% if p.status == 'paid' %}<span class="badge bg-success">{{ _('Paid') }}</span>{% if p.method == 'manual' %}<small class="d-block text-muted">{{ _('added by SafeNet') }}</small>{% endif %}

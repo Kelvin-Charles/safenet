@@ -108,6 +108,7 @@ def run():
     _add_column('tenants', 'omada_user_id', 'VARCHAR(64) NULL')
     _add_column('tenants', 'omada_password_enc', 'TEXT NULL')
     _add_column('subscription_payments', 'sms_amount', 'NUMERIC(10, 2) NOT NULL DEFAULT 0')
+    _add_column('subscription_payments', 'balance_amount', 'NUMERIC(10, 2) NOT NULL DEFAULT 0')
     _add_column('admins', 'site_id', 'INTEGER NULL')
     _add_column('admins', 'language', "VARCHAR(2) NOT NULL DEFAULT 'en'")
     _add_column('tenants', 'snippe_api_key_enc', 'TEXT NULL')
