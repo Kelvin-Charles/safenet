@@ -107,6 +107,27 @@ def find_payment(order_reference, creds, pages=5):
     return None
 
 
+def _list(path, creds, since=None, pages=25):
+    """Items of a Snippe list, newest first, back to `since` (ISO time, UTC). Returns (items, complete): complete is
+    False when it stopped at `pages` before reaching `since` (older items weren't read)."""
+    out = []
+    for page in range(pages):
+        data = _request('GET', f'{path}?limit=100&offset={page * 100}', creds) or {}
+        items = data.get('items') or []
+        out += items
+        if len(items) < 100 or (since and (items[-1].get('created_at') or '') < since):
+            return out, True
+    return out, False
+
+
+def list_payments(creds, since=None, pages=25):
+    return _list('/v1/payments', creds, since, pages)
+
+
+def list_payouts(creds, since=None, pages=25):
+    return _list('/v1/payouts', creds, since, pages)
+
+
 def get_payment(snippe_reference, creds):
     """Latest state of a Snippe payment, or None if Snippe doesn't know it."""
     try:

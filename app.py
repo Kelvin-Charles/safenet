@@ -6,7 +6,7 @@ from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
-from sqlalchemy import func, or_, and_, not_, desc, text
+from sqlalchemy import func, or_, and_, not_, desc, text, true
 from sqlalchemy.exc import IntegrityError
 import clickpesa
 import payments as paylib   # (app has a route called payments)
@@ -6142,7 +6142,7 @@ def request_withdrawal():
     if current_user.is_superadmin and not (code_phone and sms_is_configured()):
         # the platform admin withdrawing for a business: only with the code from the business's own phone
         db.session.rollback()
-        flash(tr("The business must confirm with a code by SMS to its phone, and it has no phone (or SMS isn't set up)."), 'danger')
+        flash("The business must confirm with a code by SMS to its phone, and it has no phone (or SMS isn't set up).", 'danger')
         return redirect(url_for('earnings'))
     if code_phone and sms_is_configured():
         w.status = 'verifying'
@@ -6463,6 +6463,201 @@ def platform_payouts():
                            owed=owed, tenants=Tenant.query.all(), payouts_ready=any(_payouts_ready().values()),
                            options={w.id: _payout_options(w) for w in items if w.status == 'requested'},
                            provider_names=paylib.PROVIDERS)
+
+
+# ---------------------------------------------------------------------------
+# Reconcile SafeNet's books with its Snippe account. The account is shared with other projects, so only transactions
+# whose reference is SafeNet's (kept in Snippe's metadata.order_reference) count.
+# ---------------------------------------------------------------------------
+SAFENET_REF = re.compile(r'^(SN|SB)[0-9A-F]{12}$|^WD\d+X[0-9A-F]{6}$')
+RECONCILE_PERIODS = (('7', 'Last 7 days', 7), ('30', 'Last 30 days', 30), ('90', 'Last 90 days', 90), ('all', 'All time', None))
+_reconcile_cache = {}
+
+
+def _snippe_money(item, *keys):
+    """A Snippe money field as a Decimal, e.g. ('settlement', 'net') -> 491; 0 if it isn't there."""
+    for key in keys:
+        item = item.get(key) if isinstance(item, dict) else None
+    if isinstance(item, dict):
+        item = item.get('value')
+    try:
+        return Decimal(str(item)) if item is not None else Decimal(0)
+    except ArithmeticError:
+        return Decimal(0)
+
+
+def _snippe_time(text):
+    try:
+        return datetime.strptime((text or '')[:19], '%Y-%m-%dT%H:%M:%S')
+    except ValueError:
+        return None
+
+
+def _by_reference(model, column, refs):
+    found, refs = {}, list(refs)
+    for i in range(0, len(refs), 500):
+        for row in model.query.filter(column.in_(refs[i:i + 500])):
+            found[getattr(row, column.key)] = row
+    return found
+
+
+def _reconcile_snippe(days):
+    """SafeNet's transactions at Snippe against SafeNet's own records, for the last `days` (None: all time)."""
+    creds = _platform_snippe_creds()
+    since = datetime.utcnow() - timedelta(days=days) if days else None
+    since_iso = since.strftime('%Y-%m-%dT%H:%M:%S') if since else None
+    pays, pays_complete = snippe.list_payments(creds, since_iso)
+    outs, outs_complete = snippe.list_payouts(creds, since_iso)
+    ref_of = lambda item: str((item.get('metadata') or {}).get('order_reference') or '')
+    recent = lambda item: not since or (_snippe_time(item.get('created_at')) or datetime.max) >= since
+    pays = [x for x in pays if recent(x) and ref_of(x)]
+    outs = [x for x in outs if recent(x) and ref_of(x)]
+    guests = _by_reference(Payment, Payment.reference, {ref_of(x) for x in pays})
+    subs = _by_reference(SubscriptionPayment, SubscriptionPayment.reference, {ref_of(x) for x in pays})
+    wds = _by_reference(Withdrawal, Withdrawal.payout_ref, {ref_of(x) for x in outs})
+    zero = Decimal(0)
+    snp = dict(guest_n=0, guest=zero, sub_n=0, sub=zero, fees=zero, net=zero, out_n=0, out=zero, out_fees=zero, out_total=zero)
+    problems = []
+    problem = lambda what, ref, at_snippe, at_safenet, fix=None: problems.append(
+        dict(what=what, ref=ref, snippe=at_snippe, safenet=at_safenet, fix=fix))
+    for x in pays:
+        ref, status = ref_of(x), x.get('status') or '?'
+        p, sp = guests.get(ref), subs.get(ref)
+        ours = p if p and p.provider == 'snippe' and p.provider_account == 'platform' else sp if sp and sp.method == 'snippe' else None
+        gross = _snippe_money(x, 'settlement', 'gross') or _snippe_money(x, 'amount')
+        if not ours:
+            if SAFENET_REF.match(ref) and status == 'completed' and not (p or sp):
+                problem("Paid at Snippe with a SafeNet reference SafeNet doesn't have", ref, f'completed {gross:,.0f}', 'not found')
+            continue
+        expected = ours.charged if p else ours.amount
+        if status == 'completed':
+            fees = _snippe_money(x, 'settlement', 'fees')
+            net = _snippe_money(x, 'settlement', 'net') or gross - fees
+            kind = 'guest' if p else 'sub'
+            snp[kind + '_n'] += 1
+            snp[kind] += gross
+            snp['fees'] += fees
+            snp['net'] += net
+            if ours.status != 'paid':
+                problem('Paid at Snippe, not paid in SafeNet', ref, f'completed {gross:,.0f}', f'{ours.status} {expected:,.0f}',
+                        fix=ref if ours.status in ('pending', 'failed') else None)
+            elif gross != expected:
+                problem('Different amount', ref, f'completed {gross:,.0f}', f'paid {expected:,.0f}')
+        elif ours.status == 'paid':
+            problem('Paid in SafeNet, not at Snippe', ref, f'{status} {gross:,.0f}', f'paid {expected:,.0f}')
+    for x in outs:
+        ref, status = ref_of(x), x.get('status') or '?'
+        w = wds.get(ref)
+        amount = _snippe_money(x, 'amount')
+        if not w or w.payout_provider != 'snippe':
+            if SAFENET_REF.match(ref) and status in ('completed', 'pending') and not w:
+                problem("Payout at Snippe with a SafeNet reference SafeNet doesn't have", ref, f'{status} {amount:,.0f}', 'not found')
+            continue
+        if status in ('completed', 'pending'):            # Snippe takes payout + fee from the balance straight away
+            fees = _snippe_money(x, 'fees')
+            snp['out_n'] += 1
+            snp['out'] += amount
+            snp['out_fees'] += fees
+            snp['out_total'] += _snippe_money(x, 'total') or amount + fees
+            if status == 'completed' and w.status != 'paid':
+                problem('Payout sent by Snippe, not paid in SafeNet', ref, f'completed {amount:,.0f}', f'{w.status} {w.amount:,.0f}')
+            elif amount != w.amount:
+                problem('Different payout amount', ref, f'{status} {amount:,.0f}', f'{w.status} {w.amount:,.0f}')
+        elif w.status in ('paid', 'sending'):
+            problem('Payout paid in SafeNet, not at Snippe', ref, f'{status} {amount:,.0f}', f'{w.status} {w.amount:,.0f}')
+
+    # SafeNet's side of the same period
+    late = lambda col: col >= since if since else true()
+    paid_guests = Payment.query.filter(Payment.status == 'paid', Payment.provider == 'snippe',
+                                       Payment.provider_account == 'platform', late(Payment.created_at))
+    paid_subs = SubscriptionPayment.query.filter(SubscriptionPayment.status == 'paid', SubscriptionPayment.method == 'snippe',
+                                                 late(SubscriptionPayment.created_at))
+    sent = Withdrawal.query.filter(Withdrawal.payout_provider == 'snippe', Withdrawal.status.in_(('paid', 'sending')),
+                                   late(Withdrawal.created_at))
+    total = lambda q, col: Decimal(str(q.with_entities(func.coalesce(func.sum(col), 0)).scalar()))
+    ours = dict(guest_n=paid_guests.count(), guest=total(paid_guests, Payment.amount) + total(paid_guests, Payment.customer_fee),
+                customer_fees=total(paid_guests, Payment.customer_fee), platform_fees=total(paid_guests, Payment.fee_amount),
+                tenants_net=total(paid_guests, Payment.net_amount),
+                sub_n=paid_subs.count(), sub=total(paid_subs, SubscriptionPayment.amount),
+                out_n=sent.count(), out=total(sent, Withdrawal.amount), out_fees=total(sent, Withdrawal.payout_fee))
+    # paid in SafeNet but not among Snippe's transactions at all (only when every page of the period was read;
+    # the first hour is left out: a payment made just before the period may show at Snippe a moment later)
+    margin = (since + timedelta(hours=1)) if since else None
+    seen = {ref_of(x) for x in pays}
+    if pays_complete:
+        for p in paid_guests.filter(Payment.created_at >= margin) if margin else paid_guests:
+            if p.reference not in seen:
+                problem('Paid in SafeNet, not at Snippe', p.reference, 'not found', f'paid {p.charged:,.0f}')
+        for sp in paid_subs.filter(SubscriptionPayment.created_at >= margin) if margin else paid_subs:
+            if sp.reference not in seen:
+                problem('Paid in SafeNet, not at Snippe', sp.reference, 'not found', f'paid {sp.amount:,.0f}')
+    if outs_complete:
+        seen = {ref_of(x) for x in outs}
+        for w in sent.filter(Withdrawal.created_at >= margin) if margin else sent:
+            if w.payout_ref not in seen:
+                problem('Payout paid in SafeNet, not at Snippe', w.payout_ref or f'withdrawal {w.id}', 'not found',
+                        f'{w.status} {w.amount:,.0f}')
+    try:
+        account = snippe.balance(creds)
+        account_balance = _snippe_money(account, 'balance')
+    except snippe.SnippeError:
+        account_balance = None
+    return dict(snippe=snp, ours=ours, problems=problems, complete=pays_complete and outs_complete,
+                in_snippe=snp['net'] - snp['out_total'], account_balance=account_balance,
+                owed=sum((tenant_balance(t.id)[0] for t in Tenant.query.all()), zero) if not days else None,
+                at=datetime.utcnow())
+
+
+@app.route('/platform/reconcile')
+@login_required
+@superadmin_required
+def platform_reconcile():
+    period = request.args.get('period', '30')
+    days = next((d for key, _, d in RECONCILE_PERIODS if key == period), 30)
+    if not snippe.is_configured(_platform_snippe_creds()):
+        flash("Add SafeNet's Snippe keys in Platform: Billing first.", 'warning')
+        return redirect(url_for('platform_billing'))
+    cached = _reconcile_cache.get(days)
+    if cached and not request.args.get('refresh') and (datetime.utcnow() - cached['at']).total_seconds() < 120:
+        report = cached           # Snippe allows 60 requests a minute: a reload doesn't read everything again
+    else:
+        try:
+            report = _reconcile_cache[days] = _reconcile_snippe(days)
+        except snippe.SnippeError as e:
+            flash(f'Snippe did not answer: {e}', 'danger')
+            report = None
+    return render_template('platform/reconcile.html', report=report, period=period, periods=RECONCILE_PERIODS)
+
+
+@app.route('/platform/reconcile/fix', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_reconcile_fix():
+    """A payment Snippe completed but SafeNet has as pending or failed: checked with Snippe again, then settled
+    (the guest's code is made and sent, or the subscription is added)."""
+    _check_csrf()
+    ref = (request.form.get('ref') or '')[:20]
+    period = request.form.get('period', '30')
+    item = Payment.query.filter_by(reference=ref).first() or SubscriptionPayment.query.filter_by(reference=ref).first()
+    if not item or item.status not in ('pending', 'failed'):
+        flash('Nothing to fix for that payment.', 'info')
+        return redirect(url_for('platform_reconcile', period=period))
+    creds = _platform_snippe_creds()
+    try:
+        record = snippe.get_payment(item.provider_id, creds) if item.provider_id else snippe.find_payment(ref, creds, pages=25)
+    except snippe.SnippeError as e:
+        flash(f'Snippe did not answer: {e}', 'danger')
+        return redirect(url_for('platform_reconcile', period=period))
+    if not record or record.get('status') != 'completed':
+        flash(f"Snippe doesn't show {ref} as completed.", 'warning')
+        return redirect(url_for('platform_reconcile', period=period))
+    item.status, item.message = 'pending', None
+    item.provider_id = item.provider_id or str(record.get('reference') or '')[:64] or None
+    db.session.commit()
+    item = _refresh_payment(ref, force=True) if isinstance(item, Payment) else _refresh_subscription(ref, force=True)
+    _reconcile_cache.clear()
+    flash(f'{ref} is now {item.status}.' if item else f'{ref} could not be checked.', 'success' if item and item.status == 'paid' else 'warning')
+    return redirect(url_for('platform_reconcile', period=period))
 
 
 @app.route('/platform/payouts/<int:wid>/send', methods=['GET', 'POST'])

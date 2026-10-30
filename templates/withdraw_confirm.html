@@ -11,7 +11,7 @@
             <div class="card-body">
                 <p>{{ _('Withdraw') }} <strong>{{ w.tenant.currency }} {{ '{:,.0f}'.format(w.amount) }}</strong> {{ _('to') }} <strong>{{ w.destination }}</strong>.</p>
                 {% if for_business %}
-                <p class="small text-muted">{{ _('We sent a 6-digit code by SMS to the business phone {phone}. Ask the business to read it to you. It works for {n} minutes.', phone=masked, n=minutes) }}</p>
+                <p class="small text-muted">We sent a 6-digit code by SMS to the business phone {{ masked }}. Ask the business to read it to you. It works for {{ minutes }} minutes.</p>
                 {% else %}
                 <p class="small text-muted">{{ _('We sent a 6-digit code by SMS to your business phone {phone}. It works for {n} minutes.', phone=masked, n=minutes) }}</p>
                 {% endif %}

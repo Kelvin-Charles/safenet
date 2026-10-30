@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Reconcile - {{ app_name }}{% endblock %}
+{% block page_title %}Platform: Reconcile with Snippe{% endblock %}
+
+{% macro tzs(v) %}{{ '{:,.0f}'.format(v) }}{% endmacro %}
+{% macro diff(a, b) %}{% set d = a - b %}{% if d == 0 %}<span class="text-success"><i class="bi bi-check-circle"></i> matches</span>{% else %}<strong class="text-danger">{{ '{:+,.0f}'.format(d) }}</strong>{% endif %}{% endmacro %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="btn-group btn-group-sm">
+        {% for key, label, _days in periods %}
+        <a class="btn btn-outline-secondary {{ 'active' if period == key }}" href="{{ url_for('platform_reconcile', period=key) }}">{{ label }}</a>
+        {% endfor %}
+    </div>
+    <div class="small text-muted">
+        {% if report %}Read from Snippe at {{ report.at.strftime('%H:%M') }} UTC ·{% endif %}
+        <a href="{{ url_for('platform_reconcile', period=period, refresh=1) }}"><i class="bi bi-arrow-clockwise"></i> Read again</a>
+    </div>
+</div>
+<p class="small text-muted">Your Snippe account is also used by other projects: only transactions with a SafeNet reference (guest payments <code>SN…</code>, subscriptions <code>SB…</code>, payouts <code>WD…</code>) that SafeNet has in its records are counted here. Everything else on the account is left out.</p>
+
+{% if report %}
+{% set s, o = report.snippe, report.ours %}
+{% if not report.complete %}<div class="alert alert-warning small">Snippe has more transactions than SafeNet reads at once (2,500 of each kind): the oldest of this period were not read. Choose a shorter period.</div>{% endif %}
+
+<div class="row mb-3">
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value">{{ tzs(report.in_snippe) }}</div><div class="stat-label">SafeNet's money added at Snippe ({{ 'all time' if period == 'all' else 'this period' }}): received after Snippe's fees, less payouts and their fees</div></div></div>
+    {% if report.owed is not none %}
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value text-warning">{{ tzs(report.owed) }}</div><div class="stat-label">Owed to businesses (their balances, not yet withdrawn)</div></div></div>
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value {{ 'text-success' if report.in_snippe >= report.owed else 'text-danger' }}">{{ tzs(report.in_snippe - report.owed) }}</div><div class="stat-label">SafeNet's own share at Snippe (fees and subscriptions you can keep)</div></div></div>
+    {% elif report.account_balance is not none %}
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value">{{ tzs(report.account_balance) }}</div><div class="stat-label">Whole Snippe account balance today (all projects)</div></div></div>
+    {% endif %}
+</div>
+{% if report.owed is not none and report.account_balance is not none %}
+<p class="small text-muted">The whole Snippe account holds {{ tzs(report.account_balance) }} today (all projects together){% if report.account_balance < report.owed %} — <strong class="text-danger">less than SafeNet owes businesses</strong>{% endif %}.</p>
+{% endif %}
+
+<div class="card mb-3">
+    <div class="card-header"><i class="bi bi-journal-check"></i> Snippe against SafeNet</div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead><tr><th></th><th class="text-end">At Snippe</th><th class="text-end">In SafeNet</th><th class="text-end">Difference</th></tr></thead>
+                <tbody>
+                    <tr><td>Guest payments <small class="text-muted d-block">what guests paid, Snippe's fee included</small></td>
+                        <td class="text-end">{{ tzs(s.guest) }} <small class="text-muted d-block">{{ s.guest_n }} payments</small></td>
+                        <td class="text-end">{{ tzs(o.guest) }} <small class="text-muted d-block">{{ o.guest_n }} payments</small></td>
+                        <td class="text-end">{{ diff(s.guest, o.guest) }}</td></tr>
+                    <tr><td>Subscriptions <small class="text-muted d-block">businesses paying SafeNet</small></td>
+                        <td class="text-end">{{ tzs(s.sub) }} <small class="text-muted d-block">{{ s.sub_n }}</small></td>
+                        <td class="text-end">{{ tzs(o.sub) }} <small class="text-muted d-block">{{ o.sub_n }}</small></td>
+                        <td class="text-end">{{ diff(s.sub, o.sub) }}</td></tr>
+                    <tr><td>Snippe's fees on payments <small class="text-muted d-block">SafeNet column: the fee added to guests' price</small></td>
+                        <td class="text-end">{{ tzs(s.fees) }}</td><td class="text-end">{{ tzs(o.customer_fees) }}</td>
+                        <td class="text-end">{% set d = o.customer_fees - s.fees %}{% if d >= 0 %}<span class="text-success">guests covered it{% if d > 0 %} (+{{ tzs(d) }}){% endif %}</span>{% else %}<strong class="text-danger">{{ tzs(d) }} paid by SafeNet</strong>{% endif %}</td></tr>
+                    <tr><td>Received after Snippe's fees</td><td class="text-end"><strong>{{ tzs(s.net) }}</strong></td><td></td><td></td></tr>
+                    <tr><td>Payouts to businesses</td>
+                        <td class="text-end">{{ tzs(s.out) }} <small class="text-muted d-block">{{ s.out_n }} payouts</small></td>
+                        <td class="text-end">{{ tzs(o.out) }} <small class="text-muted d-block">{{ o.out_n }} payouts</small></td>
+                        <td class="text-end">{{ diff(s.out, o.out) }}</td></tr>
+                    <tr><td>Payout fees</td><td class="text-end">{{ tzs(s.out_fees) }}</td><td class="text-end">{{ tzs(o.out_fees) }}</td><td class="text-end">{{ diff(s.out_fees, o.out_fees) }}</td></tr>
+                    <tr class="table-light"><td><strong>SafeNet's money added at Snippe</strong></td><td class="text-end"><strong>{{ tzs(report.in_snippe) }}</strong></td><td></td><td></td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="small text-muted mt-2 mb-0">Of the guest payments SafeNet keeps {{ tzs(o.platform_fees) }} as its fee; {{ tzs(o.tenants_net) }} belongs to the businesses.</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><i class="bi bi-exclamation-triangle"></i> Differences ({{ report.problems|length }})</div>
+    <div class="card-body">
+        {% if report.problems %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead><tr><th>Reference</th><th>What</th><th>Snippe</th><th>SafeNet</th><th></th></tr></thead>
+                <tbody>
+                    {% for p in report.problems %}
+                    <tr><td><code>{{ p.ref }}</code></td><td>{{ p.what }}</td><td>{{ p.snippe }}</td><td>{{ p.safenet }}</td>
+                        <td>{% if p.fix %}<form method="POST" action="{{ url_for('platform_reconcile_fix') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="ref" value="{{ p.fix }}"><input type="hidden" name="period" value="{{ period }}">
+                            <button class="btn btn-sm btn-primary" type="submit" title="Check with Snippe again and settle it: the guest gets the code">Fix</button></form>{% endif %}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-success mb-0"><i class="bi bi-check-circle"></i> Every SafeNet transaction at Snippe matches SafeNet's records.</p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}
