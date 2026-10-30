@@ -122,6 +122,7 @@ services:
       PLATFORM_FEE_PERCENT: ${PLATFORM_FEE_PERCENT:-3}
       SMS_PRICE: ${SMS_PRICE:-30}
       MIN_WITHDRAWAL: ${MIN_WITHDRAWAL:-5000}
+      PLATFORM_PHONE: ${PLATFORM_PHONE:-}
     depends_on:
       db:
         condition: service_healthy

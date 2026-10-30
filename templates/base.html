@@ -266,6 +266,7 @@
             {% if current_user.is_superadmin %}
             {{ link(['platform_tenants'], url_for('platform_tenants'), 'bi-buildings', 'Platform: Tenants') }}
             {{ link(['platform_payouts'], url_for('platform_payouts'), 'bi-cash-coin', 'Platform: Payouts') }}
+            {{ link(['platform_earnings', 'platform_withdraw_confirm'], url_for('platform_earnings'), 'bi-piggy-bank', 'Platform: Earnings') }}
             {{ link(['platform_reconcile'], url_for('platform_reconcile'), 'bi-journal-check', 'Platform: Reconcile') }}
             {{ link(['platform_billing'], url_for('platform_billing'), 'bi-tags', 'Platform: Billing') }}
             {% endif %}

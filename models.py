@@ -593,6 +593,38 @@ def format_minutes(minutes):
 
 
 
+class PlatformWithdrawal(db.Model):
+    """The platform admin taking SafeNet's own profit (fees, SMS charges, subscriptions) out of its Snippe balance."""
+    __tablename__ = 'platform_withdrawals'
+
+    id = db.Column(db.Integer, primary_key=True)
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+    method = db.Column(db.String(8), nullable=False, default='mobile')     # mobile, bank
+    phone = db.Column(db.String(16))
+    bank_name = db.Column(db.String(80))
+    bank_account = db.Column(db.String(40))
+    account_name = db.Column(db.String(100))
+    status = db.Column(db.String(16), nullable=False, default='verifying', index=True)  # verifying, sending, paid, failed, cancelled
+    payout_ref = db.Column(db.String(20))
+    payout_id = db.Column(db.String(64))
+    payout_status = db.Column(db.String(16))
+    payout_fee = db.Column(db.Numeric(10, 2))
+    payout_error = db.Column(db.String(255))
+    otp_hash = db.Column(db.String(64))
+    otp_expires_at = db.Column(db.DateTime)
+    otp_tries = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    otp_sends = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='SET NULL'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime)
+
+    created_by = db.relationship('Admin')
+
+    @property
+    def destination(self):
+        return f'{self.bank_name} account {self.bank_account}' if self.method == 'bank' else f'mobile money {self.phone}'
+
+
 class Withdrawal(db.Model):
     """A tenant's request to be paid out its platform-collected balance."""
     __tablename__ = 'withdrawals'

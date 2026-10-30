@@ -61,6 +61,7 @@
                         <td class="text-end">{{ tzs(o.out) }} <small class="text-muted d-block">{{ o.out_n }} payouts</small></td>
                         <td class="text-end">{{ diff(s.out, o.out) }}</td></tr>
                     <tr><td>Payout fees</td><td class="text-end">{{ tzs(s.out_fees) }}</td><td class="text-end">{{ tzs(o.out_fees) }}</td><td class="text-end">{{ diff(s.out_fees, o.out_fees) }}</td></tr>
+                    {% if s.own_n %}<tr><td>SafeNet's earnings taken out <small class="text-muted d-block">Platform: Earnings, with fees</small></td><td class="text-end">{{ tzs(s.own_total) }} <small class="text-muted d-block">{{ s.own_n }}</small></td><td></td><td></td></tr>{% endif %}
                     <tr class="table-light"><td><strong>SafeNet's money added at Snippe</strong></td><td class="text-end"><strong>{{ tzs(report.in_snippe) }}</strong></td><td></td><td></td></tr>
                 </tbody>
             </table>

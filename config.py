@@ -69,6 +69,7 @@ class Config:
     BILLING_GRACE_DAYS = int(os.getenv('BILLING_GRACE_DAYS', '3'))
     BILLING_REMINDERS = os.getenv('BILLING_REMINDERS', 'true').lower() == 'true'
     MIN_WITHDRAWAL = int(os.getenv('MIN_WITHDRAWAL', '5000'))
+    PLATFORM_PHONE = os.getenv('PLATFORM_PHONE', '')   # gets the SMS code for the platform admin's own withdrawals (set on the server only)
     # Fernet key for secrets stored in the database (derived from SECRET_KEY if empty)
     DATA_ENCRYPTION_KEY = os.getenv('DATA_ENCRYPTION_KEY', '')
 

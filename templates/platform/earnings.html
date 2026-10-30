@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Earnings - {{ app_name }}{% endblock %}
+{% block page_title %}Platform: Your earnings{% endblock %}
+
+{% macro tzs(v) %}{{ '{:,.0f}'.format(v) }}{% endmacro %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value text-success">{{ tzs(profit.available) }}</div><div class="stat-label">Available to take out (TZS)</div></div></div>
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value">{{ tzs(profit.earned) }}</div><div class="stat-label">Earned from businesses, all time</div></div></div>
+    <div class="col-md-4 mb-3"><div class="stat-card"><div class="stat-value">{{ tzs(profit.taken) }}</div><div class="stat-label">Already taken out (with Snippe's fees)</div></div></div>
+</div>
+<div class="row">
+    <div class="col-lg-6 mb-3">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-calculator"></i> Where it comes from</div>
+            <div class="card-body">
+                <table class="table table-sm mb-2">
+                    <tr><td>SafeNet's fee on guest payments</td><td class="text-end">{{ tzs(profit.fees) }}</td></tr>
+                    <tr><td>SMS charged to businesses' balances</td><td class="text-end">{{ tzs(profit.sms) }}</td></tr>
+                    <tr><td>Subscriptions paid online</td><td class="text-end">{{ tzs(profit.subs) }}</td></tr>
+                    <tr><td>Snippe's fee on subscriptions (estimated)</td><td class="text-end text-danger">−{{ tzs(profit.subs_fees) }}</td></tr>
+                    <tr><td>Fees on payouts to businesses (SafeNet pays them)</td><td class="text-end text-danger">−{{ tzs(profit.payout_fees) }}</td></tr>
+                    <tr class="table-light"><td><strong>Earned</strong></td><td class="text-end"><strong>{{ tzs(profit.earned) }}</strong></td></tr>
+                    <tr><td>Taken out already</td><td class="text-end text-danger">−{{ tzs(profit.taken) }}</td></tr>
+                    <tr class="table-light"><td><strong>Available</strong></td><td class="text-end"><strong>{{ tzs(profit.available) }}</strong></td></tr>
+                </table>
+                <p class="small text-muted mb-0">Businesses' own money (their balances) is never part of this. Subscriptions paid by hand aren't counted (you already have that money). Check it against Snippe in <a href="{{ url_for('platform_reconcile', period='all') }}">Platform: Reconcile</a>.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6 mb-3">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-cash-coin"></i> Take out your earnings</div>
+            <div class="card-body">
+                {% if problem %}
+                <div class="alert alert-warning small mb-0">{{ problem }}</div>
+                {% elif profit.available < 1000 %}
+                <p class="text-muted mb-0">Nothing to take out yet.</p>
+                {% else %}
+                <form method="POST" action="{{ url_for('platform_withdraw') }}" autocomplete="off">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-2"><label class="form-label">Amount (TZS)</label>
+                        <input name="amount" type="number" min="1000" max="{{ profit.available|int }}" class="form-control" required>
+                        <small class="text-muted">Up to {{ tzs(profit.available) }}. Snippe's payout fee is taken from SafeNet's balance on top.</small></div>
+                    <div class="mb-2"><label class="form-label">Send to</label>
+                        <select name="method" class="form-select" id="pwMethod"><option value="mobile">Mobile money</option><option value="bank">Bank account</option></select></div>
+                    <div class="mb-2" data-pw="mobile"><input name="phone" class="form-control" placeholder="Mobile money number, e.g. 0712 345 678"></div>
+                    <div data-pw="bank" style="display:none">
+                        <select name="bank_name" class="form-select mb-2"><option value="">Bank…</option>{% for b in banks %}<option>{{ b }}</option>{% endfor %}</select>
+                        <input name="bank_account" class="form-control mb-2" placeholder="Account number">
+                    </div>
+                    <div class="mb-2"><input name="account_name" class="form-control" placeholder="Name on the account"></div>
+                    <div class="mb-3"><label class="form-label">Your password</label>
+                        <input type="password" name="password" class="form-control" autocomplete="current-password" required>
+                        <small class="text-muted">Then a code goes by SMS to the platform phone 0{{ code_phone[3:6] }} ••• {{ code_phone[-3:] }}; enter it and the money is sent.</small></div>
+                    <button class="btn btn-primary" type="submit"><i class="bi bi-send"></i> Withdraw</button>
+                </form>
+                <script>
+                (function () {
+                    var m = document.getElementById('pwMethod');
+                    function show() { document.querySelectorAll('[data-pw]').forEach(function (el) { el.style.display = el.dataset.pw === m.value ? '' : 'none'; }); }
+                    m.addEventListener('change', show); show();
+                })();
+                </script>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+<div class="card">
+    <div class="card-header"><i class="bi bi-clock-history"></i> Your withdrawals</div>
+    <div class="card-body">
+        {% if items %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead><tr><th>Date</th><th>Amount</th><th>To</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for w in items %}
+                <tr><td><small>{{ w.created_at.strftime('%Y-%m-%d %H:%M') }}{% if w.created_by %} · {{ w.created_by.username }}{% endif %}</small></td>
+                    <td>{{ tzs(w.amount) }}{% if w.payout_fee %}<small class="text-muted d-block">fee {{ tzs(w.payout_fee) }}</small>{% endif %}</td>
+                    <td>{{ w.destination }}{% if w.account_name %}<small class="text-muted d-block">{{ w.account_name }}</small>{% endif %}</td>
+                    <td>{% if w.status == 'paid' %}<span class="badge bg-success">Paid</span> <small class="text-muted">{{ w.payout_id or '' }}</small>
+                        {% elif w.status == 'sending' %}<span class="badge bg-info text-dark">Sending</span>
+                        {% elif w.status == 'verifying' %}<a href="{{ url_for('platform_withdraw_confirm', pid=w.id) }}" class="badge bg-warning text-dark">Enter the SMS code</a>
+                        {% elif w.status == 'failed' %}<span class="badge bg-danger">Failed</span> <small class="text-muted">{{ w.payout_error or '' }}</small>
+                        {% else %}<span class="badge bg-secondary">Cancelled</span>{% endif %}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}<p class="text-muted mb-0">None yet.</p>{% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
+from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -6466,10 +6466,211 @@ def platform_payouts():
 
 
 # ---------------------------------------------------------------------------
+# The platform admin's own earnings: SafeNet's fee on guest payments, SMS charged to businesses' balances and
+# subscriptions, less what they cost and what was already taken out; withdrawn through Snippe with the password and
+# a code by SMS to PLATFORM_PHONE (set in .env on the server, so a stolen login can't send the code elsewhere).
+# ---------------------------------------------------------------------------
+def _platform_profit():
+    total = lambda q, col: Decimal(str(q.with_entities(func.coalesce(func.sum(col), 0)).scalar()))
+    paid_platform = Payment.query.filter(Payment.status == 'paid', Payment.provider_account == 'platform')
+    subs = SubscriptionPayment.query.filter(SubscriptionPayment.status == 'paid', SubscriptionPayment.method.in_(tuple(paylib.PROVIDERS)))
+    snippe_subs = total(subs.filter(SubscriptionPayment.method == 'snippe'), SubscriptionPayment.amount)
+    taken = PlatformWithdrawal.query.filter(PlatformWithdrawal.status.in_(('sending', 'paid')))
+    p = dict(fees=total(paid_platform, Payment.fee_amount),
+             sms=total(SmsCharge.query.filter_by(method='balance'), SmsCharge.amount),
+             subs=total(subs, SubscriptionPayment.amount),
+             # Snippe keeps its share of a subscription (businesses don't pay it on top, guests do)
+             subs_fees=Decimal(math.ceil(snippe_subs * Decimal(str(Config.SNIPPE_FEE_PERCENT)) / 100)),
+             payout_fees=total(Withdrawal.query.filter(Withdrawal.status.in_(('paid', 'sending'))), Withdrawal.payout_fee),
+             taken=total(taken, PlatformWithdrawal.amount) + total(taken, PlatformWithdrawal.payout_fee))
+    p['earned'] = p['fees'] + p['sms'] + p['subs'] - p['subs_fees'] - p['payout_fees']
+    p['available'] = p['earned'] - p['taken']
+    return p
+
+
+PLATFORM_CODE_MINUTES = 10
+
+
+def _platform_code_hash(pw, code):
+    return hmac.new(Config.SECRET_KEY.encode(), f'platform-withdrawal:{pw.id}:{code}'.encode(), hashlib.sha256).hexdigest()
+
+
+def _send_platform_code(pw):
+    """A new 6-digit code by SMS to PLATFORM_PHONE. Caller commits."""
+    code = f'{secrets.randbelow(10 ** 6):06d}'
+    pw.otp_hash, pw.otp_tries = _platform_code_hash(pw, code), 0
+    pw.otp_expires_at = datetime.utcnow() + timedelta(minutes=PLATFORM_CODE_MINUTES)
+    pw.otp_sends = (pw.otp_sends or 0) + 1
+    send_sms_async(_normalize_tz_phone(Config.PLATFORM_PHONE),
+                   f'SafeNet: your code to take TZS {pw.amount:,.0f} of SafeNet earnings to {pw.destination} is {code}. '
+                   f'It expires in {PLATFORM_CODE_MINUTES} minutes. Never share it with anyone.')
+
+
+def _refresh_platform_withdrawal(pw):
+    """How Snippe's payout is doing. Caller commits."""
+    if pw.status != 'sending' or not pw.payout_id:
+        return
+    try:
+        data = snippe.get_payout(pw.payout_id, _platform_snippe_creds())
+    except snippe.SnippeError as e:
+        log.warning('platform payout %s check failed: %s', pw.payout_ref, e)
+        return
+    status = str((data or {}).get('status') or '').lower()
+    if not status:
+        return
+    pw.payout_status = status.upper()[:16]
+    if status in snippe.PAYOUT_DONE:
+        pw.status, pw.processed_at = 'paid', datetime.utcnow()
+    elif status in snippe.PAYOUT_FAILED:
+        pw.status, pw.processed_at = 'failed', datetime.utcnow()
+        pw.payout_error = f"Snippe: payout {(data or {}).get('failure_reason') or status}"[:255]
+
+
+@app.route('/platform/earnings')
+@login_required
+@superadmin_required
+def platform_earnings():
+    for pw in PlatformWithdrawal.query.filter_by(status='sending').limit(20):
+        _refresh_platform_withdrawal(pw)
+    db.session.commit()
+    problem = None
+    if not snippe.is_configured(_platform_snippe_creds()):
+        problem = "Add SafeNet's Snippe keys in Platform: Billing first: your earnings are sent from SafeNet's Snippe balance."
+    elif not (_normalize_tz_phone(Config.PLATFORM_PHONE) and sms_is_configured()):
+        problem = ('Set PLATFORM_PHONE in the .env file on the server (e.g. PLATFORM_PHONE=0712345678) and restart: '
+                   'the code for every withdrawal goes to that phone.')
+    return render_template('platform/earnings.html', profit=_platform_profit(), problem=problem, banks=snippe.BANKS,
+                           items=PlatformWithdrawal.query.order_by(PlatformWithdrawal.id.desc()).limit(50).all(),
+                           code_phone=_normalize_tz_phone(Config.PLATFORM_PHONE))
+
+
+@app.route('/platform/earnings/withdraw', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_withdraw():
+    _check_csrf()
+    code_phone = _normalize_tz_phone(Config.PLATFORM_PHONE)
+    if not (code_phone and sms_is_configured() and snippe.is_configured(_platform_snippe_creds())):
+        flash('Withdrawing needs SafeNet\'s Snippe keys and PLATFORM_PHONE in the server\'s .env.', 'danger')
+        return redirect(url_for('platform_earnings'))
+    if _rate_limited('wdpass', f'admin:{current_user.id}', 5, 15):
+        flash('Too many wrong passwords. Please wait a few minutes and try again.', 'danger')
+        return redirect(url_for('platform_earnings'))
+    if not current_user.check_password(request.form.get('password') or ''):
+        _rate_hit('wdpass', f'admin:{current_user.id}')
+        db.session.commit()
+        flash('Your password is not right.', 'danger')
+        return redirect(url_for('platform_earnings'))
+    try:
+        amount = Decimal(str(int(request.form.get('amount') or 0)))
+    except ValueError:
+        amount = Decimal(0)
+    method = 'bank' if request.form.get('method') == 'bank' else 'mobile'
+    phone = _normalize_tz_phone(request.form.get('phone') or '')
+    bank, account = request.form.get('bank_name') or '', (request.form.get('bank_account') or '').strip()[:40]
+    name = (request.form.get('account_name') or '').strip()[:100]
+    available = _platform_profit()['available']
+    problem = None
+    if amount < 1000:
+        problem = 'Enter an amount of at least TZS 1,000.'
+    elif amount > available:
+        problem = f'You can take up to TZS {available:,.0f}.'
+    elif method == 'mobile' and not phone:
+        problem = 'Enter a valid mobile money number, e.g. 0712 345 678.'
+    elif method == 'bank' and not (bank in snippe.BANKS and account and name):
+        problem = 'Choose the bank and enter the account number and the name on the account.'
+    if problem:
+        flash(problem, 'danger')
+        return redirect(url_for('platform_earnings'))
+    pw = PlatformWithdrawal(amount=amount, method=method, phone=phone if method == 'mobile' else None, account_name=name or None,
+                            bank_name=bank if method == 'bank' else None, bank_account=account if method == 'bank' else None,
+                            created_by_id=current_user.id)
+    db.session.add(pw)
+    db.session.flush()
+    _send_platform_code(pw)
+    db.session.commit()
+    for admin in Admin.query.filter_by(is_superadmin=True, is_active=True):
+        send_mail(admin.email, f'SafeNet earnings withdrawal: TZS {amount:,.0f}',
+                  f'{current_user.username} asked to take TZS {amount:,.0f} of SafeNet earnings to {pw.destination}. '
+                  f'A code was sent by SMS to the platform phone. If this wasn\'t you, change your password now.\n')
+    return redirect(url_for('platform_withdraw_confirm', pid=pw.id))
+
+
+@app.route('/platform/earnings/<int:pid>/confirm', methods=['GET', 'POST'])
+@login_required
+@superadmin_required
+def platform_withdraw_confirm(pid):
+    pw = db.get_or_404(PlatformWithdrawal, pid)
+    if pw.status != 'verifying':
+        return redirect(url_for('platform_earnings'))
+    if request.method == 'POST':
+        _check_csrf()
+        action = request.form.get('action')
+        if action == 'resend':
+            if (pw.otp_sends or 0) >= 3:
+                flash('No more codes for this withdrawal. Start again.', 'danger')
+            else:
+                _send_platform_code(pw)
+                flash('A new code was sent.', 'info')
+            db.session.commit()
+            return redirect(url_for('platform_withdraw_confirm', pid=pid))
+        if action == 'cancel':
+            pw.status, pw.otp_hash = 'cancelled', None
+            db.session.commit()
+            flash('Withdrawal cancelled.', 'info')
+            return redirect(url_for('platform_earnings'))
+        code = re.sub(r'\D', '', request.form.get('code') or '')
+        if not pw.otp_hash or pw.otp_expires_at < datetime.utcnow():
+            flash('The code has expired. Ask for a new one.', 'danger')
+            return redirect(url_for('platform_withdraw_confirm', pid=pid))
+        if (pw.otp_tries or 0) >= 5:
+            flash('Too many wrong codes. Ask for a new one.', 'danger')
+            return redirect(url_for('platform_withdraw_confirm', pid=pid))
+        if not hmac.compare_digest(pw.otp_hash, _platform_code_hash(pw, code)):
+            pw.otp_tries = (pw.otp_tries or 0) + 1
+            db.session.commit()
+            flash('That code is not right.', 'danger')
+            return redirect(url_for('platform_withdraw_confirm', pid=pid))
+        # the right code: check what's available again (one at a time), then send
+        pw = PlatformWithdrawal.query.filter_by(id=pid).with_for_update().one()
+        if pw.status != 'verifying':
+            db.session.rollback()
+            return redirect(url_for('platform_earnings'))
+        available = _platform_profit()['available']
+        if pw.amount > available:
+            pw.status, pw.otp_hash, pw.payout_error = 'cancelled', None, 'More than the earnings available'
+            db.session.commit()
+            flash(f'You can take up to TZS {available:,.0f}.', 'danger')
+            return redirect(url_for('platform_earnings'))
+        pw.otp_hash, pw.payout_ref = None, f'PW{pw.id}X{secrets.token_hex(3).upper()}'
+        creds = _platform_snippe_creds()
+        target = dict(bank=pw.bank_name, account=pw.bank_account) if pw.method == 'bank' else dict(phone=pw.phone)
+        try:
+            tx = snippe.create_payout(pw.amount, pw.payout_ref, creds, pw.account_name or 'SafeNet', narration='SafeNet earnings',
+                                      webhook_url=_link('snippe_webhook') if creds.webhook_key else None, **target)
+        except snippe.SnippeError as e:
+            pw.status, pw.payout_error, pw.processed_at = 'failed', f'Snippe: {e}'[:255], datetime.utcnow()
+            db.session.commit()
+            flash(f'Snippe did not send it: {e}', 'danger')
+            return redirect(url_for('platform_earnings'))
+        pw.status, pw.payout_id = 'sending', str(tx.get('reference') or '')[:64] or None
+        pw.payout_status = str(tx.get('status') or 'pending').upper()[:16]
+        pw.payout_fee = Decimal(str(((tx.get('fees') or {}).get('value')) or 0))
+        if pw.payout_status.lower() in snippe.PAYOUT_DONE:
+            pw.status, pw.processed_at = 'paid', datetime.utcnow()
+        db.session.commit()
+        flash(f'TZS {pw.amount:,.0f} is on its way to {pw.destination}.', 'success')
+        return redirect(url_for('platform_earnings'))
+    phone = _normalize_tz_phone(Config.PLATFORM_PHONE) or ''
+    return render_template('platform/earnings_confirm.html', pw=pw, masked=f'0{phone[3:6]} ••• {phone[-3:]}' if phone else '',
+                           minutes=PLATFORM_CODE_MINUTES, can_resend=(pw.otp_sends or 0) < 3)
+
+
+# ---------------------------------------------------------------------------
 # Reconcile SafeNet's books with its Snippe account. The account is shared with other projects, so only transactions
 # whose reference is SafeNet's (kept in Snippe's metadata.order_reference) count.
 # ---------------------------------------------------------------------------
-SAFENET_REF = re.compile(r'^(SN|SB)[0-9A-F]{12}$|^WD\d+X[0-9A-F]{6}$')
+SAFENET_REF = re.compile(r'^(SN|SB)[0-9A-F]{12}$|^(WD|PW)\d+X[0-9A-F]{6}$')
 RECONCILE_PERIODS = (('7', 'Last 7 days', 7), ('30', 'Last 30 days', 30), ('90', 'Last 90 days', 90), ('all', 'All time', None))
 _reconcile_cache = {}
 
@@ -6515,8 +6716,9 @@ def _reconcile_snippe(days):
     guests = _by_reference(Payment, Payment.reference, {ref_of(x) for x in pays})
     subs = _by_reference(SubscriptionPayment, SubscriptionPayment.reference, {ref_of(x) for x in pays})
     wds = _by_reference(Withdrawal, Withdrawal.payout_ref, {ref_of(x) for x in outs})
+    pws = _by_reference(PlatformWithdrawal, PlatformWithdrawal.payout_ref, {ref_of(x) for x in outs})
     zero = Decimal(0)
-    snp = dict(guest_n=0, guest=zero, sub_n=0, sub=zero, fees=zero, net=zero, out_n=0, out=zero, out_fees=zero, out_total=zero)
+    snp = dict(guest_n=0, guest=zero, sub_n=0, sub=zero, fees=zero, net=zero, out_n=0, out=zero, out_fees=zero, out_total=zero, own_n=0, own_total=zero)
     problems = []
     problem = lambda what, ref, at_snippe, at_safenet, fix=None: problems.append(
         dict(what=what, ref=ref, snippe=at_snippe, safenet=at_safenet, fix=fix))
@@ -6549,6 +6751,16 @@ def _reconcile_snippe(days):
         ref, status = ref_of(x), x.get('status') or '?'
         w = wds.get(ref)
         amount = _snippe_money(x, 'amount')
+        pw = pws.get(ref)
+        if pw:                                            # SafeNet's own earnings taken out
+            if status in ('completed', 'pending'):
+                snp['own_n'] += 1
+                snp['own_total'] += _snippe_money(x, 'total') or amount + _snippe_money(x, 'fees')
+                if status == 'completed' and pw.status != 'paid':
+                    problem('Earnings payout sent by Snippe, not paid in SafeNet', ref, f'completed {amount:,.0f}', f'{pw.status} {pw.amount:,.0f}')
+            elif pw.status in ('paid', 'sending'):
+                problem('Earnings payout paid in SafeNet, not at Snippe', ref, f'{status} {amount:,.0f}', f'{pw.status} {pw.amount:,.0f}')
+            continue
         if not w or w.payout_provider != 'snippe':
             if SAFENET_REF.match(ref) and status in ('completed', 'pending') and not w:
                 problem("Payout at Snippe with a SafeNet reference SafeNet doesn't have", ref, f'{status} {amount:,.0f}', 'not found')
@@ -6603,7 +6815,7 @@ def _reconcile_snippe(days):
     except snippe.SnippeError:
         account_balance = None
     return dict(snippe=snp, ours=ours, problems=problems, complete=pays_complete and outs_complete,
-                in_snippe=snp['net'] - snp['out_total'], account_balance=account_balance,
+                in_snippe=snp['net'] - snp['out_total'] - snp['own_total'], account_balance=account_balance,
                 owed=sum((tenant_balance(t.id)[0] for t in Tenant.query.all()), zero) if not days else None,
                 at=datetime.utcnow())
 
@@ -7404,7 +7616,8 @@ def snippe_webhook():
         by_ours = payment is not None
     sub = None if payment else SubscriptionPayment.query.filter_by(method='snippe', provider_id=ref).first()
     payout = None if payment or sub else Withdrawal.query.filter_by(payout_provider='snippe', payout_id=ref).first()
-    if payment is None and sub is None and payout is None:
+    own = None if payment or sub or payout else PlatformWithdrawal.query.filter_by(payout_id=ref).first()
+    if payment is None and sub is None and payout is None and own is None:
         return jsonify(received=True)
     account = _payment_account(payment) if payment else _platform_account('snippe')
     if not snippe.verify_webhook(raw, request.headers.get('X-Webhook-Timestamp'), request.headers.get('X-Webhook-Signature'),
@@ -7421,6 +7634,9 @@ def snippe_webhook():
             _refresh_payment(payment.reference, force=True)
         elif sub:
             _refresh_subscription(sub.reference, force=True)
+        elif own:
+            _refresh_platform_withdrawal(PlatformWithdrawal.query.filter_by(id=own.id).with_for_update().first())
+            db.session.commit()
         else:
             w = Withdrawal.query.filter_by(id=payout.id).with_for_update().first()
             _refresh_withdrawal(w)
