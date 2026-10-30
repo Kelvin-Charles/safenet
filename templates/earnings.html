@@ -54,7 +54,11 @@
                     {{ field(form.account_name) }}
                     <div class="mb-3"><label class="form-label">{{ _('Your SafeNet password') }}</label>
                         <input type="password" name="password" class="form-control" autocomplete="current-password" required>
+                        {% if current_user.is_superadmin %}
+                        <small class="text-muted">Withdrawing for {{ tenant.name }}: a code goes by SMS to the business phone, and the money is sent only once you enter it.</small></div>
+                        {% else %}
                         <small class="text-muted">{{ _('Then we send a code by SMS to your business phone; enter it and the money is sent straight away.') }}</small></div>
+                        {% endif %}
                     <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> {{ _('Withdraw') }}</button>
                 </form>
                 {% else %}

@@ -124,4 +124,43 @@ with app.app_context():
     t = db.session.get(Tenant, TID)
     assert t.phone == '0699 999 999' and t.phone_pending is None
 assert {n for n, txt in texts[-2:]} == {'255684000111', '255699999999'}
+
+# the platform admin can withdraw for the business, but only with the code sent to the business phone
+cb = login('boss')
+p = html.unescape(cb.get('/platform/tenants').text)
+assert 'Withdraw for them' in p
+r = cb.post(f'/platform/switch/{TID}', data={'csrf_token': tok(p), 'next': 'earnings'})
+assert r.headers['Location'].endswith('/earnings')
+e = cb.get('/earnings').text
+assert 'a code goes by SMS to the business phone' in html.unescape(e)
+r = html.unescape(cb.post('/earnings/withdraw', data={'csrf_token': tok(e), 'amount': 5000, 'phone': '0684000222', 'method': 'mobile',
+                                                      'password': 'password1'}, follow_redirects=True).text)
+assert 'Ask the business to read it to you' in r
+phone, sms = texts[-1]
+assert phone == '255699999999' and 'SafeNet support is withdrawing' in sms
+with app.app_context():
+    w = Withdrawal.query.filter_by(status='verifying').order_by(Withdrawal.id.desc()).first(); W3 = w.id
+    assert w.amount == Decimal(5000)
+page = cb.get(f'/earnings/withdraw/{W3}/confirm').text
+before = len(paid_out)
+assert 'That code is not right' in html.unescape(cb.post(f'/earnings/withdraw/{W3}/confirm', data={'csrf_token': tok(page), 'code': '999999'
+                                                         if '999999' not in sms else '111111'}, follow_redirects=True).text)
+assert len(paid_out) == before                                  # nothing sent without the business's code
+code = re.search(r'Code: (\d{6})\.', sms).group(1)
+assert 'on its way to' in html.unescape(cb.post(f'/earnings/withdraw/{W3}/confirm', data={'csrf_token': tok(page), 'code': code},
+                                                follow_redirects=True).text)
+assert paid_out[-1] == (Decimal(5000), {'phone': '255684000222'})
+# no business phone: the platform admin can't withdraw for it at all
+with app.app_context():
+    db.session.get(Tenant, TID).phone = None
+    db.session.add(Payment(tenant_id=TID, reference='SNP2', package_name='Day', validity_minutes=1440, phone='255700000002',
+                           amount=Decimal(20000), fee_amount=Decimal(600), net_amount=Decimal(19400), currency='TZS',
+                           provider='snippe', provider_account='platform', status='paid', paid_at=now))
+    db.session.commit()
+e = cb.get('/earnings').text
+r = html.unescape(cb.post('/earnings/withdraw', data={'csrf_token': tok(e), 'amount': 5000, 'phone': '0684000222', 'method': 'mobile',
+                                                      'password': 'password1'}, follow_redirects=True).text)
+assert 'must confirm with a code' in r
+with app.app_context():
+    assert Withdrawal.query.filter_by(amount=Decimal(5000), status='requested').count() == 0
 print('WITHDRAW CODE OK')

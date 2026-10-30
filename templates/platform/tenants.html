@@ -82,6 +82,12 @@
                                 <button class="btn btn-sm btn-outline-secondary" type="submit" title="Save fee">%</button>
                             </form>
                             <small class="text-muted">owed {{ '{:,.0f}'.format(balances.get(t.id, 0)) }}</small>
+                            {% if balances.get(t.id, 0) > 0 %}
+                            <form method="POST" action="{{ url_for('platform_switch', tid=t.id) }}" class="d-inline">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="next" value="earnings">
+                                <button class="btn btn-link btn-sm p-0 ms-1" type="submit" title="Withdraw for them: they must give you the code sent to their phone">Withdraw for them</button>
+                            </form>
+                            {% endif %}
                             {% endif %}
                         </td>
                         <td class="text-nowrap">

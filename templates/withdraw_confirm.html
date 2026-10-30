@@ -10,7 +10,11 @@
             <div class="card-header"><i class="bi bi-shield-lock"></i> {{ _('Enter the code we sent') }}</div>
             <div class="card-body">
                 <p>{{ _('Withdraw') }} <strong>{{ w.tenant.currency }} {{ '{:,.0f}'.format(w.amount) }}</strong> {{ _('to') }} <strong>{{ w.destination }}</strong>.</p>
+                {% if for_business %}
+                <p class="small text-muted">{{ _('We sent a 6-digit code by SMS to the business phone {phone}. Ask the business to read it to you. It works for {n} minutes.', phone=masked, n=minutes) }}</p>
+                {% else %}
                 <p class="small text-muted">{{ _('We sent a 6-digit code by SMS to your business phone {phone}. It works for {n} minutes.', phone=masked, n=minutes) }}</p>
+                {% endif %}
                 <form method="POST" autocomplete="off">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input name="code" class="form-control form-control-lg text-center mb-3" inputmode="numeric" maxlength="6" pattern="\d{6}"

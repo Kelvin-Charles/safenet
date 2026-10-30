@@ -5955,7 +5955,7 @@ def platform_switch(tid):
     session['tenant_id'] = tenant.id
     session.pop('site_id', None)
     flash(f'You are now managing {tenant.name}.', 'info')
-    return redirect(url_for('dashboard'))
+    return redirect(url_for('earnings' if request.form.get('next') == 'earnings' else 'dashboard'))
 
 
 @app.route('/platform/separate', methods=['POST'])
@@ -6139,6 +6139,11 @@ def request_withdrawal():
     elif method == 'bank':
         w.bank_name, w.bank_account = bank_name[:80], bank_account[:40]
     code_phone = _normalize_tz_phone(tenant.phone or '')
+    if current_user.is_superadmin and not (code_phone and sms_is_configured()):
+        # the platform admin withdrawing for a business: only with the code from the business's own phone
+        db.session.rollback()
+        flash(tr("The business must confirm with a code by SMS to its phone, and it has no phone (or SMS isn't set up)."), 'danger')
+        return redirect(url_for('earnings'))
     if code_phone and sms_is_configured():
         w.status = 'verifying'
         db.session.add(w)
@@ -6170,6 +6175,11 @@ def _send_withdrawal_code(w, phone):
     w.otp_hash, w.otp_tries = _withdrawal_code_hash(w, code), 0
     w.otp_expires_at = datetime.utcnow() + timedelta(minutes=WITHDRAWAL_CODE_MINUTES)
     w.otp_sends = (w.otp_sends or 0) + 1
+    if w.requested_by and w.requested_by.is_superadmin:      # SafeNet support withdrawing for the business
+        send_sms_async(phone, f'SafeNet: SafeNet support is withdrawing {w.tenant.currency} {w.amount:,.0f} to {w.destination} '
+                              f'for you. Code: {code}. Give it to SafeNet support only if you asked them to. '
+                              f'It expires in {WITHDRAWAL_CODE_MINUTES} minutes.')
+        return
     send_sms_async(phone, f'SafeNet: your code to withdraw {w.tenant.currency} {w.amount:,.0f} to {w.destination} is {code}. '
                           f'It expires in {WITHDRAWAL_CODE_MINUTES} minutes. Never share it with anyone.')
 
@@ -6238,7 +6248,7 @@ def confirm_withdrawal(wid):
         return redirect(url_for('earnings'))
     masked = f'0{phone[3:6]} ••• {phone[-3:]}' if phone else ''
     return render_template('withdraw_confirm.html', w=w, masked=masked, minutes=WITHDRAWAL_CODE_MINUTES,
-                           can_resend=(w.otp_sends or 0) < 3)
+                           can_resend=(w.otp_sends or 0) < 3, for_business=current_user.is_superadmin)
 
 
 @app.route('/settings/payments', methods=['GET', 'POST'])
