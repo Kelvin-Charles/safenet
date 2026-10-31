@@ -90,6 +90,13 @@ with app.app_context():
     SubscriptionPayment.query.filter_by(status='pending').update({'status': 'failed'}); db.session.commit()
 pay(phone='0684000111')
 assert pushes[-1][0] == 15000
-# the balance part shows in Earnings
-assert 'paid for your SafeNet plan' in html.unescape(c.get('/earnings').text)
+# the balance part shows in Earnings, and every balance SafeNet shows is lower by it
+e = html.unescape(c.get('/earnings').text)
+assert 'paid for your SafeNet plan' in e and 'Paid from your balance for your SafeNet plan' in e and '−TZS 15,000' in e
+with app.app_context():
+    left = tenant_balance(TID)[0]
+    assert left == 19400 + 4850 + 9850 - 15000 - 4400, left       # earned, less what paid plans took (the failed one gave its 14,000 back)
+d = html.unescape(c.get('/dashboard').text)
+assert f'{left:,.0f}' in d                                                  # dashboard's "Available balance"
+assert f'{left:,.0f}' in e                                                  # Earnings' "available to withdraw"
 print('BILLING BALANCE OK')

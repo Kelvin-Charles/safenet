@@ -6209,11 +6209,14 @@ def earnings():
                             .with_entities(func.coalesce(func.sum(Voucher.price), 0)).scalar())),
     }
     withdrawals = scoped(Withdrawal).order_by(Withdrawal.created_at.desc()).limit(50).all()
+    plan_paid = scoped(SubscriptionPayment).filter(SubscriptionPayment.balance_amount > 0,
+                                                   SubscriptionPayment.status.in_(('pending', 'paid', 'review'))) \
+        .order_by(SubscriptionPayment.id.desc()).limit(50).all()
     sms_history = SmsCharge.query.filter_by(tenant_id=tid).order_by(SmsCharge.id.desc()).limit(100).all()
     form = WithdrawalForm(phone=tenant.phone or '')
     if not Config.CLICKPESA_PAYOUTS:            # Lipa Namba is paid through ClickPesa only (switch in Platform: Billing)
         form.method.choices = [c for c in form.method.choices if c[0] != 'lipa']
-    return render_template('earnings.html', stats=stats, withdrawals=withdrawals, form=form,
+    return render_template('earnings.html', stats=stats, withdrawals=withdrawals, plan_paid=plan_paid, form=form,
                            fee_percent=_fee_percent(tenant), min_withdrawal=Config.MIN_WITHDRAWAL, sms_price=Config.SMS_PRICE,
                            sms_history=sms_history,
                            can_withdraw=current_user.has_role('owner'))

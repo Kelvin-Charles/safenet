@@ -97,6 +97,24 @@
                 {% else %}
                 <p class="text-muted mb-0">{{ _('No withdrawals yet.') }}</p>
                 {% endif %}
+                {% if plan_paid %}
+                <h6 class="mt-4"><i class="bi bi-receipt"></i> {{ _('Paid from your balance for your SafeNet plan') }}</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>{{ _('Date') }}</th><th>{{ _('From balance') }}</th><th>{{ _('Plan') }}</th><th>{{ _('Status') }}</th></tr></thead>
+                        <tbody>
+                            {% for p in plan_paid %}
+                            <tr>
+                                <td><small>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</small><small class="d-block text-muted font-monospace">{{ p.reference }}</small></td>
+                                <td class="text-danger">−{{ cur }} {{ '{:,.0f}'.format(p.balance_amount) }}{% if p.pushed > 0 %}<small class="d-block text-muted">{{ _('+ {amount} by mobile money', amount='{:,.0f}'.format(p.pushed)) }}</small>{% endif %}</td>
+                                <td><small>{{ p.plan_name or 'SafeNet' }} × {{ p.months }}</small></td>
+                                <td>{% if p.status == 'paid' %}<span class="badge bg-success">{{ _('Paid') }}</span>{% else %}<span class="badge bg-warning text-dark">{{ _('Pending') }}</span><small class="d-block text-muted">{{ _('Held from your balance until the PIN is entered') }}</small>{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
             </div>
         </div>
         <div class="card" id="sms-history">

@@ -233,4 +233,8 @@ SW = {
     'Your SafeNet Pay balance pays first. If it is less than the price, you get a PIN prompt for the rest.': 'Salio lako la SafeNet Pay linalipa kwanza. Likiwa pungufu ya bei, utapata ombi la PIN kulipia kiasi kilichobaki.',
     '{amount} from your balance': '{amount} kutoka kwenye salio lako',
     'Paid {cur} {amount} from your balance. Your service is paid until {date}.': 'Umelipa {cur} {amount} kutoka kwenye salio lako. Huduma yako imelipiwa hadi {date}.',
+    'Paid from your balance for your SafeNet plan': 'Ulicholipa kutoka kwenye salio kwa kifurushi chako cha SafeNet',
+    'From balance': 'Kutoka kwenye salio',
+    '+ {amount} by mobile money': '+ {amount} kwa simu',
+    'Held from your balance until the PIN is entered': 'Kimezuiliwa kwenye salio hadi PIN iingizwe',
 }
