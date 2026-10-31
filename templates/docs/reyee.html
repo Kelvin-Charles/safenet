@@ -1,0 +1,102 @@
+{% extends "docs/layout.html" %}
+{% block body %}
+<div class="flow" aria-label="How it connects">
+    <div class="box">Guest's phone</div><span class="arr">→</span>
+    <div class="box">Reyee access point<small>RG-RAP6262</small></div><span class="arr">→</span>
+    <div class="box">Your internet router</div><span class="arr">→</span>
+    <div class="box">Internet</div>
+</div>
+<div class="flow">
+    <div class="box">Reyee access point</div><span class="arr">⇄</span>
+    <div class="box">Ruijie Cloud</div><span class="arr">⇄</span>
+    <div class="box hl">SafeNet</div>
+</div>
+<p>This guide takes a Reyee access point (RG-RAP6262 and other <code>RG-RAP…</code> models) from the box to the first sale. You need only the access point, a PoE power adapter and an internet connection. Guests join your Wi-Fi, see <strong>your SafeNet login page</strong>, pay with mobile money (or type a voucher, or tap <em>Try free</em>), and are connected by themselves.</p>
+<p>The access point is managed by <strong>Ruijie Cloud</strong> (Ruijie's free website and app). SafeNet talks to Ruijie Cloud for you: it creates the packages and the codes there, and reads who is online so you see them on SafeNet's <strong>Live</strong> page.</p>
+
+<div class="note tip"><i class="bi bi-lightbulb"></i><p><strong>Adding another access point to a place that already works?</strong> Skip to <a href="#more">Another access point at the same place</a>: it takes five minutes and nothing changes in SafeNet.</p></div>
+
+<h2 id="need">What you need</h2>
+<ul>
+    <li><strong>The access point</strong> and a <strong>PoE power adapter</strong> (802.3at / PoE+), or a PoE+ switch. Check the box: some kits come without the adapter.</li>
+    <li><strong>An internet router</strong> (fibre, 4G/5G router…) that gives addresses to connected devices (DHCP, as almost all do), and two network cables.</li>
+    <li><strong>A smartphone</strong> with the <strong>Ruijie Cloud</strong> app (Play Store / App Store), or a computer.</li>
+    <li><strong>A Ruijie Cloud account</strong> (free, at <code>ruijienetworks.com</code> or in the app). Use the <strong>same account</strong> for all your access points: SafeNet's keys belong to the account.</li>
+    <li><strong>Ruijie Cloud API keys</strong> (App ID and App secret), once per account. Ruijie gives them on request: email <code>service_rj@ruijienetworks.com</code> (or ask your Ruijie distributor) saying it is for creating vouchers from your billing system. It can take a few days, so ask early. Already have keys for this account? Use the same ones.</li>
+    <li><strong>A SafeNet account</strong> with the site (place) and at least one package.</li>
+</ul>
+
+<h2 id="power">1. Power it on and connect it</h2>
+<ol class="steps">
+    <li><strong>Cable it</strong>Run a cable from the access point's <strong>LAN/PoE</strong> port to the adapter's <strong>PoE</strong> (or "AP"/"Data+Power") port. Run a second cable from the adapter's <strong>LAN</strong> port to a free port on your internet router. Plug the adapter into power.</li>
+    <li><strong>Wait for it to start</strong>It takes about 2–3 minutes. When the light is steady, the access point is up and has internet through your router.</li>
+    <li><strong>Mount it later</strong>Test everything on a table first, then mount it. Outdoor models: keep the cable entry facing down and use the waterproof cap that came with it.</li>
+</ol>
+<div class="note"><i class="bi bi-info-circle"></i><p>A new access point shows a Wi-Fi called <code>@Ruijie-m…</code> (the last characters of its MAC address). You don't need to use it if you add the access point with the app as below. Its own web page is usually at <code>10.44.77.254</code> when you are on that Wi-Fi.</p></div>
+
+<h2 id="cloud">2. Add it to Ruijie Cloud</h2>
+<ol class="steps">
+    <li><strong>Sign in</strong>Open the Ruijie Cloud app (or the website) and sign in with your account.</li>
+    <li><strong>Create a project for the place</strong>Tap <strong>+</strong> / <strong>Add project</strong> and name it after the place (for example <em>Kariakoo Shop</em>). Use one project per place. For a place that already has a project, open it instead.</li>
+    <li><strong>Add the access point</strong>In the project choose <strong>Add device</strong> and scan the QR code on the access point's label (or type its serial number, <strong>SN</strong>, from the label or box).</li>
+    <li><strong>Wait until it shows Online</strong>This takes a minute or two once it has internet. Still offline after 10 minutes? Check the cables and that the router gives internet.</li>
+    <li><strong>Update the firmware</strong>Open the device and choose <strong>Upgrade</strong> if a newer version is offered. Don't unplug it while it updates (about 5 minutes).</li>
+</ol>
+
+<h2 id="wifi">3. Make the guest Wi-Fi</h2>
+<ol class="steps">
+    <li><strong>Add the Wi-Fi</strong>In the project open the Wi-Fi (WLAN/SSID) settings and add a network with your name, for example <em>Kariakoo Free WiFi</em>.</li>
+    <li><strong>No password</strong>Set security to <strong>Open</strong>. Guests must join without a password; the login page does the rest.</li>
+    <li><strong>Keep guests apart</strong>Turn on <strong>client isolation</strong> (guests can't see each other's phones) if your model offers it.</li>
+    <li><strong>Remove the default Wi-Fi</strong>Delete or hide any other open Wi-Fi on this access point, so guests can't get around the login page.</li>
+</ol>
+
+<h2 id="safenet">4. Connect SafeNet to Ruijie Cloud</h2>
+<ol class="steps">
+    <li><strong>Packages first</strong>In SafeNet open <strong>Packages</strong> and make sure the packages for this place exist (sold at this site or at "All sites"). You only make packages in SafeNet: SafeNet creates matching packages on Ruijie Cloud by itself.</li>
+    <li><strong>Open the site</strong>Open <strong>Sites</strong>. Add the place as a site if it isn't there yet, then click <strong>Reyee</strong> next to it.</li>
+    <li><strong>Enter the keys</strong>Choose your Ruijie Cloud server (if unsure, any: SafeNet finds the right one), enter the <strong>App ID</strong> and <strong>App secret</strong>, and click <strong>Connect</strong>.</li>
+    <li><strong>Pick the project</strong>If your account has several projects, choose the one you made in step 2 and click <strong>Use this project</strong>. SafeNet shows <em>Project: …</em> and the Ruijie packages it found or made (for example "SafeNet 1 day").</li>
+    <li><strong>Check the packages</strong>If a yellow box lists SafeNet packages with no Ruijie package, press <strong>Read packages</strong>. If it stays, create a Ruijie package with that duration in Ruijie Cloud (<em>Authentication → Voucher → Package</em>), then press <strong>Read packages</strong> again.</li>
+</ol>
+
+<h2 id="portal">5. Put SafeNet's login page on the access point</h2>
+<ol class="steps">
+    <li><strong>Download it</strong>In the Reyee box on SafeNet's Sites page click <strong>Download login page (.zip)</strong>. Keep the file as it is (don't unzip it).</li>
+    <li><strong>Create the captive portal</strong>In Ruijie Cloud open the project, then <em>Auth &amp; Accounts → Captive Portal → Add</em> (in some versions <em>Authentication → Captive Portal</em>). Set:
+        <ul>
+            <li><strong>Policy mode</strong>: Cloud Auth</li>
+            <li><strong>Authentication device</strong>: AP</li>
+            <li><strong>SSID</strong>: your guest Wi-Fi from step 3</li>
+        </ul></li>
+    <li><strong>Upload the page</strong>Under <strong>Portal Page</strong> click <strong>Add Portal Page</strong>, choose auth mode <strong>Custom HTML</strong>, click <strong>Upload</strong> and pick the .zip file. Save.</li>
+    <li><strong>Allow SafeNet before login</strong>In the captive portal's <strong>allowlist</strong> (walled garden / free URLs) add exactly one domain: <code>{{ public_host }}</code>. The login page loads your packages and takes payments from it. Save the captive portal.
+        <div class="note warn"><i class="bi bi-exclamation-triangle"></i><p><strong>Add nothing else.</strong> Allowing <code>captive.apple.com</code>, <code>google.com</code>, <code>gstatic.com</code> or similar stops phones from opening the login page by themselves. Mobile money uses a PIN prompt on the phone, so no payment website is needed.</p></div></li>
+    <li><strong>Upload once</strong>The page fetches your packages, prices, logo, colour and offers from SafeNet every time it opens, so changes in SafeNet show up by themselves. Upload the .zip again only after you <strong>switch the free trial on or off</strong> (Captive portal → Free trial in SafeNet).</li>
+</ol>
+
+<h2 id="test">6. Test it</h2>
+<ol class="steps">
+    <li><strong>Join the Wi-Fi</strong>Forget the Wi-Fi on your phone if you joined it before, then join it again. The login page with your logo and packages opens by itself. If it doesn't, open <code>http://neverssl.com</code> in the browser.</li>
+    <li><strong>Buy the cheapest package</strong>Choose it, enter your mobile money number and confirm the PIN prompt on your phone. The page shows your code and connects you by itself within a few seconds. The code is also sent by SMS.</li>
+    <li><strong>Try a voucher</strong>In SafeNet generate one voucher for this site (<strong>Vouchers → Generate</strong>). Wait a minute (SafeNet makes it on Ruijie Cloud first), then type it on a second phone.</li>
+    <li><strong>See it in SafeNet</strong>Within a minute or two the guest shows on the <strong>Live</strong> page with the code, time left and data used, and the sale on <strong>Payments</strong> and the dashboard.</li>
+</ol>
+
+<h2 id="more">Another access point at the same place</h2>
+<ol class="steps">
+    <li><strong>Power it and connect it</strong>As in <a href="#power">step 1</a>, to the same router (or a switch behind it).</li>
+    <li><strong>Add it to the same project</strong>In Ruijie Cloud add it to the <strong>same project</strong> as the first one (<a href="#cloud">step 2</a>) and update its firmware.</li>
+    <li><strong>That's it</strong>The project's Wi-Fi and captive portal apply to it by themselves, so guests get the same Wi-Fi name and the same login page. Nothing changes in SafeNet. Check in Ruijie Cloud that the new access point broadcasts your guest Wi-Fi.</li>
+</ol>
+<p><strong>At a different place?</strong> Make a new project for it in Ruijie Cloud, a new site in SafeNet, and follow steps 3 to 6 for that site (the same API keys work).</p>
+
+<h2 id="notes">Good to know</h2>
+<ul>
+    <li><strong>Phones coming back</strong> with time left use the same code again if the login page opens; once their time is used up they see the packages to buy more.</li>
+    <li><strong>Disabling a voucher</strong> in SafeNet doesn't reach Ruijie Cloud. To cut off a guest who is online, use Ruijie Cloud (<em>Auth Clients</em>).</li>
+    <li><strong>Speed limits</strong> come from your SafeNet plans: SafeNet puts them on the packages it creates on Ruijie Cloud.</li>
+    <li><strong>Hotspot sharing</strong> (a guest passing the Wi-Fi on from their own phone or PC) can't be blocked by a Reyee access point alone. A Reyee gateway router (RG-EG…) can: in Ruijie Cloud, <em>Gateway → Advanced → TTL rule</em>, TTL 1 for the guest network. Giving packages speed limits also makes sharing less worth it.</li>
+    <li><strong>Problems?</strong> See <a href="{{ url_for('docs', slug='troubleshooting') }}">Troubleshooting</a>, or contact SafeNet support{% if support %} ({{ support }}){% endif %} with a screenshot of the Reyee box on your Sites page.</li>
+</ul>
+{% endblock %}

@@ -392,6 +392,8 @@ DOCS = [
      'EAP225 and other Omada access points: plug in, point them to SafeNet, and sell internet. No extra box needed.'),
     ('ruijie', 'Ruijie (RG-AP)', 'bi-broadcast-pin', 'Ruijie access points',
      'Ruijie enterprise access points (RG-AP820-L and others) connect straight to SafeNet with WiFiDog. Just the access point and internet.'),
+    ('reyee', 'Reyee (RG-RAP6262)', 'bi-cloud', 'Reyee access points, from the box to the first sale',
+     'RG-RAP6262 and other Reyee access points with Ruijie Cloud: power on, add to Ruijie Cloud, connect SafeNet, upload the login page.'),
     ('gateway', 'SafeNet gateway box', 'bi-hdd-network', 'SafeNet gateway box with any access point',
      'A small Linux computer between the internet and any access point. Every SafeNet feature, with any brand of Wi-Fi.'),
     ('mikrotik', 'MikroTik', 'bi-router', 'MikroTik routers',

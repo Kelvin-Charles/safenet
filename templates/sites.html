@@ -188,7 +188,7 @@ write</pre>
                         <tr class="collapse{{ ' show' if request.args.get('open') == 'ruijie-%d'|format(s.id) }}" id="ruijie-{{ s.id }}"><td colspan="7" class="bg-light">
                             <div class="p-2">
                                 <h6 class="mb-1"><i class="bi bi-cloud"></i> {{ _('Ruijie Cloud vouchers at {site}', site=s.name) }}</h6>
-                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='ruijie') }}#cloud" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Step-by-step guide') }}</a> · {{ _("For Reyee access points (RG-RAP…) that only show Ruijie's own voucher login page. Guests buy on SafeNet, and SafeNet creates the same code on Ruijie Cloud, so it works on Ruijie's page. Just the access point and internet.") }}</p>
+                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='reyee') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Step-by-step guide') }}</a> · {{ _("For Reyee access points (RG-RAP…) that only show Ruijie's own voucher login page. Guests buy on SafeNet, and SafeNet creates the same code on Ruijie Cloud, so it works on Ruijie's page. Just the access point and internet.") }}</p>
                                 {% set rj = r.ruijie %}
                                 {% if s.ruijie_error %}<div class="alert alert-danger py-2 small mb-2">{{ s.ruijie_error }}</div>{% endif %}
                                 <form method="POST" action="{{ url_for('site_ruijie_cloud', site_id=s.id) }}" class="row g-2 mb-3" autocomplete="off">
