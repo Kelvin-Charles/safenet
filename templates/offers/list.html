@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Offers') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Offers') }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-gift"></i> {{ _('Offers on your packages') }}</span>
+        <a href="{{ url_for('add_offer') }}" class="btn btn-primary"><i class="bi bi-plus-circle"></i> {{ _('New offer') }}</a>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted">{{ _('Give guests extra free time or a lower price, e.g. "Buy 3 days, get 1 day free". Guests see the offer on the login page and in the guest app, and get it automatically when they pay. If several offers fit a package, the newest one is used.') }}</p>
+        {% if offers %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead><tr><th>{{ _('Offer') }}</th><th>{{ _('Package') }}</th><th>{{ _('Guests get') }}</th><th>{{ _('When') }}</th><th>{{ _('Sold') }}</th><th>{{ _('Status') }}</th><th>{{ _('Actions') }}</th></tr></thead>
+                <tbody>
+                {% for o in offers %}
+                <tr>
+                    <td><strong>{{ o.name }}</strong>{% if o.site %}<small class="d-block text-muted"><i class="bi bi-geo-alt"></i> {{ o.site.name }}</small>{% endif %}</td>
+                    <td>{{ o.package.name if o.package else _('All packages') }}</td>
+                    <td>{% if o.bonus_minutes %}<span class="badge bg-success">+{{ o.bonus_minutes|minutes }} {{ _('free') }}</span>{% endif %}
+                        {% if o.discount_percent %}<span class="badge bg-info text-dark">−{{ o.discount_percent }}%</span>{% endif %}
+                        {% if o.package %}{% set price, mins = o.terms(o.package) %}<small class="d-block text-muted">{{ o.package.currency }} {{ '{:,.0f}'.format(price) }} · {{ mins|minutes }}</small>{% endif %}</td>
+                    <td><small>{% if o.starts_at %}{{ (o.starts_at + offset).strftime('%d %b %Y %H:%M') }}{% else %}{{ _('Now') }}{% endif %} → {% if o.ends_at %}{{ (o.ends_at + offset).strftime('%d %b %Y %H:%M') }}{% else %}{{ _('until switched off') }}{% endif %}</small></td>
+                    <td>{{ sold.get(o.id, 0) }}</td>
+                    <td>{% if o.live(now) %}<span class="badge bg-success">{{ _('On now') }}</span>
+                        {% elif not o.is_active %}<span class="badge bg-secondary">{{ _('Off') }}</span>
+                        {% elif o.starts_at and o.starts_at > now %}<span class="badge bg-warning text-dark">{{ _('Starts later') }}</span>
+                        {% else %}<span class="badge bg-secondary">{{ _('Ended') }}</span>{% endif %}</td>
+                    <td class="text-nowrap">
+                        <a href="{{ url_for('edit_offer', offer_id=o.id) }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i></a>
+                        <form method="POST" action="{{ url_for('toggle_offer', offer_id=o.id) }}" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button class="btn btn-sm {{ 'btn-outline-warning' if o.is_active else 'btn-outline-success' }}" type="submit">{{ _('Switch off') if o.is_active else _('Switch on') }}</button></form>
+                        <form method="POST" action="{{ url_for('delete_offer', offer_id=o.id) }}" class="d-inline" onsubmit="return confirm({{ _('Delete offer {name}?', name=o.name)|tojson|forceescape }});"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-trash"></i></button></form>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center py-4 text-muted"><i class="bi bi-gift" style="font-size:2.5rem"></i><p class="mt-2">{{ _('No offers yet.') }}</p></div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

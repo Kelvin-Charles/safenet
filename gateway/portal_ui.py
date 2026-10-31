@@ -520,12 +520,13 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
             price = money(p.get('currency', 'TZS'), p.get('price'))
             valid = duration(p['validity_minutes'], lang) if p.get('validity_minutes') else e(p.get('validity', ''))
             desc = f' · {e(p["description"])}' if p.get('description') else ''
+            was = f'<s style="opacity:.6;font-weight:400">{e(money(p.get("currency", "TZS"), p["old_price"]))}</s> ' if p.get('old_price') else ''
             options.append(
                 f'<label class="pkg{" on" if i == 0 else ""}"><input type="radio" name="package_id" value="{int(p["id"])}" '
                 f'data-label="{e(t(lang, "pay", price=price))}" data-price="{e(str(p.get("price", "0")))}" required{" checked" if i == 0 else ""}>'
                 f'<span class="ic">{icon("clock", 21)}</span>'
                 f'<span class="nm"><b>{e(p["name"])}</b><small>{valid}{desc}</small></span>'
-                f'<span class="pr">{e(price)}</span><span class="tick">{icon("check", 14, 3)}</span></label>')
+                f'<span class="pr">{was}{e(price)}</span><span class="tick">{icon("check", 14, 3)}</span></label>')
         first_price = money(packages[0].get('currency', 'TZS'), packages[0].get('price'))
         net_tiles = ''
         if networks:
@@ -817,7 +818,7 @@ function buy(d,gift){var f=el('form');f.append(el('h2',null,gift?tt('buy_friend'
   var err=el('div','alert hidden');f.append(err);var pk=el('div','pkgs');
   d.packages.forEach(function(p,i){var l=el('label','pkg'+(i?'':' on'));var r=el('input');r.type='radio';r.name='package_id';r.value=p.id;r.checked=!i;
     r.onchange=function(){pk.querySelectorAll('.pkg').forEach(function(x){x.classList.toggle('on',x.contains(r));});pay.textContent=tt('pay',{price:money(p.currency,p.price)});};
-    var nm=el('span','nm');nm.append(el('b',null,p.name),el('small',null,dur(p.validity_minutes*60)));
+    var nm=el('span','nm');nm.append(el('b',null,p.name),el('small',null,dur(p.validity_minutes*60)+(p.offer?' · 🎁 '+p.offer:'')));
     l.append(r,nm,el('span','pr',money(p.currency,p.price)));pk.append(l);});f.append(pk);
   var net=null;if(d.networks.length){net=el('select','input');d.networks.forEach(function(n){var o=el('option',null,n.name);o.value=n.id;net.append(o);});
     var nf=el('div','field');nf.append(el('label',null,tt('network')),net);f.append(nf);}

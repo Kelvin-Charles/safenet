@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
+from models import db, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -134,6 +134,9 @@ def set_language():
 
 
 # Context processor for global template variables
+app.jinja_env.filters['minutes'] = format_minutes      # 1440 -> '1 day'
+
+
 @app.context_processor
 def inject_globals():
     tenant = current_tenant() if current_user.is_authenticated else None
@@ -1871,6 +1874,32 @@ def portal_config(tenant):
     return cfg
 
 
+def _offer_for(tenant_id, package, site_id, now=None):
+    """The offer a guest buying this package at this site gets now (the newest that matches), or None."""
+    now = now or datetime.utcnow()
+    return Offer.query.filter(Offer.tenant_id == tenant_id, Offer.is_active.is_(True),
+                              or_(Offer.package_id.is_(None), Offer.package_id == package.id),
+                              or_(Offer.site_id.is_(None), Offer.site_id == site_id),
+                              or_(Offer.starts_at.is_(None), Offer.starts_at <= now),
+                              or_(Offer.ends_at.is_(None), Offer.ends_at > now)).order_by(Offer.id.desc()).first()
+
+
+def _guest_packages(tenant, site_id):
+    """The packages guests can buy at a site, as the login pages, the guest app and the gateway box show them:
+    an offer's price and time already in, and its name in the description."""
+    out = []
+    for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True), site_id) \
+            .order_by(Package.sort_order, Package.price):
+        offer = _offer_for(tenant.id, p, site_id)
+        price, minutes = offer.terms(p) if offer else (p.price, p.validity_minutes)
+        note = f'🎁 {offer.name}' if offer else ''
+        out.append({'id': p.id, 'name': p.name, 'description': ' · '.join(x for x in (note, p.description or '') if x),
+                    'price': f'{price:.0f}', 'currency': p.currency, 'validity_minutes': minutes,
+                    'validity': format_minutes(minutes), 'offer': offer.name if offer else '',
+                    'old_price': f'{p.price:.0f}' if price != p.price else ''})
+    return out
+
+
 def _portal_packages(tenant):
     if tenant is None:
         return []
@@ -2001,10 +2030,7 @@ def _portal_preview(tenant, th, lang, here):
     if tenant is None:
         packages, buy_enabled = [{'id': 1, 'name': '1 Day', 'price': '1000', 'currency': 'TZS', 'validity_minutes': 1440}], True
     else:
-        packages = [{'id': p.id, 'name': p.name, 'description': p.description or '', 'price': f'{p.price:.0f}',
-                     'currency': p.currency, 'validity_minutes': p.validity_minutes}
-                    for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True),
-                                            site.id).order_by(Package.sort_order, Package.price)]
+        packages = _guest_packages(tenant, site.id)
         buy_enabled = paylib.is_ready(_tenant_account(tenant))
     sample = packages[0] if packages else {'id': 0, 'name': '1 Day', 'price': '1000', 'currency': 'TZS', 'validity_minutes': 1440}
     networks = payment_networks(tenant) if tenant else payment_networks()
@@ -2171,10 +2197,7 @@ def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, exter
     elif view == 'gift':
         html_out = portal_ui.gift_page(th, lang, base=base, lang_url=base, **extra)
     else:
-        packages = [{'id': p.id, 'name': p.name, 'description': p.description or '', 'price': f'{p.price:.0f}',
-                     'currency': p.currency, 'validity_minutes': p.validity_minutes}
-                    for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True),
-                                            site.id).order_by(Package.sort_order, Package.price)]
+        packages = _guest_packages(tenant, site.id)
         html_out = portal_ui.login_page(th, lang, packages=packages, error=error, tab=tab, external=external,
                                         trial=_guest_trial(tenant, site), trial_action=base + '/trial',
                                         action=base + '/login', buy_action=base + '/buy',
@@ -3597,9 +3620,16 @@ def _ruijie_make_packages(site, cloud, have):
     only makes packages in SafeNet. None if nothing was needed, '' if all were made, else Ruijie's reason."""
     minutes = {p.get('minutes') for p in have}
     wanted = {}
+    now = datetime.utcnow()
     for p in _site_packages(Package.query.filter_by(tenant_id=site.tenant_id, is_active=True), site.id).order_by(Package.price):
-        if p.validity_minutes not in minutes and p.validity_minutes not in wanted:
-            wanted[p.validity_minutes] = p
+        # with the time offers add (live now, or starting later)
+        durations = {p.validity_minutes} | {o.terms(p)[1] for o in Offer.query.filter(
+            Offer.tenant_id == site.tenant_id, Offer.is_active.is_(True), Offer.bonus_minutes > 0,
+            or_(Offer.package_id.is_(None), Offer.package_id == p.id), or_(Offer.site_id.is_(None), Offer.site_id == site.id),
+            or_(Offer.ends_at.is_(None), Offer.ends_at > now))}
+        for m in sorted(durations):
+            if m not in minutes and m not in wanted:
+                wanted[m] = p
     if not wanted:
         return None
     for m, p in wanted.items():
@@ -3647,10 +3677,7 @@ RUIJIE_PAGE_TEXT = {
 
 def _ruijie_portal_pages(site, tenant, th):
     """SafeNet's own login page for this site, in each language, cut into the parts the Ruijie page shows."""
-    packages = [{'id': p.id, 'name': p.name, 'description': p.description or '', 'price': f'{p.price:.0f}', 'currency': p.currency,
-                 'validity_minutes': p.validity_minutes}
-                for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True), site.id)
-                .order_by(Package.sort_order, Package.price)]
+    packages = _guest_packages(tenant, site.id)
     can_buy = paylib.is_ready(_tenant_account(tenant)) and bool(packages)
     networks = payment_networks(tenant)
     pages = {}
@@ -4026,10 +4053,7 @@ def guest_app_me(slug):
     rank = {'active': 0, 'unused': 1, 'expired': 2, 'disabled': 3}
     vouchers.sort(key=lambda v: (rank.get(v['state'], 9), -v['seconds_left'] if v['state'] == 'active' else 0, v['bought'] or ''))
     site_id = _guest_app_site(tenant, data, mine)
-    packages = [{'id': p.id, 'name': p.name, 'description': p.description or '', 'price': f'{p.price:.0f}', 'currency': p.currency,
-                 'validity_minutes': p.validity_minutes}
-                for p in _site_packages(Package.query.filter_by(tenant_id=tenant.id, is_active=True, show_on_portal=True), site_id)
-                .order_by(Package.sort_order, Package.price)]
+    packages = _guest_packages(tenant, site_id)
     hs = _hotspot_settings(tenant)
     return jsonify(vouchers=vouchers, packages=packages, networks=payment_networks(tenant),
                    can_buy=paylib.is_ready(_tenant_account(tenant)) and bool(packages), can_gift=_sms_on(tenant),
@@ -4359,6 +4383,133 @@ def delete_package(package_id):
     db.session.commit()
     flash(tr('Package "{name}" deleted. Past payments keep their records.', name=name), 'success')
     return redirect(url_for('packages'))
+
+
+# ---------------------------------------------------------------------------
+# Offers: promotions on packages (extra free time and/or a discount)
+# ---------------------------------------------------------------------------
+def _local_offset():
+    """Server local time (TZ, East Africa) minus UTC, to whole minutes: dates are typed and shown in local time."""
+    return timedelta(minutes=round((datetime.now() - datetime.utcnow()).total_seconds() / 60))
+
+
+def _offer_from_form(offer):
+    """Fill an offer from the form. Returns a problem in words, or None."""
+    f = request.form
+    name = (f.get('name') or '').strip()[:80]
+    package_id = f.get('package_id', type=int) or None
+    site_id = f.get('site_id', type=int) or None
+    bonus_value = f.get('bonus_value', type=int) or 0
+    bonus = bonus_value * {'days': 1440, 'hours': 60}.get(f.get('bonus_unit'), 1440)
+    discount = f.get('discount_percent', type=int) or 0
+    parse = lambda x: datetime.strptime(x, '%Y-%m-%dT%H:%M') if x else None
+    try:
+        offset = _local_offset()
+        starts, ends = parse(f.get('starts_at')), parse(f.get('ends_at'))
+        starts, ends = (starts - offset if starts else None), (ends - offset if ends else None)
+    except ValueError:
+        return tr('Check the dates.')
+    if not name:
+        return tr('Give the offer a name guests will see, e.g. "Buy 3 days, get 1 day free".')
+    if package_id and not scoped(Package).filter_by(id=package_id).first():
+        return tr('Choose a package.')
+    if site_id and not any(x.id == site_id for x in tenant_sites()):
+        return tr('Choose a site.')
+    if not 0 <= bonus <= 366 * 1440 or not 0 <= discount <= 90:
+        return tr('Extra time can be up to 366 days and the discount up to 90%.')
+    if not bonus and not discount:
+        return tr('Give extra time, a discount, or both.')
+    if starts and ends and ends <= starts:
+        return tr('The offer must end after it starts.')
+    offer.name, offer.package_id, offer.site_id = name, package_id, site_id
+    offer.bonus_minutes, offer.discount_percent, offer.starts_at, offer.ends_at = bonus, discount, starts, ends
+    offer.is_active = bool(f.get('is_active'))
+    return None
+
+
+def _offer_page(offer, title):
+    offset = _local_offset()
+    local = lambda d: (d + offset).strftime('%Y-%m-%dT%H:%M') if d else ''
+    days = (offer.bonus_minutes or 0) % 1440 == 0
+    return render_template('offers/form.html', offer=offer, title=title, sites=tenant_sites(),
+                           packages=scoped(Package).filter_by(is_active=True).order_by(Package.sort_order, Package.price).all(),
+                           bonus_value=(offer.bonus_minutes or 0) // (1440 if days else 60), bonus_unit='days' if days else 'hours',
+                           starts_local=local(offer.starts_at), ends_local=local(offer.ends_at), currency=current_tenant().currency)
+
+
+@app.route('/offers')
+@login_required
+@role_required('admin')
+def offers():
+    items = scoped(Offer).order_by(Offer.id.desc()).all()
+    sold = dict(db.session.query(Payment.offer_id, func.count(Payment.id)).filter(
+        Payment.tenant_id == tenant_id(), Payment.status == 'paid', Payment.offer_id.isnot(None)).group_by(Payment.offer_id))
+    return render_template('offers/list.html', offers=items, sold=sold, now=datetime.utcnow(),
+                           offset=_local_offset())
+
+
+@app.route('/offers/add', methods=['GET', 'POST'])
+@login_required
+@role_required('admin')
+def add_offer():
+    offer = Offer(tenant_id=tenant_id(), is_active=True, bonus_minutes=1440)
+    if request.method == 'POST':
+        _check_csrf()
+        problem = _offer_from_form(offer)
+        if problem:
+            flash(problem, 'danger')
+            return _offer_page(offer, tr('New offer'))
+        db.session.add(offer)
+        db.session.commit()
+        _ruijie_refresh_soon(offer)          # Reyee: a package for the longer time
+        flash(tr('Offer "{name}" saved.', name=offer.name), 'success')
+        return redirect(url_for('offers'))
+    return _offer_page(offer, tr('New offer'))
+
+
+@app.route('/offers/<int:offer_id>/edit', methods=['GET', 'POST'])
+@login_required
+@role_required('admin')
+def edit_offer(offer_id):
+    offer = owned_or_404(Offer, offer_id)
+    if request.method == 'POST':
+        _check_csrf()
+        problem = _offer_from_form(offer)
+        if problem:
+            db.session.rollback()
+            flash(problem, 'danger')
+            return redirect(url_for('edit_offer', offer_id=offer_id))
+        db.session.commit()
+        _ruijie_refresh_soon(offer)
+        flash(tr('Offer "{name}" saved.', name=offer.name), 'success')
+        return redirect(url_for('offers'))
+    return _offer_page(offer, tr('Edit offer'))
+
+
+@app.route('/offers/<int:offer_id>/toggle', methods=['POST'])
+@login_required
+@role_required('admin')
+def toggle_offer(offer_id):
+    _check_csrf()
+    offer = owned_or_404(Offer, offer_id)
+    offer.is_active = not offer.is_active
+    db.session.commit()
+    flash(tr('Offer "{name}" is on.', name=offer.name) if offer.is_active else tr('Offer "{name}" is off.', name=offer.name), 'success')
+    return redirect(url_for('offers'))
+
+
+@app.route('/offers/<int:offer_id>/delete', methods=['POST'])
+@login_required
+@role_required('admin')
+def delete_offer(offer_id):
+    _check_csrf()
+    offer = owned_or_404(Offer, offer_id)
+    name = offer.name
+    Payment.query.filter_by(offer_id=offer.id).update({'offer_id': None}, synchronize_session=False)    # they keep its name
+    db.session.delete(offer)
+    db.session.commit()
+    flash(tr('Offer "{name}" deleted.', name=name), 'success')
+    return redirect(url_for('offers'))
 
 
 # Payments
@@ -4885,13 +5036,7 @@ def _payment_json(payment):
 @app.route('/api/portal/packages')
 @portal_api
 def api_portal_packages():
-    items = _site_packages(Package.query.filter_by(tenant_id=g.api_tenant.id, is_active=True, show_on_portal=True)).order_by(
-        Package.sort_order, Package.price).all()
-    return jsonify(packages=[{
-        'id': p.id, 'name': p.name, 'description': p.description or '',
-        'price': f'{p.price:.0f}', 'currency': p.currency,
-        'validity_minutes': p.validity_minutes, 'validity': p.validity_label,
-    } for p in items], payments_enabled=paylib.is_ready(_tenant_account(g.api_tenant)),
+    return jsonify(packages=_guest_packages(g.api_tenant, _api_site_id()), payments_enabled=paylib.is_ready(_tenant_account(g.api_tenant)),
                    networks=payment_networks(g.api_tenant))
 
 
@@ -4928,8 +5073,10 @@ def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=
     account = _tenant_account(tenant)
     if not paylib.is_ready(account):
         return None, 'Mobile payments are not available right now.', 503
+    offer = _offer_for(tenant.id, package, site_id)
+    price, minutes = offer.terms(package) if offer else (package.price, package.validity_minutes)
     # Gateways send the network the guest picked; older ones don't, then the number decides
-    problem = check_network(phone, network or None, package.price, package.currency, networks=paylib.networks(account))
+    problem = check_network(phone, network or None, price, package.currency, networks=paylib.networks(account))
     if problem:
         return None, problem, 400
     recent = Payment.query.filter(Payment.phone == phone, Payment.status == 'pending',
@@ -4941,11 +5088,11 @@ def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=
         tenant_id=tenant.id,
         reference='SN' + secrets.token_hex(6).upper(),
         package_id=package.id, package_name=package.name, plan_id=package.plan_id,
-        validity_minutes=package.validity_minutes, max_devices=package.max_devices or 1, phone=phone, gift_phone=gift_phone,
-        amount=package.price, currency=package.currency,
+        validity_minutes=minutes, max_devices=package.max_devices or 1, phone=phone, gift_phone=gift_phone,
+        amount=price, currency=package.currency, offer_id=offer.id if offer else None, offer_name=offer.name if offer else None,
         provider=account.provider, provider_account=account.owner,
-        fee_amount=(package.price * _fee_percent(tenant) / 100).quantize(Decimal('0.01')) if account.owner == 'platform' else Decimal(0),
-        customer_fee=_customer_fee(account, package.price),
+        fee_amount=(price * _fee_percent(tenant) / 100).quantize(Decimal('0.01')) if account.owner == 'platform' else Decimal(0),
+        customer_fee=_customer_fee(account, price),
         nas_identifier=(nas or '')[:64] or None,
         site_id=site_id,
         client_mac=(mac or '')[:17] or None,

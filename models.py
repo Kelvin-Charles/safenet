@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 import bcrypt
@@ -537,6 +538,38 @@ class Package(db.Model):
         return f'<Package {self.name}>'
 
 
+class Offer(db.Model):
+    """A business's promotion on its packages: extra free time and/or a discount, for one package or all of them,
+    at one site or all, between two dates (both optional). The newest matching offer applies to a purchase."""
+    __tablename__ = 'offers'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    name = db.Column(db.String(80), nullable=False)          # shown to guests, e.g. "Buy 3 days, get 1 day free"
+    package_id = db.Column(db.Integer, db.ForeignKey('packages.id', ondelete='CASCADE'), index=True)   # NULL = every package
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='CASCADE'), index=True)         # NULL = every site
+    bonus_minutes = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    discount_percent = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    starts_at = db.Column(db.DateTime)                        # UTC; NULL = now
+    ends_at = db.Column(db.DateTime)                          # UTC; NULL = until switched off
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    package = db.relationship('Package')
+    site = db.relationship('Site')
+
+    def live(self, now=None):
+        now = now or datetime.utcnow()
+        return self.is_active and (self.starts_at is None or self.starts_at <= now) and (self.ends_at is None or self.ends_at > now)
+
+    def terms(self, package):
+        """(price, minutes) of a package bought with this offer."""
+        price = package.price
+        if self.discount_percent:
+            price = (package.price * (100 - self.discount_percent) / 100).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+        return price, package.validity_minutes + (self.bonus_minutes or 0)
+
+
 class Payment(db.Model):
     """Mobile-money purchase of a package (ClickPesa USSD push). UTC times."""
     __tablename__ = 'payments'
@@ -569,6 +602,8 @@ class Payment(db.Model):
     fee_amount = db.Column(db.Numeric(10, 2), default=0)      # kept by the platform
     net_amount = db.Column(db.Numeric(10, 2))                 # owed to the tenant
     customer_fee = db.Column(db.Numeric(10, 2), default=0)    # provider's fee, paid by the guest on top of amount
+    offer_id = db.Column(db.Integer, db.ForeignKey('offers.id', ondelete='SET NULL'))
+    offer_name = db.Column(db.String(80))                      # the offer it was bought with (time/price already in it)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     checked_at = db.Column(db.DateTime)

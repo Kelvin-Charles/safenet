@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-gift"></i> {{ title }}</div>
+            <div class="card-body">
+                <form method="POST" novalidate>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3"><label class="form-label">{{ _('Name guests see') }}</label>
+                        <input name="name" class="form-control" maxlength="80" value="{{ offer.name or '' }}" placeholder="{{ _('e.g. Buy 3 days, get 1 day free') }}" required>
+                        <small class="text-muted">{{ _('Write it in the language your guests read; it shows next to the package.') }}</small></div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3"><label class="form-label">{{ _('Package') }}</label>
+                            <select name="package_id" class="form-select">
+                                <option value="0">{{ _('All packages') }}</option>
+                                {% for p in packages %}<option value="{{ p.id }}" {{ 'selected' if offer.package_id == p.id }}>{{ p.name }} · {{ p.currency }} {{ '{:,.0f}'.format(p.price) }} · {{ p.validity_minutes|minutes }}</option>{% endfor %}
+                            </select></div>
+                        <div class="col-md-6 mb-3"><label class="form-label">{{ _('Site') }}</label>
+                            <select name="site_id" class="form-select">
+                                <option value="0">{{ _('All sites') }}</option>
+                                {% for s in sites %}<option value="{{ s.id }}" {{ 'selected' if offer.site_id == s.id }}>{{ s.name }}</option>{% endfor %}
+                            </select></div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3"><label class="form-label">{{ _('Extra free time') }}</label>
+                            <div class="input-group">
+                                <input type="number" name="bonus_value" class="form-control" min="0" value="{{ bonus_value }}">
+                                <select name="bonus_unit" class="form-select">
+                                    <option value="days" {{ 'selected' if bonus_unit == 'days' }}>{{ _('Days') }}</option>
+                                    <option value="hours" {{ 'selected' if bonus_unit == 'hours' }}>{{ _('Hours') }}</option>
+                                </select>
+                            </div>
+                            <small class="text-muted">{{ _('Added to the package time. 0 for none.') }}</small></div>
+                        <div class="col-md-6 mb-3"><label class="form-label">{{ _('Discount') }}</label>
+                            <div class="input-group"><input type="number" name="discount_percent" class="form-control" min="0" max="90" value="{{ offer.discount_percent or 0 }}"><span class="input-group-text">%</span></div>
+                            <small class="text-muted">{{ _('Off the package price. 0 for none.') }}</small></div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3"><label class="form-label">{{ _('Starts') }}</label>
+                            <input type="datetime-local" name="starts_at" class="form-control" value="{{ starts_local }}">
+                            <small class="text-muted">{{ _('Empty: now') }}</small></div>
+                        <div class="col-md-6 mb-3"><label class="form-label">{{ _('Ends') }}</label>
+                            <input type="datetime-local" name="ends_at" class="form-control" value="{{ ends_local }}">
+                            <small class="text-muted">{{ _('Empty: until you switch it off') }}</small></div>
+                    </div>
+                    <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="is_active" value="1" id="on" {{ 'checked' if offer.is_active }}>
+                        <label class="form-check-label" for="on">{{ _('On') }}</label></div>
+                    <div class="d-flex justify-content-between">
+                        <a href="{{ url_for('offers') }}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> {{ _('Cancel') }}</a>
+                        <button class="btn btn-primary" type="submit"><i class="bi bi-check-lg"></i> {{ _('Save') }}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -43,7 +43,7 @@
                     <tr>
                         <td><small>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</small><small class="text-muted d-block font-monospace">{{ p.reference }}</small></td>
                         <td>{{ p.phone }}{% if p.gift_phone %}<small class="d-block"><i class="bi bi-gift"></i> {{ _('for {phone}', phone=p.gift_phone) }}</small>{% endif %}{% if p.channel %}<small class="text-muted d-block">{{ p.channel }}</small>{% endif %}</td>
-                        <td>{{ p.package_name }}</td>
+                        <td>{{ p.package_name }}{% if p.offer_name %}<small class="d-block text-success"><i class="bi bi-gift"></i> {{ p.offer_name }}</small>{% endif %}</td>
                         <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}</td>
                         <td>
                             {% if p.status == 'paid' %}<span class="badge bg-success">{{ _('Paid') }}</span>

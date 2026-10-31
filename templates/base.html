@@ -248,6 +248,7 @@
             {% if is_admin %}
             {{ link(['earnings'], url_for('earnings'), 'bi-wallet2', _('Earnings')) }}
             {{ link(['packages', 'add_package', 'edit_package'], url_for('packages'), 'bi-bag', _('Packages')) }}
+            {{ link(['offers', 'add_offer', 'edit_offer'], url_for('offers'), 'bi-gift', _('Offers')) }}
             {{ link(['plans', 'add_plan', 'edit_plan', 'add_plan_attribute'], url_for('plans'), 'bi-box', _('Plans')) }}
             {{ link(['gateways', 'add_gateway'], url_for('gateways'), 'bi-hdd-network', _('Gateways')) }}
             {{ link(['routers', 'router_script'], url_for('routers'), 'bi-shield-lock', _('Routers (VPN)')) }}
