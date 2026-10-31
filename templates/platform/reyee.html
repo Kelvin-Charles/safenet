@@ -26,11 +26,17 @@
     <div class="card-body">
         <details class="small mb-3"><summary><strong>How to set up a business that's waiting</strong></summary>
             <ol class="mt-2 mb-0">
-                <li>In Ruijie Cloud (your account), create a <strong>project for the place</strong> (one per site), and <strong>add the device</strong> by its serial number below. Update its firmware.</li>
+                <li>In Ruijie Cloud (your account), create a <strong>project for the place named after the business</strong> (e.g. <em>USMART - TICD</em>; one per site), and <strong>add the device</strong> by its serial number below. Update its firmware.</li>
                 <li>Make the guest <strong>Wi-Fi open</strong> (no password), with the name the business asked for.</li>
-                <li>Here, <strong>pick that project</strong> and press <em>Use</em>. SafeNet creates the packages on Ruijie Cloud and emails the business.</li>
+                <li>Press <strong>Connect waiting businesses by project name</strong> (or pick the project and press <em>Use</em>). SafeNet creates the packages on Ruijie Cloud and emails the business.</li>
                 <li>Click <strong>Login page</strong> to download its .zip. In Ruijie Cloud: <em>Captive Portal → Add</em>, Cloud Auth, device AP, that Wi-Fi, Portal Page <em>Custom HTML</em>, upload the .zip, and allow only <code>{{ allowed_host }}</code> in the allowlist.</li>
             </ol></details>
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <form method="POST" action="{{ url_for('platform_reyee_match') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-primary" type="submit"><i class="bi bi-magic"></i> Connect waiting businesses by project name</button></form>
+            <small class="text-muted">Name each project after the business, e.g. <em>USMART</em> or <em>USMART - TICD</em>. A business only ever sees projects with its own name; with exactly one, it's connected by itself.</small>
+        </div>
+        {% if unmatched %}<div class="alert alert-warning small py-2">Projects not named after any business (no one can see them): {% for g, n in unmatched %}<strong>{{ n }}</strong>{{ ', ' if not loop.last }}{% endfor %}.</div>{% endif %}
         {% if sites %}
         <div class="table-responsive">
             <table class="table align-middle">
@@ -49,8 +55,9 @@
                             <select name="group_id" class="form-select form-select-sm" style="min-width: 180px">
                                 <option value="">{{ '— choose the project —' if not s.ruijie_group_id else '— none —' }}</option>
                                 {% for gid, gname in projects %}
-                                {% set other = used.get(gid) %}
-                                <option value="{{ gid }}" {{ 'selected' if s.ruijie_group_id == gid }} {{ 'disabled' if other and other.id != s.id }}>{{ gname }}{% if other and other.id != s.id %} (used by {{ other.name }}){% endif %}</option>
+                                {% set other = used.get(gid) %}{% set who = owner.get(gid) %}
+                                {% set suggest = not s.ruijie_group_id and not other and who and who.id == s.tenant_id %}
+                                <option value="{{ gid }}" {{ 'selected' if s.ruijie_group_id == gid or suggest }} {{ 'disabled' if other and other.id != s.id }}>{{ gname }}{% if other and other.id != s.id %} (used by {{ other.name }}){% elif who and who.id != s.tenant_id %} (named for {{ who.name }}){% elif suggest %} ✓ its name{% endif %}</option>
                                 {% endfor %}
                             </select>
                             <button class="btn btn-sm btn-primary" type="submit">Use</button>

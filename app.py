@@ -3812,6 +3812,73 @@ def _platform_ruijie():
     return (url, appid, secret) if url and appid and secret else None
 
 
+def _name_words(text):
+    return re.findall(r'[a-z0-9]+', (text or '').lower())
+
+
+def _project_owner(name, tenants):
+    """The business a Ruijie project belongs to by its name: the one whose name it starts with ("USMART - TICD" is
+    USMART's). When several fit ("Kariakoo" and "Kariakoo Spot"), the longest name wins. None if none fits."""
+    words, best = _name_words(name), None
+    for t in tenants:
+        mine = _name_words(t.name)
+        if mine and words[:len(mine)] == mine and (best is None or len(mine) > len(_name_words(best.name))):
+            best = t
+    return best
+
+
+def _own_projects(tenant, projects):
+    """The projects (of SafeNet's account) named after this business, that no other site uses yet."""
+    tenants = Tenant.query.all()
+    used = {g for (g,) in db.session.query(Site.ruijie_group_id).filter(Site.ruijie_group_id.isnot(None))}
+    return [(g, n) for g, n in projects if g not in used and (o := _project_owner(n, tenants)) is not None and o.id == tenant.id]
+
+
+def _ruijie_assign(site, group):
+    """Give a SafeNet-managed site its Ruijie project, read it and make the packages. Returns a problem, or None."""
+    other = Site.query.filter(Site.ruijie_group_id == group, Site.id != site.id).first() if group else None
+    if other is not None:
+        return f'That project is already used by "{other.name}".'
+    first = site.ruijie_group_id is None
+    site.ruijie_group_id = group
+    try:
+        _ruijie_read(site, _ruijie_cloud(site))
+        site.ruijie_error = None
+    except ruijie.RuijieError as e:
+        site.ruijie_error = str(e)[:255]
+        db.session.commit()
+        return f'Ruijie Cloud: {e}'
+    db.session.commit()
+    if group and first:
+        owner = Admin.query.filter_by(tenant_id=site.tenant_id, role='owner').first()
+        if owner:
+            send_mail(owner.email, 'Your Reyee Wi-Fi is connected to SafeNet',
+                      f'Your access points at "{site.name}" are now connected to SafeNet. Guests who join the Wi-Fi see your '
+                      f'login page, pay with mobile money and are connected by themselves. You see them on the Live page.\n')
+        _ruijie_push_soon()
+    return None
+
+
+def _ruijie_match(site):
+    """A waiting managed site: its business's own projects. One → it's used straight away; several → kept for the
+    business to choose from (only its own). Returns the list."""
+    if not site.ruijie_managed or site.ruijie_group_id:
+        return []
+    try:
+        mine = _own_projects(db.session.get(Tenant, site.tenant_id), _ruijie_cloud(site).projects())
+    except ruijie.RuijieError as e:
+        site.ruijie_error = str(e)[:255]
+        db.session.commit()
+        return []
+    if len(mine) == 1 and not _ruijie_assign(site, mine[0][0]):
+        return mine
+    info = _ruijie_info(site)
+    info['projects'] = mine
+    site.ruijie_packages = json.dumps(info)
+    db.session.commit()
+    return mine
+
+
 def _ruijie_ask_safenet(site):
     """The business gives its access points' serial numbers; SafeNet adds them to its own Ruijie Cloud account."""
     back = redirect(url_for('sites_page', open=f'ruijie-{site.id}'))
@@ -3830,6 +3897,10 @@ def _ruijie_ask_safenet(site):
         site.portal_token = secrets.token_urlsafe(12)[:16]
     site.ruijie_error = None
     db.session.commit()
+    if _ruijie_match(site) and site.ruijie_group_id:
+        flash(tr('Your access points are connected: your project "{name}" was found in SafeNet\'s Ruijie Cloud.',
+                 name=site.ruijie_group_name or site.ruijie_group_id), 'success')
+        return back
     tenant = db.session.get(Tenant, site.tenant_id)
     for admin in Admin.query.filter_by(is_superadmin=True, is_active=True):
         send_mail(admin.email, f'Reyee to set up: {tenant.name} · {site.name}',
@@ -3854,7 +3925,11 @@ def platform_reyee():
             error = str(e)
     sites = Site.query.filter_by(ruijie_managed=True).order_by(Site.ruijie_group_id.isnot(None), Site.id).all()
     used = {s.ruijie_group_id: s for s in Site.query.filter(Site.ruijie_group_id.isnot(None))}
+    tenants = Tenant.query.all()
+    owner = {g: _project_owner(n, tenants) for g, n in projects}
+    unmatched = [(g, n) for g, n in projects if owner[g] is None]
     return render_template('platform/reyee.html', account=account, projects=projects, error=error, sites=sites, used=used,
+                           owner=owner, unmatched=unmatched,
                            tenants={t.id: t for t in Tenant.query.all()}, clouds=ruijie.CLOUDS,
                            cloud_name=ruijie.CLOUDS.get(account[0]) if account else None, allowed_host=urlparse(Config.PUBLIC_URL or request.host_url).hostname)
 
@@ -3905,31 +3980,26 @@ def platform_reyee_site(site_id):
     if not site.ruijie_managed:
         abort(404)
     group = (request.form.get('group_id') or '')[:32] or None
-    other = Site.query.filter(Site.ruijie_group_id == group, Site.id != site.id).first() if group else None
-    if other is not None:
-        flash(f'That project is already used by "{other.name}" ({db.session.get(Tenant, other.tenant_id).name}). '
-              'Make a separate project for each place.', 'danger')
+    problem = _ruijie_assign(site, group)
+    if problem:
+        flash(problem + (' Make a separate project for each place.' if 'already used' in problem else ''), 'danger')
         return redirect(url_for('platform_reyee'))
-    first = site.ruijie_group_id is None
-    site.ruijie_group_id = group
-    try:
-        _ruijie_read(site, _ruijie_cloud(site))
-        site.ruijie_error = None
-    except ruijie.RuijieError as e:
-        site.ruijie_error = str(e)[:255]
-        db.session.commit()
-        flash(f'Ruijie Cloud: {e}', 'danger')
-        return redirect(url_for('platform_reyee'))
-    db.session.commit()
     tenant = db.session.get(Tenant, site.tenant_id)
-    if group and first:
-        owner = Admin.query.filter_by(tenant_id=site.tenant_id, role='owner').first()
-        if owner:
-            send_mail(owner.email, 'Your Reyee Wi-Fi is connected to SafeNet',
-                      f'Your access points at "{site.name}" are now connected to SafeNet. Guests who join the Wi-Fi see your '
-                      f'login page, pay with mobile money and are connected by themselves. You see them on the Live page.\n')
-        _ruijie_push_soon()
     flash(f'"{site.name}" ({tenant.name}) uses project {site.ruijie_group_name or group}.' if group else 'Project cleared.', 'success')
+    return redirect(url_for('platform_reyee'))
+
+
+@app.route('/platform/reyee/match', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_reyee_match():
+    """Give every waiting business its project, found by name (when exactly one fits)."""
+    _check_csrf()
+    done = [s for s in Site.query.filter(Site.ruijie_managed.is_(True), Site.ruijie_group_id.is_(None)).all()
+            if _ruijie_match(s) and s.ruijie_group_id]
+    flash(f'{len(done)} connected by their project name.' if done else
+          'No waiting business has exactly one project with its name. Name each project after the business, e.g. "USMART - TICD".',
+          'success' if done else 'info')
     return redirect(url_for('platform_reyee'))
 
 
@@ -3958,8 +4028,24 @@ def site_ruijie_cloud(site_id):
     back = redirect(url_for('sites_page', open=f'ruijie-{site.id}'))
     if action == 'managed':
         return _ruijie_ask_safenet(site)
-    if site.ruijie_managed and action in ('save', 'project') and not current_user.is_superadmin:
-        abort(403)                         # SafeNet's account: the platform admin chooses the project
+    if site.ruijie_managed and not current_user.is_superadmin:
+        if action == 'check':
+            mine = _ruijie_match(site)
+            if site.ruijie_group_id:
+                flash(tr('Your access points are connected: your project "{name}" was found in SafeNet\'s Ruijie Cloud.',
+                         name=site.ruijie_group_name or site.ruijie_group_id), 'success')
+            elif not mine:
+                flash(tr('Not ready yet: SafeNet is still adding your access points.'), 'info')
+            return back
+        if action == 'project':                # only one of its own projects (named after the business)
+            group = request.form.get('group_id', '')[:32]
+            if site.ruijie_group_id or group not in {g for g, _ in _ruijie_match(site)}:
+                abort(403)
+            problem = _ruijie_assign(site, group)
+            flash(problem or tr('Your access points are connected.'), 'danger' if problem else 'success')
+            return back
+        if action == 'save':
+            abort(403)                         # SafeNet's account: no keys to change
     if action == 'remove':
         site.ruijie_cloud_url = site.ruijie_appid = site.ruijie_secret_enc = None
         site.ruijie_managed, site.ruijie_sn, site.ruijie_ssid = False, None, None

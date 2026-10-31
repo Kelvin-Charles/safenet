@@ -485,4 +485,9 @@ SW = {
     'Waiting for SafeNet to add them. Keep the access point plugged in and connected to the internet. You will get an email when it is ready.': 'Inasubiri SafeNet kuviongeza. Acha kifaa kimewashwa na kimeunganishwa na intaneti. Utapata barua pepe kikiwa tayari.',
     'Wi-Fi name (optional)': 'Jina la Wi-Fi (si lazima)',
     'Wi-Fi: {name}': 'Wi-Fi: {name}',
+    'Your access points are connected: your project "{name}" was found in SafeNet\'s Ruijie Cloud.': 'Vifaa vyako vimeunganishwa: mradi wako "{name}" umepatikana kwenye Ruijie Cloud ya SafeNet.',
+    'Not ready yet: SafeNet is still adding your access points.': 'Bado: SafeNet bado inaongeza vifaa vyako.',
+    'Your access points are connected.': 'Vifaa vyako vimeunganishwa.',
+    'Your project in Ruijie Cloud for this place': 'Mradi wako wa Ruijie Cloud kwa eneo hili',
+    'Check now': 'Angalia sasa',
 }
