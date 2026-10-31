@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Reyee - {{ app_name }}{% endblock %}
+{% block page_title %}Platform: Reyee access points{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+    <div class="card-header"><i class="bi bi-key"></i> SafeNet's Ruijie Cloud account</div>
+    <div class="card-body">
+        <p class="small text-muted">Businesses' Reyee access points go into <strong>your</strong> Ruijie Cloud account, so they need no Ruijie account or keys: they only type the access point's serial number in SafeNet. Every device added under your account works with these keys (Ruijie support confirmed no new keys are needed per device).
+            {% if account %}<span class="badge bg-success">Connected · {{ cloud_name }}</span>{% else %}<span class="badge bg-light text-dark border">Not set</span>{% endif %}</p>
+        {% if error %}<div class="alert alert-danger py-2 small">Ruijie Cloud: {{ error }}</div>{% endif %}
+        <form method="POST" action="{{ url_for('platform_reyee_keys') }}" class="row g-2" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-3"><label class="form-label small mb-1">Server (SafeNet finds the right one)</label>
+                <select name="cloud" class="form-select form-select-sm">{% for url, label in clouds.items() %}<option value="{{ url }}" {{ 'selected' if account and account[0] == url }}>{{ label }}</option>{% endfor %}</select></div>
+            <div class="col-md-3"><label class="form-label small mb-1">App ID</label><input name="appid" class="form-control form-control-sm" value="{{ account[1] if account else '' }}" required></div>
+            <div class="col-md-4"><label class="form-label small mb-1">App secret</label><input name="secret" type="password" class="form-control form-control-sm" placeholder="{{ '•••••••• saved (paste to replace)' if account else '' }}" autocomplete="new-password"></div>
+            <div class="col-md-2 d-grid align-self-end"><button class="btn btn-primary btn-sm" type="submit">Check and save</button></div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><i class="bi bi-cloud"></i> Businesses' Reyee access points ({{ sites|length }})</div>
+    <div class="card-body">
+        <details class="small mb-3"><summary><strong>How to set up a business that's waiting</strong></summary>
+            <ol class="mt-2 mb-0">
+                <li>In Ruijie Cloud (your account), create a <strong>project for the place</strong> (one per site), and <strong>add the device</strong> by its serial number below. Update its firmware.</li>
+                <li>Make the guest <strong>Wi-Fi open</strong> (no password), with the name the business asked for.</li>
+                <li>Here, <strong>pick that project</strong> and press <em>Use</em>. SafeNet creates the packages on Ruijie Cloud and emails the business.</li>
+                <li>Click <strong>Login page</strong> to download its .zip. In Ruijie Cloud: <em>Captive Portal → Add</em>, Cloud Auth, device AP, that Wi-Fi, Portal Page <em>Custom HTML</em>, upload the .zip, and allow only <code>{{ allowed_host }}</code> in the allowlist.</li>
+            </ol></details>
+        {% if sites %}
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead><tr><th>Business · site</th><th>Serial numbers</th><th>Wi-Fi name</th><th>Project</th><th></th></tr></thead>
+                <tbody>
+                {% for s in sites %}
+                {% set t = tenants.get(s.tenant_id) %}
+                <tr class="{{ 'table-warning' if not s.ruijie_group_id }}">
+                    <td><strong>{{ t.name if t else '?' }}</strong><small class="d-block text-muted">{{ s.name }}</small>
+                        {% if s.ruijie_error %}<small class="d-block text-danger">{{ s.ruijie_error }}</small>{% endif %}</td>
+                    <td>{% if s.ruijie_sn %}<code class="user-select-all">{{ s.ruijie_sn }}</code>{% else %}<small class="text-muted">set up before</small>{% endif %}</td>
+                    <td>{{ s.ruijie_ssid or '—' }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('platform_reyee_site', site_id=s.id) }}" class="d-flex gap-1">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <select name="group_id" class="form-select form-select-sm" style="min-width: 180px">
+                                <option value="">{{ '— choose the project —' if not s.ruijie_group_id else '— none —' }}</option>
+                                {% for gid, gname in projects %}
+                                {% set other = used.get(gid) %}
+                                <option value="{{ gid }}" {{ 'selected' if s.ruijie_group_id == gid }} {{ 'disabled' if other and other.id != s.id }}>{{ gname }}{% if other and other.id != s.id %} (used by {{ other.name }}){% endif %}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn btn-sm btn-primary" type="submit">Use</button>
+                        </form>
+                        {% if s.ruijie_group_id %}<small class="text-success"><i class="bi bi-check-circle"></i> {{ s.ruijie_group_name or s.ruijie_group_id }}</small>{% else %}<small class="text-warning-emphasis">Waiting for you</small>{% endif %}
+                    </td>
+                    <td class="text-nowrap"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('platform_reyee_portal', site_id=s.id) }}"><i class="bi bi-download"></i> Login page</a></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No business has asked yet. When one does (Sites → Reyee → serial number), it shows here and you get an email.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

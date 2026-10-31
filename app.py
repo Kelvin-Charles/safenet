@@ -3577,7 +3577,8 @@ def _ruijie_read(site, cloud):
     info = {'projects': cloud.projects(), 'packages': []}
     ids = [p[0] for p in info['projects']]
     if site.ruijie_group_id not in ids:
-        site.ruijie_group_id = ids[0] if len(ids) == 1 else None
+        # SafeNet's own account holds many businesses' projects: only the platform admin picks one
+        site.ruijie_group_id = ids[0] if len(ids) == 1 and not site.ruijie_managed else None
     site.ruijie_group_name = dict(info['projects']).get(site.ruijie_group_id)
     if site.ruijie_group_id:
         info['packages'] = cloud.packages(site.ruijie_group_id)
@@ -3799,6 +3800,147 @@ def site_ruijie_portal(site_id):
                     headers={'Content-Disposition': f'attachment; filename="safenet-ruijie-{name}.zip"'})
 
 
+RUIJIE_SN = re.compile(r'^[A-Z0-9]{8,20}$')
+
+
+def _platform_ruijie():
+    """SafeNet's own Ruijie Cloud account (server, App ID, encrypted secret), or None if it isn't set."""
+    get = lambda k: (db.session.get(PlatformSetting, k) or PlatformSetting()).value
+    url, appid, secret = get('ruijie_cloud'), get('ruijie_appid'), get('ruijie_secret')
+    return (url, appid, secret) if url and appid and secret else None
+
+
+def _ruijie_ask_safenet(site):
+    """The business gives its access points' serial numbers; SafeNet adds them to its own Ruijie Cloud account."""
+    back = redirect(url_for('sites_page', open=f'ruijie-{site.id}'))
+    account = _platform_ruijie()
+    if account is None:
+        abort(404)
+    sns = [x for x in re.split(r'[\s,;]+', (request.form.get('sn') or '').upper()) if x]
+    if not sns or len(sns) > 20 or not all(RUIJIE_SN.match(x) for x in sns):
+        flash(tr("Enter the serial number (SN) from the access point's label, e.g. G1UB16E017692. Several: one per line."), 'warning')
+        return back
+    site.ruijie_managed = True
+    site.ruijie_sn = ', '.join(dict.fromkeys(sns))[:255]
+    site.ruijie_ssid = (request.form.get('ssid') or '').strip()[:32] or None
+    site.ruijie_cloud_url, site.ruijie_appid, site.ruijie_secret_enc = account
+    if not site.portal_token:
+        site.portal_token = secrets.token_urlsafe(12)[:16]
+    site.ruijie_error = None
+    db.session.commit()
+    tenant = db.session.get(Tenant, site.tenant_id)
+    for admin in Admin.query.filter_by(is_superadmin=True, is_active=True):
+        send_mail(admin.email, f'Reyee to set up: {tenant.name} · {site.name}',
+                  f'{tenant.name} asked SafeNet to set up Reyee access points at "{site.name}".\n'
+                  f'Serial numbers: {site.ruijie_sn}\nWi-Fi name: {site.ruijie_ssid or "(not given)"}\n\n'
+                  f'Add them to a project in SafeNet\'s Ruijie Cloud account, then pick that project at {_link("platform_reyee")}\n')
+    flash(tr('Thank you! SafeNet will add your access point and set up the login page. You will get an email when it is ready.'), 'success')
+    return back
+
+
+@app.route('/platform/reyee')
+@login_required
+@superadmin_required
+def platform_reyee():
+    """Reyee access points in SafeNet's own Ruijie Cloud account: the businesses waiting, and the ones running."""
+    account = _platform_ruijie()
+    projects, error = [], None
+    if account:
+        try:
+            projects = ruijie.Cloud(account[0], account[1], secretbox.decrypt(account[2])).projects()
+        except ruijie.RuijieError as e:
+            error = str(e)
+    sites = Site.query.filter_by(ruijie_managed=True).order_by(Site.ruijie_group_id.isnot(None), Site.id).all()
+    used = {s.ruijie_group_id: s for s in Site.query.filter(Site.ruijie_group_id.isnot(None))}
+    return render_template('platform/reyee.html', account=account, projects=projects, error=error, sites=sites, used=used,
+                           tenants={t.id: t for t in Tenant.query.all()}, clouds=ruijie.CLOUDS,
+                           cloud_name=ruijie.CLOUDS.get(account[0]) if account else None, allowed_host=urlparse(Config.PUBLIC_URL or request.host_url).hostname)
+
+
+@app.route('/platform/reyee/keys', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_reyee_keys():
+    """Save SafeNet's Ruijie Cloud keys (checked with Ruijie first, secret encrypted); managed sites use them."""
+    _check_csrf()
+    appid = (request.form.get('appid') or '').strip()[:128]
+    secret = (request.form.get('secret') or '').strip()
+    old = _platform_ruijie()
+    if not appid or not (secret or old):
+        flash('Enter the App ID and App secret Ruijie gave you.', 'danger')
+        return redirect(url_for('platform_reyee'))
+    try:
+        found = ruijie.find_cloud(appid, secret or secretbox.decrypt(old[2]), request.form.get('cloud') or next(iter(ruijie.CLOUDS)))
+    except ruijie.RuijieError as e:
+        flash(f'Ruijie Cloud: {e}', 'danger')
+        return redirect(url_for('platform_reyee'))
+    values = {'ruijie_cloud': found, 'ruijie_appid': appid, 'ruijie_secret': secretbox.encrypt(secret) if secret else old[2]}
+    for key, value in values.items():
+        row = db.session.get(PlatformSetting, key) or PlatformSetting(key=key)
+        row.value = value
+        db.session.add(row)
+    # sites already connected with these keys (set up before) become SafeNet-managed too, keeping their project
+    Site.query.filter(or_(Site.ruijie_managed.is_(True), Site.ruijie_appid == appid)).update(
+        {'ruijie_managed': True, 'ruijie_cloud_url': found, 'ruijie_appid': appid, 'ruijie_secret_enc': values['ruijie_secret']},
+        synchronize_session=False)
+    db.session.commit()
+    flash(f'Ruijie Cloud accepted the keys ({ruijie.CLOUDS[found]} server). Businesses can now ask SafeNet to set up their Reyee access points.', 'success')
+    return redirect(url_for('platform_reyee'))
+
+
+@app.route('/platform/reyee/<int:site_id>', methods=['POST'])
+@login_required
+@superadmin_required
+def platform_reyee_site(site_id):
+    """Pick the project (in SafeNet's account) with a business's access points, then SafeNet reads it and makes the packages."""
+    _check_csrf()
+    site = db.get_or_404(Site, site_id)
+    if not site.ruijie_managed:
+        abort(404)
+    group = (request.form.get('group_id') or '')[:32] or None
+    other = Site.query.filter(Site.ruijie_group_id == group, Site.id != site.id).first() if group else None
+    if other is not None:
+        flash(f'That project is already used by "{other.name}" ({db.session.get(Tenant, other.tenant_id).name}). '
+              'Make a separate project for each place.', 'danger')
+        return redirect(url_for('platform_reyee'))
+    first = site.ruijie_group_id is None
+    site.ruijie_group_id = group
+    try:
+        _ruijie_read(site, _ruijie_cloud(site))
+        site.ruijie_error = None
+    except ruijie.RuijieError as e:
+        site.ruijie_error = str(e)[:255]
+        db.session.commit()
+        flash(f'Ruijie Cloud: {e}', 'danger')
+        return redirect(url_for('platform_reyee'))
+    db.session.commit()
+    tenant = db.session.get(Tenant, site.tenant_id)
+    if group and first:
+        owner = Admin.query.filter_by(tenant_id=site.tenant_id, role='owner').first()
+        if owner:
+            send_mail(owner.email, 'Your Reyee Wi-Fi is connected to SafeNet',
+                      f'Your access points at "{site.name}" are now connected to SafeNet. Guests who join the Wi-Fi see your '
+                      f'login page, pay with mobile money and are connected by themselves. You see them on the Live page.\n')
+        _ruijie_push_soon()
+    flash(f'"{site.name}" ({tenant.name}) uses project {site.ruijie_group_name or group}.' if group else 'Project cleared.', 'success')
+    return redirect(url_for('platform_reyee'))
+
+
+@app.route('/platform/reyee/<int:site_id>/portal.zip')
+@login_required
+@superadmin_required
+def platform_reyee_portal(site_id):
+    """The business's login page for Ruijie Cloud's Custom HTML portal, for the platform admin to upload."""
+    site = db.get_or_404(Site, site_id)
+    tenant = db.session.get(Tenant, site.tenant_id)
+    if not site.portal_token:
+        site.portal_token = secrets.token_urlsafe(12)[:16]
+        db.session.commit()
+    name = re.sub(r'[^A-Za-z0-9]+', '-', f'{tenant.slug}-{site.name}').strip('-').lower()[:60] or 'site'
+    return Response(_ruijie_portal_zip(site, tenant), mimetype='application/zip',
+                    headers={'Content-Disposition': f'attachment; filename="safenet-ruijie-{name}.zip"'})
+
+
 @app.route('/sites/<int:site_id>/ruijie-cloud', methods=['POST'])
 @login_required
 @role_required('admin')
@@ -3807,8 +3949,13 @@ def site_ruijie_cloud(site_id):
     site = owned_or_404(Site, site_id)
     action = request.form.get('action')
     back = redirect(url_for('sites_page', open=f'ruijie-{site.id}'))
+    if action == 'managed':
+        return _ruijie_ask_safenet(site)
+    if site.ruijie_managed and action in ('save', 'project') and not current_user.is_superadmin:
+        abort(403)                         # SafeNet's account: the platform admin chooses the project
     if action == 'remove':
         site.ruijie_cloud_url = site.ruijie_appid = site.ruijie_secret_enc = None
+        site.ruijie_managed, site.ruijie_sn, site.ruijie_ssid = False, None, None
         site.ruijie_group_id = site.ruijie_group_name = site.ruijie_packages = site.ruijie_error = None
         Voucher.query.filter(Voucher.site_id == site.id, Voucher.ruijie_state.in_(('pending', 'sending'))).update({'ruijie_state': None}, synchronize_session=False)
         db.session.commit()
@@ -5893,7 +6040,8 @@ def sites_page():
                            limit=plan.max_sites if plan else None, omada_hosted=_omada_hosted_available(),
                            omada_host=Config.OMADA_HOSTED_HOST, wifidog_base=Config.WIFIDOG_BASE,
                            omada_openapi=_omada_openapi_available(),
-                           server_ip=_server_ip(), now=datetime.utcnow(), ruijie_clouds=ruijie.CLOUDS)
+                           server_ip=_server_ip(), now=datetime.utcnow(), ruijie_clouds=ruijie.CLOUDS,
+                           ruijie_by_safenet=_platform_ruijie() is not None)
 
 
 @app.route('/sites/add', methods=['POST'])

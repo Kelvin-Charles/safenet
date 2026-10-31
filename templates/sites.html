@@ -190,7 +190,35 @@ write</pre>
                                 <h6 class="mb-1"><i class="bi bi-cloud"></i> {{ _('Ruijie Cloud vouchers at {site}', site=s.name) }}</h6>
                                 <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='reyee') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Step-by-step guide') }}</a> · {{ _("For Reyee access points (RG-RAP…) that only show Ruijie's own voucher login page. Guests buy on SafeNet, and SafeNet creates the same code on Ruijie Cloud, so it works on Ruijie's page. Just the access point and internet.") }}</p>
                                 {% set rj = r.ruijie %}
+                                {% set managed = s.ruijie_managed %}
                                 {% if s.ruijie_error %}<div class="alert alert-danger py-2 small mb-2">{{ s.ruijie_error }}</div>{% endif %}
+                                {% if managed %}
+                                <div class="border rounded bg-white p-2 mb-2" style="max-width: 720px">
+                                    <strong><i class="bi bi-shield-check text-success"></i> {{ _('SafeNet manages your Reyee access points') }}</strong>
+                                    {% if s.ruijie_sn or s.ruijie_ssid %}<p class="small mb-1">{% if s.ruijie_sn %}{{ _('Access points: {sn}', sn=s.ruijie_sn) }}{% endif %}{% if s.ruijie_ssid %} · {{ _('Wi-Fi: {name}', name=s.ruijie_ssid) }}{% endif %}</p>{% endif %}
+                                    {% if not s.ruijie_group_id %}
+                                    <p class="small mb-0 text-warning-emphasis"><i class="bi bi-hourglass-split"></i> {{ _('Waiting for SafeNet to add them. Keep the access point plugged in and connected to the internet. You will get an email when it is ready.') }}</p>
+                                    {% else %}
+                                    <p class="small mb-0"><i class="bi bi-check-circle text-success"></i> {{ _('Connected. Guests see your login page, pay and are connected by themselves; packages and prices come from SafeNet.') }}</p>
+                                    {% endif %}
+                                </div>
+                                {% elif ruijie_by_safenet and not s.ruijie_appid %}
+                                <form method="POST" action="{{ url_for('site_ruijie_cloud', site_id=s.id) }}" class="border rounded bg-white p-2 mb-3" style="max-width: 720px" autocomplete="off">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <strong><i class="bi bi-stars"></i> {{ _('Recommended: let SafeNet set it up') }}</strong>
+                                    <p class="small text-muted mb-2">{{ _("Plug the access point into your internet router and give us its serial number. SafeNet adds it, makes the Wi-Fi and the login page. No Ruijie account or keys needed.") }}</p>
+                                    <div class="row g-2">
+                                        <div class="col-md-6"><label class="form-label small mb-1">{{ _('Serial number (SN) from the label') }}</label>
+                                            <textarea name="sn" class="form-control form-control-sm" rows="2" placeholder="G1UB16E017692" required></textarea>
+                                            <small class="text-muted">{{ _('Several access points: one per line.') }}</small></div>
+                                        <div class="col-md-4"><label class="form-label small mb-1">{{ _('Wi-Fi name (optional)') }}</label>
+                                            <input name="ssid" class="form-control form-control-sm" maxlength="32" placeholder="{{ s.name }} WiFi"></div>
+                                        <div class="col-md-2 d-grid align-self-start" style="margin-top: 1.6rem"><button class="btn btn-primary btn-sm" type="submit" name="action" value="managed">{{ _('Send') }}</button></div>
+                                    </div>
+                                </form>
+                                {% endif %}
+                                {% if not managed %}
+                                {% if ruijie_by_safenet and not s.ruijie_appid %}<details><summary class="small mb-2">{{ _('Or use your own Ruijie Cloud account') }}</summary>{% endif %}
                                 <form method="POST" action="{{ url_for('site_ruijie_cloud', site_id=s.id) }}" class="row g-2 mb-3" autocomplete="off">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <div class="col-md-4"><label class="form-label small mb-1">{{ _('Ruijie Cloud server') }}</label>
@@ -201,8 +229,10 @@ write</pre>
                                     <div class="col-md-3"><label class="form-label small mb-1">{{ _('App secret') }}</label><input name="secret" type="password" class="form-control form-control-sm" placeholder="{{ _('(saved, leave empty to keep)') if s.ruijie_secret_enc else '' }}"{{ '' if s.ruijie_secret_enc else ' required' }}></div>
                                     <div class="col-md-2 d-grid align-self-end"><button class="btn btn-primary btn-sm" type="submit" name="action" value="save">{{ _('Connect') }}</button></div>
                                 </form>
+                                {% if ruijie_by_safenet and not s.ruijie_appid %}</details>{% endif %}
+                                {% endif %}
                                 {% if rj %}
-                                {% if rj.projects|length > 1 or (rj.projects and not s.ruijie_group_id) %}
+                                {% if not managed and (rj.projects|length > 1 or (rj.projects and not s.ruijie_group_id)) %}
                                 <form method="POST" action="{{ url_for('site_ruijie_cloud', site_id=s.id) }}" class="row g-2 mb-3">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <div class="col-md-6"><label class="form-label small mb-1">{{ _('Ruijie Cloud project with these access points') }}</label>
@@ -212,7 +242,7 @@ write</pre>
                                     <div class="col-md-2 d-grid align-self-end"><button class="btn btn-outline-primary btn-sm" type="submit" name="action" value="project">{{ _('Use this project') }}</button></div>
                                 </form>
                                 {% endif %}
-                                {% if s.ruijie_group_id %}
+                                {% if s.ruijie_group_id and not managed %}
                                 <div class="small">
                                     <p class="mb-1"><i class="bi bi-check-circle text-success"></i> {{ _('Project: {name}', name=s.ruijie_group_name or s.ruijie_group_id) }} · {{ _('{ok} codes made on Ruijie Cloud, {waiting} waiting, {failed} failed', ok=rj.ok, waiting=rj.waiting, failed=rj.failed) }}</p>
                                     <p class="mb-1"><strong>{{ _('Ruijie packages:') }}</strong>
@@ -236,6 +266,9 @@ write</pre>
                                         {% if rj.failed %}<button class="btn btn-outline-secondary btn-sm" type="submit" name="action" value="retry">{{ _('Try failed codes again') }}</button>{% endif %}
                                     </form>
                                 </div>
+                                {% endif %}
+                                {% if managed and s.ruijie_group_id %}
+                                <p class="small mb-1">{{ _('{ok} codes made on Ruijie Cloud, {waiting} waiting, {failed} failed', ok=rj.ok, waiting=rj.waiting, failed=rj.failed) }}</p>
                                 {% endif %}
                                 <form method="POST" action="{{ url_for('site_ruijie_cloud', site_id=s.id) }}" class="mt-2" onsubmit="return confirm('{{ _('Stop making codes on Ruijie Cloud for this site?') }}');">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
