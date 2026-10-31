@@ -50,7 +50,8 @@ def login(u):
 
 
 with app.app_context():      # a site connected earlier with SafeNet's own keys
-    early = Site(tenant_id=TID, name='TICD', ruijie_cloud_url='https://cloud-eu.ruijienetworks.com', ruijie_appid='openabc',
+    import json
+    early = Site(tenant_id=TID, name='TICD', ruijie_packages=json.dumps({'projects': [['111', 'Other client shop'], ['222', 'Kariakoo']], 'packages': []}), ruijie_cloud_url='https://cloud-eu.ruijienetworks.com', ruijie_appid='openabc',
                  ruijie_secret_enc=appmod.secretbox.encrypt('platform-secret'), ruijie_group_id='111', ruijie_group_name='Other client shop')
     db.session.add(early); db.session.commit(); EARLY = early.id
 co, cb = login('owner'), login('boss')
@@ -65,6 +66,7 @@ with app.app_context():
     assert 'platform-secret' not in (db.session.get(PlatformSetting, 'ruijie_secret').value or '')        # stored encrypted
     e = db.session.get(Site, EARLY)
     assert e.ruijie_managed and e.ruijie_group_id == '111'           # became SafeNet-managed, keeping its project
+    assert 'Kariakoo' not in e.ruijie_packages                        # the account's other projects are forgotten
 # the business asks SafeNet: only the serial number (and a Wi-Fi name)
 s = html.unescape(co.get('/sites').text)
 assert 'Recommended: let SafeNet set it up' in s and 'Or use your own Ruijie Cloud account' in s
@@ -89,6 +91,10 @@ assert made_pkgs == [('222', 3 * 1440)]                              # SafeNet m
 assert any(to == 'owner@x.tz' and 'connected to SafeNet' in subj for to, subj in mails)
 with app.app_context():
     assert db.session.get(Site, SID).ruijie_ready
+    assert 'Other client shop' not in db.session.get(Site, SID).ruijie_packages      # only its own project is kept
+page = html.unescape(co.get('/sites').text)
+for secret_bit in ('openabc', 'platform-secret'):
+    assert secret_bit not in page
 assert 'Connected. Guests see your login page' in html.unescape(co.get('/sites').text)
 # its login page .zip for the platform admin to upload
 z = cb.get(f'/platform/reyee/{SID}/portal.zip')

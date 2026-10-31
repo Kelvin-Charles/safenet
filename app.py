@@ -3580,6 +3580,8 @@ def _ruijie_read(site, cloud):
         # SafeNet's own account holds many businesses' projects: only the platform admin picks one
         site.ruijie_group_id = ids[0] if len(ids) == 1 and not site.ruijie_managed else None
     site.ruijie_group_name = dict(info['projects']).get(site.ruijie_group_id)
+    if site.ruijie_managed:          # SafeNet's account: keep only this business's own project, never the others' names
+        info['projects'] = [p for p in info['projects'] if p[0] == site.ruijie_group_id]
     if site.ruijie_group_id:
         info['packages'] = cloud.packages(site.ruijie_group_id)
         info['create_error'] = _ruijie_make_packages(site, cloud, info['packages'])
@@ -3883,6 +3885,11 @@ def platform_reyee_keys():
     Site.query.filter(or_(Site.ruijie_managed.is_(True), Site.ruijie_appid == appid)).update(
         {'ruijie_managed': True, 'ruijie_cloud_url': found, 'ruijie_appid': appid, 'ruijie_secret_enc': values['ruijie_secret']},
         synchronize_session=False)
+    for site in Site.query.filter_by(ruijie_managed=True):          # forget the account's project list read before
+        info = _ruijie_info(site)
+        if info.get('projects'):
+            info['projects'] = [p for p in info['projects'] if p[0] == site.ruijie_group_id]
+            site.ruijie_packages = json.dumps(info)
     db.session.commit()
     flash(f'Ruijie Cloud accepted the keys ({ruijie.CLOUDS[found]} server). Businesses can now ask SafeNet to set up their Reyee access points.', 'success')
     return redirect(url_for('platform_reyee'))
