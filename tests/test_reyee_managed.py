@@ -17,6 +17,7 @@ class FakeCloud:
         if self.secret != 'platform-secret':
             raise ruijie.RuijieError('Ruijie Cloud refused the App ID or secret: Login failed')
     def projects(self): return [('111', 'Other client shop'), ('222', 'Kariakoo')]
+    def project_of(self, serials): return {}          # the access points aren't in any project yet
     def packages(self, group_id): return [{'user_group': 'u1', 'profile': 'p1', 'minutes': 1440, 'name': 'SafeNet 1 day'}]
     def create_package(self, group_id, name, minutes, **kw): made_pkgs.append((group_id, minutes))
 
@@ -84,7 +85,7 @@ with app.app_context():
 assert co.post(f'/sites/{SID}/ruijie-cloud', data={'csrf_token': tok(s), 'action': 'project', 'group_id': '111'}).status_code == 403
 # the platform admin sees it waiting and picks the project
 p = html.unescape(cb.get('/platform/reyee').text)
-assert 'Kariakoo Spot' in p and 'G1UB16E017692' in p and 'Waiting for you' in p
+assert 'Kariakoo Spot' in p and 'G1UB16E017692' in p and 'Not in any project yet' in p
 r = html.unescape(cb.post(f'/platform/reyee/{SID}', data={'csrf_token': tok(p), 'group_id': '222'}, follow_redirects=True).text)
 assert 'uses project Kariakoo' in r
 assert made_pkgs == [('222', 3 * 1440)]                              # SafeNet made the 3-day package on Ruijie Cloud

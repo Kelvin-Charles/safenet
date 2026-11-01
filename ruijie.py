@@ -5,6 +5,7 @@ guest types it on Ruijie's page. Standard library only.
 Ruijie Cloud API Reference Manual V2.0.3 (apply for an App ID and secret through Ruijie support):
   POST /service/api/oauth20/client/access_token?token=<fixed>    body {appid, secret} -> accessToken
   GET  /service/api/group/single/tree?depth=BUILDING             projects (network groups) -> groupId
+  GET  /service/api/maint/devices?group_id=&page=&per_page=        devices of a project: deviceList[{serialNumber}], totalCount
   GET  /service/api/intl/usergroup/list/{groupId}                 user groups = voucher packages (timePeriod in minutes)
   POST /service/api/open/auth/voucher/customerCreate/{groupId}/{code}   body {profile, userGroupId}
 Every call carries ?access_token=...; an expired token answers code 4 or "Login timeout".
@@ -116,6 +117,28 @@ class Cloud:
                 walk(node.get('subGroups') or node.get('children') or [])
         walk(data.get('groups') or data.get('group') or data.get('data') or [])
         return out
+
+    def devices(self, group_id, pages=20):
+        """Serial numbers (upper case) of the devices in a project, its sub-groups included."""
+        out, size = [], 100
+        for page in range(1, pages + 1):
+            data = self.call('GET', 'maint/devices', {'group_id': group_id, 'page': page, 'per_page': size})
+            items = [d for d in data.get('deviceList') or [] if isinstance(d, dict)]
+            out += [str(d.get('serialNumber') or d.get('sn') or '').strip().upper() for d in items]
+            if len(items) < size or len(out) >= int(data.get('totalCount') or 0):
+                break
+        return [sn for sn in out if sn]
+
+    def project_of(self, serials):
+        """{serial number: (groupId, project name)} for those of `serials` found in the account's projects."""
+        want, found = {s.upper() for s in serials}, {}
+        for gid, name in self.projects():
+            for sn in self.devices(gid):
+                if sn in want:
+                    found[sn] = (gid, name)
+            if len(found) == len(want):
+                break
+        return found
 
     def packages(self, group_id):
         """Voucher packages (user groups) of a project: [{user_group, profile, name, minutes}]."""

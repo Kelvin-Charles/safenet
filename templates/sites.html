@@ -197,18 +197,9 @@ write</pre>
                                     <strong><i class="bi bi-shield-check text-success"></i> {{ _('SafeNet manages your Reyee access points') }}</strong>
                                     {% if s.ruijie_sn or s.ruijie_ssid %}<p class="small mb-1">{% if s.ruijie_sn %}{{ _('Access points: {sn}', sn=s.ruijie_sn) }}{% endif %}{% if s.ruijie_ssid %} · {{ _('Wi-Fi: {name}', name=s.ruijie_ssid) }}{% endif %}</p>{% endif %}
                                     {% if not s.ruijie_group_id %}
-                                    {% if rj and rj.projects %}
-                                    <form method="POST" action="{{ url_for('site_ruijie_cloud', site_id=s.id) }}" class="d-flex flex-wrap gap-2 align-items-end my-2">
-                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                        <div><label class="form-label small mb-1">{{ _('Your project in Ruijie Cloud for this place') }}</label>
-                                            <select name="group_id" class="form-select form-select-sm">{% for gid, gname in rj.projects %}<option value="{{ gid }}">{{ gname }}</option>{% endfor %}</select></div>
-                                        <button class="btn btn-primary btn-sm" type="submit" name="action" value="project">{{ _('Use this project') }}</button>
-                                    </form>
-                                    {% else %}
                                     <p class="small mb-1 text-warning-emphasis"><i class="bi bi-hourglass-split"></i> {{ _('Waiting for SafeNet to add them. Keep the access point plugged in and connected to the internet. You will get an email when it is ready.') }}</p>
                                     <form method="POST" action="{{ url_for('site_ruijie_cloud', site_id=s.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button class="btn btn-outline-secondary btn-sm" type="submit" name="action" value="check"><i class="bi bi-arrow-repeat"></i> {{ _('Check now') }}</button></form>
-                                    {% endif %}
                                     {% else %}
                                     <p class="small mb-0"><i class="bi bi-check-circle text-success"></i> {{ _('Connected. Guests see your login page, pay and are connected by themselves; packages and prices come from SafeNet.') }}</p>
                                     {% endif %}

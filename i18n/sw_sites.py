@@ -487,6 +487,7 @@ SW = {
     'Wi-Fi: {name}': 'Wi-Fi: {name}',
     'Your access points are connected: your project "{name}" was found in SafeNet\'s Ruijie Cloud.': 'Vifaa vyako vimeunganishwa: mradi wako "{name}" umepatikana kwenye Ruijie Cloud ya SafeNet.',
     'Not ready yet: SafeNet is still adding your access points.': 'Bado: SafeNet bado inaongeza vifaa vyako.',
+    'This access point ({sn}) is already registered at another site. Contact SafeNet.': 'Kifaa hiki ({sn}) tayari kimesajiliwa kwenye eneo lingine. Wasiliana na SafeNet.',
     'Your access points are connected.': 'Vifaa vyako vimeunganishwa.',
     'Your project in Ruijie Cloud for this place': 'Mradi wako wa Ruijie Cloud kwa eneo hili',
     'Check now': 'Angalia sasa',

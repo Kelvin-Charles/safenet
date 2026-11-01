@@ -3827,11 +3827,28 @@ def _project_owner(name, tenants):
     return best
 
 
-def _own_projects(tenant, projects):
-    """The projects (of SafeNet's account) named after this business, that no other site uses yet."""
-    tenants = Tenant.query.all()
-    used = {g for (g,) in db.session.query(Site.ruijie_group_id).filter(Site.ruijie_group_id.isnot(None))}
-    return [(g, n) for g, n in projects if g not in used and (o := _project_owner(n, tenants)) is not None and o.id == tenant.id]
+def _site_serials(site):
+    return [x for x in re.split(r'[\s,;]+', (site.ruijie_sn or '').upper()) if x]
+
+
+def _project_by_serial(site, found):
+    """The project holding a site's access points, from `found` ({serial: (groupId, name)} read from Ruijie Cloud).
+    Returns ((groupId, name) or None, problem or None). Refused: serials spread over several projects, a project another
+    site already uses, or a project named after another business (someone typing a serial number that isn't theirs)."""
+    groups = {found[sn] for sn in _site_serials(site) if sn in found}
+    if not groups:
+        return None, None
+    if len(groups) > 1:
+        return None, 'The access points are in different Ruijie projects (' + ', '.join(sorted(n for _, n in groups)) + \
+            '). Put all of this site\'s access points in one project.'
+    group, name = groups.pop()
+    other = Site.query.filter(Site.ruijie_group_id == group, Site.id != site.id).first()
+    if other is not None:
+        return None, f'Project "{name}" is already used by another site. Ask SafeNet to check the serial number.'
+    owner = _project_owner(name, Tenant.query.all())
+    if owner is not None and owner.id != site.tenant_id:
+        return None, f'Project "{name}" belongs to another business. Ask SafeNet to check the serial number.'
+    return (group, name), None
 
 
 def _ruijie_assign(site, group):
@@ -3859,24 +3876,24 @@ def _ruijie_assign(site, group):
     return None
 
 
-def _ruijie_match(site):
-    """A waiting managed site: its business's own projects. One → it's used straight away; several → kept for the
-    business to choose from (only its own). Returns the list."""
-    if not site.ruijie_managed or site.ruijie_group_id:
+def _ruijie_match(site, found=None):
+    """A waiting managed site: find the project its access points (serial numbers) are in, in SafeNet's account, and
+    connect it. Returns [(groupId, name)] when connected, else []."""
+    if not site.ruijie_managed or site.ruijie_group_id or not _site_serials(site):
         return []
     try:
-        mine = _own_projects(db.session.get(Tenant, site.tenant_id), _ruijie_cloud(site).projects())
+        if found is None:
+            found = _ruijie_cloud(site).project_of(_site_serials(site))
     except ruijie.RuijieError as e:
         site.ruijie_error = str(e)[:255]
         db.session.commit()
         return []
-    if len(mine) == 1 and not _ruijie_assign(site, mine[0][0]):
-        return mine
-    info = _ruijie_info(site)
-    info['projects'] = mine
-    site.ruijie_packages = json.dumps(info)
+    hit, problem = _project_by_serial(site, found)
+    site.ruijie_error = problem
     db.session.commit()
-    return mine
+    if hit and not _ruijie_assign(site, hit[0]):
+        return [hit]
+    return []
 
 
 def _ruijie_ask_safenet(site):
@@ -3888,6 +3905,10 @@ def _ruijie_ask_safenet(site):
     sns = [x for x in re.split(r'[\s,;]+', (request.form.get('sn') or '').upper()) if x]
     if not sns or len(sns) > 20 or not all(RUIJIE_SN.match(x) for x in sns):
         flash(tr("Enter the serial number (SN) from the access point's label, e.g. G1UB16E017692. Several: one per line."), 'warning')
+        return back
+    taken = [x for o in Site.query.filter(Site.ruijie_sn.isnot(None), Site.id != site.id) for x in _site_serials(o) if x in sns]
+    if taken:
+        flash(tr('This access point ({sn}) is already registered at another site. Contact SafeNet.', sn=taken[0]), 'danger')
         return back
     site.ruijie_managed = True
     site.ruijie_sn = ', '.join(dict.fromkeys(sns))[:255]
@@ -3927,9 +3948,20 @@ def platform_reyee():
     used = {s.ruijie_group_id: s for s in Site.query.filter(Site.ruijie_group_id.isnot(None))}
     tenants = Tenant.query.all()
     owner = {g: _project_owner(n, tenants) for g, n in projects}
-    unmatched = [(g, n) for g, n in projects if owner[g] is None]
+    found = {}                     # site id -> (groupId, name): the project its serial numbers are in
+    waiting = [s for s in sites if not s.ruijie_group_id and _site_serials(s)]
+    if account and waiting and not error:
+        try:
+            where = ruijie.Cloud(account[0], account[1], secretbox.decrypt(account[2])).project_of(
+                {sn for s in waiting for sn in _site_serials(s)})
+            for s in waiting:
+                groups = {where[sn] for sn in _site_serials(s) if sn in where}
+                if len(groups) == 1:
+                    found[s.id] = groups.pop()
+        except ruijie.RuijieError as e:
+            error = str(e)
     return render_template('platform/reyee.html', account=account, projects=projects, error=error, sites=sites, used=used,
-                           owner=owner, unmatched=unmatched,
+                           owner=owner, found=found,
                            tenants={t.id: t for t in Tenant.query.all()}, clouds=ruijie.CLOUDS,
                            cloud_name=ruijie.CLOUDS.get(account[0]) if account else None, allowed_host=urlparse(Config.PUBLIC_URL or request.host_url).hostname)
 
@@ -3993,13 +4025,26 @@ def platform_reyee_site(site_id):
 @login_required
 @superadmin_required
 def platform_reyee_match():
-    """Give every waiting business its project, found by name (when exactly one fits)."""
+    """Connect every waiting business to the project its access points (serial numbers) are in."""
     _check_csrf()
-    done = [s for s in Site.query.filter(Site.ruijie_managed.is_(True), Site.ruijie_group_id.is_(None)).all()
-            if _ruijie_match(s) and s.ruijie_group_id]
-    flash(f'{len(done)} connected by their project name.' if done else
-          'No waiting business has exactly one project with its name. Name each project after the business, e.g. "USMART - TICD".',
+    account = _platform_ruijie()
+    waiting = [s for s in Site.query.filter(Site.ruijie_managed.is_(True), Site.ruijie_group_id.is_(None)).all() if _site_serials(s)]
+    if not account or not waiting:
+        flash('No business is waiting with a serial number.', 'info')
+        return redirect(url_for('platform_reyee'))
+    try:
+        where = ruijie.Cloud(account[0], account[1], secretbox.decrypt(account[2])).project_of(
+            {sn for s in waiting for sn in _site_serials(s)})
+    except ruijie.RuijieError as e:
+        flash(f'Ruijie Cloud: {e}', 'danger')
+        return redirect(url_for('platform_reyee'))
+    done = [s for s in waiting if _ruijie_match(s, where)]
+    problems = [s for s in waiting if s.ruijie_error and not s.ruijie_group_id]
+    flash(f'{len(done)} connected by their serial numbers.' if done else
+          'No waiting access point was found in your Ruijie projects yet. Add each one to a project by its serial number.',
           'success' if done else 'info')
+    if problems:
+        flash('Not connected: ' + '; '.join(f'{s.name}: {s.ruijie_error}' for s in problems), 'warning')
     return redirect(url_for('platform_reyee'))
 
 
@@ -4030,20 +4075,15 @@ def site_ruijie_cloud(site_id):
         return _ruijie_ask_safenet(site)
     if site.ruijie_managed and not current_user.is_superadmin:
         if action == 'check':
-            mine = _ruijie_match(site)
+            _ruijie_match(site)
             if site.ruijie_group_id:
                 flash(tr('Your access points are connected: your project "{name}" was found in SafeNet\'s Ruijie Cloud.',
                          name=site.ruijie_group_name or site.ruijie_group_id), 'success')
-            elif not mine:
+            elif not site.ruijie_error:
                 flash(tr('Not ready yet: SafeNet is still adding your access points.'), 'info')
             return back
-        if action == 'project':                # only one of its own projects (named after the business)
-            group = request.form.get('group_id', '')[:32]
-            if site.ruijie_group_id or group not in {g for g, _ in _ruijie_match(site)}:
-                abort(403)
-            problem = _ruijie_assign(site, group)
-            flash(problem or tr('Your access points are connected.'), 'danger' if problem else 'success')
-            return back
+        if action == 'project':                # the project is found by its serial numbers, never chosen
+            abort(403)
         if action == 'save':
             abort(403)                         # SafeNet's account: no keys to change
     if action == 'remove':
