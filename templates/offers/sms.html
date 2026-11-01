@@ -12,6 +12,13 @@
 <div class="card">
     <div class="card-header"><i class="bi bi-chat-dots"></i> {{ _('Message to your customers') }}</div>
     <div class="card-body">
+        <div class="alert alert-warning d-flex gap-2 align-items-start py-2">
+            <i class="bi bi-wallet2 fs-5"></i>
+            <div>{% if balance is not none %}<strong>{{ _('SMS cost is taken from your SafeNet Pay balance.') }}</strong>
+                {{ _('Each SMS costs {cur} {price}. Your balance now: {cur} {balance}.', cur=currency, price=price, balance='{:,.0f}'.format(balance)) }}
+                {% else %}<strong>{{ _('SMS cost is added to your next SafeNet bill.') }}</strong>
+                {{ _('Each SMS costs {cur} {price}.', cur=currency, price=price) }}{% endif %}</div>
+        </div>
         <p class="small text-muted">{{ _('Customers are the phone numbers that paid for Wi-Fi at your business. Each SMS starts with your business name and ends with a link the customer can open to stop getting offers from you.') }}</p>
         <form method="POST" id="smsForm">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -52,10 +59,10 @@
                 <div class="fw-semibold mb-1">{{ _('Check before sending') }}</div>
                 <div class="border rounded bg-white p-2 mb-2 small" style="white-space:pre-wrap">{{ sample }}</div>
                 <div>{{ _('{n} customers × {parts} SMS × {cur} {price} = {cur} {cost}', n=phones, parts=parts, cur=currency, price=price, cost='{:,.0f}'.format(cost)) }}</div>
-                <small class="text-muted">{% if balance is not none %}{{ _('Taken from your SafeNet Pay balance ({cur} {balance}).', cur=currency, balance='{:,.0f}'.format(balance)) }}{% else %}{{ _('Added to your next SafeNet bill.') }}{% endif %}
+                <small class="text-muted">{% if balance is not none %}{{ _('Taken from your SafeNet Pay balance ({cur} {balance}).', cur=currency, balance='{:,.0f}'.format(balance)) }} {{ _('Balance after sending: {cur} {left}.', cur=currency, left='{:,.0f}'.format(balance - cost)) }}{% else %}{{ _('Added to your next SafeNet bill.') }}{% endif %}
                     {{ _('Only SMS that go out are charged.') }}</small>
                 <div class="mt-2">
-                    <button class="btn btn-success" name="action" value="send" type="submit"><i class="bi bi-send"></i> {{ _('Send to {n} customers', n=phones) }}</button>
+                    <button class="btn btn-success" name="action" value="send" type="submit" onclick="return confirm({{ (_('{cur} {cost} will be taken from your SafeNet Pay balance. Send?', cur=currency, cost='{:,.0f}'.format(cost)) if balance is not none else _('{cur} {cost} will be added to your next SafeNet bill. Send?', cur=currency, cost='{:,.0f}'.format(cost)))|tojson|forceescape }});"><i class="bi bi-send"></i> {{ _('Send to {n} customers', n=phones) }}</button>
                     <button class="btn btn-outline-secondary" name="action" value="preview" type="submit">{{ _('Update') }}</button>
                 </div>
             </div>

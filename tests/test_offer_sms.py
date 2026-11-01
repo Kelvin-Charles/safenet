@@ -60,10 +60,12 @@ c = app.test_client(); r = c.get('/login'); c.post('/login', data={'username': '
 assert 'Send by SMS' in c.get('/offers').text
 page = html.unescape(c.get(f'/offers/sms?offer={OFF}').text)
 assert 'Offer: Buy 3 days, get 1 free.' in page                     # the offer's message, ready to change
+assert 'SMS cost is taken from your SafeNet Pay balance.' in page and 'Each SMS costs TZS 30. Your balance now: TZS 5,820.' in page
 post = lambda **d: html.unescape(c.post('/offers/sms', data={'csrf_token': tok(page), **d}, follow_redirects=True).text)
 # preview: who gets it and the cost, nothing sent yet (failed payments and other businesses' customers don't count)
 r = post(text='Wi-Fi 50% off this weekend!', action='preview')
 assert 'Check before sending' in r and '5 customers × 1 SMS × TZS 30 = TZS 150' in r
+assert 'Balance after sending: TZS 5,670.' in r and 'TZS 150 will be taken from your SafeNet Pay balance. Send?' in r
 assert 'Kpstar: Wi-Fi 50% off this weekend! Stop: ' in r and outbox == []
 r = post(text='Wi-Fi 50% off this weekend!', site_id=SA, days=30, action='preview')
 assert '3 customers × 1 SMS' in r                                    # Olasiti, paid in the last 30 days
@@ -72,7 +74,7 @@ assert 'up to 300 characters' in post(text='x' * 301, action='preview')
 # send
 appmod.threading = FakeThreading
 r = post(text='Wi-Fi 50% off this weekend!', site_id=SA, days=30, offer=OFF, action='send')
-assert 'Sending your offer to 3 customers' in r
+assert 'Sending your offer to 3 customers' in r and 'Up to TZS 90 is taken from your SafeNet Pay balance' in r
 assert sorted(p for p, _ in outbox) == ['255700000001', '255700000002', '255700000009']
 assert all(t.startswith('Kpstar: Wi-Fi 50% off this weekend! Stop: http') and '/stop/' in t for _, t in outbox)
 with app.app_context():

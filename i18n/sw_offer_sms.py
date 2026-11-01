@@ -44,4 +44,13 @@ SW = {
     'Your last offer is still being sent. Try again when it has finished.': 'Ofa yako ya mwisho bado inatumwa. Jaribu tena ikimaliza.',
     'Sending your offer to {n} customers. It takes a few minutes; the list below shows how many have gone.':
         'Inatuma ofa yako kwa wateja {n}. Inachukua dakika chache; orodha hapa chini inaonyesha ngapi zimetumwa.',
+    'SMS cost is taken from your SafeNet Pay balance.': 'Gharama ya SMS inakatwa kwenye salio lako la SafeNet Pay.',
+    'SMS cost is added to your next SafeNet bill.': 'Gharama ya SMS inaongezwa kwenye bili yako ijayo ya SafeNet.',
+    'Each SMS costs {cur} {price}. Your balance now: {cur} {balance}.': 'Kila SMS ni {cur} {price}. Salio lako sasa: {cur} {balance}.',
+    'Each SMS costs {cur} {price}.': 'Kila SMS ni {cur} {price}.',
+    'Balance after sending: {cur} {left}.': 'Salio baada ya kutuma: {cur} {left}.',
+    '{cur} {cost} will be taken from your SafeNet Pay balance. Send?': '{cur} {cost} zitakatwa kwenye salio lako la SafeNet Pay. Tuma?',
+    '{cur} {cost} will be added to your next SafeNet bill. Send?': '{cur} {cost} zitaongezwa kwenye bili yako ijayo ya SafeNet. Tuma?',
+    'Up to {cur} {cost} is taken from your SafeNet Pay balance (only SMS that go out).': 'Hadi {cur} {cost} zinakatwa kwenye salio lako la SafeNet Pay (SMS zilizotumwa tu).',
+    'Up to {cur} {cost} is added to your next SafeNet bill (only SMS that go out).': 'Hadi {cur} {cost} zinaongezwa kwenye bili yako ijayo ya SafeNet (SMS zilizotumwa tu).',
 }

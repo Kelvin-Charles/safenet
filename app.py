@@ -5023,7 +5023,10 @@ def offer_sms():
             targets = [(p, _offer_sms_text(tenant, text, tokens[p])) for p in phones]
             threading.Thread(target=_send_offer_campaign, args=(campaign.id, targets), daemon=True).start()
             log.info('tenant %s: offer SMS %s to %d customers', tenant.id, campaign.id, len(phones))
-            flash(tr('Sending your offer to {n} customers. It takes a few minutes; the list below shows how many have gone.', n=len(phones)), 'success')
+            flash(tr('Sending your offer to {n} customers. It takes a few minutes; the list below shows how many have gone.', n=len(phones)) + ' '
+                  + (tr('Up to {cur} {cost} is taken from your SafeNet Pay balance (only SMS that go out).', cur=tenant.currency or 'TZS', cost=f'{cost:,.0f}')
+                     if balance is not None else
+                     tr('Up to {cur} {cost} is added to your next SafeNet bill (only SMS that go out).', cur=tenant.currency or 'TZS', cost=f'{cost:,.0f}')), 'success')
             return redirect(url_for('offer_sms'))
     history = SmsCampaign.query.filter_by(tenant_id=tenant.id).order_by(SmsCampaign.id.desc()).limit(20).all()
     stopped_total = SmsContact.query.filter(SmsContact.tenant_id == tenant.id, SmsContact.stopped_at.isnot(None)).count()
