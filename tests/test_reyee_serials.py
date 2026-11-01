@@ -14,7 +14,7 @@ calls = []
 
 
 class FakeCloud:
-    def __init__(self, *a): pass
+    def __init__(self, *a): self.base, self.appid = (list(a) + ['', ''])[:2]
     def token(self): pass
     def projects(self): return list(PROJECTS)
     def devices(self, gid): calls.append(gid); return list(DEVICES.get(gid, []))
@@ -101,5 +101,15 @@ appmod._ruijie_cache.clear()
 FakeCloud.projects = lambda self: (_ for _ in ()).throw(ruijie.RuijieError('Ruijie Cloud: Too many requests'))
 p = html.unescape(cb.get('/platform/reyee').text)
 assert "can't be read from Ruijie Cloud right now" in p and 'disconnect' not in p
+with app.app_context():                             # ... and every worker stops asking for a while
+    assert appmod._ruijie_paused('openabc') > 10
+asked = []
+FakeCloud.projects = lambda self: asked.append(1) or []
+p = html.unescape(cb.get('/platform/reyee').text)
+assert not asked and 'asks again in about' in p
+with app.app_context():                             # the guest sync waits too
+    db.session.get(Site, site_of['kpstar']).ruijie_synced_at = None; db.session.commit()
+    calls.clear(); appmod._ruijie_sync_due()
+    assert db.session.get(Site, site_of['kpstar']).ruijie_synced_at is None
 assert ruijie.busy('Ruijie Cloud: Too many requests') and ruijie.busy('Ruijie Cloud answered 429: x') and not ruijie.busy('Login failed')
 print('REYEE SERIALS OK')

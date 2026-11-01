@@ -91,13 +91,13 @@ class Cloud:
                 reply = self._http('POST', f'{self.base}/service/api/oauth20/client/access_token?token={TOKEN_PARAM}',
                                    {'appid': self.appid, 'secret': self.secret})
             except RuijieError as e:
-                if busy(str(e)) and attempt < 3:
-                    time.sleep(3 * (attempt + 1))
+                if busy(str(e)) and attempt < 1:
+                    time.sleep(2)
                     continue
                 raise
-            if not (busy(str(reply.get('msg', ''))) and attempt < 3):
+            if not (busy(str(reply.get('msg', ''))) and attempt < 1):
                 break
-            time.sleep(3 * (attempt + 1))
+            time.sleep(2)
         if reply.get('code') != 0 or not reply.get('accessToken'):
             raise RuijieError(f'Ruijie Cloud refused the App ID or secret: {reply.get("msg") or reply.get("code")}')
         self._token, self._token_at = reply['accessToken'], time.time()
@@ -111,15 +111,15 @@ class Cloud:
             try:
                 reply = self._http(method, f'{self.base}/service/api/{path}?{qs}', body if method == 'POST' else None)
             except RuijieError as e:
-                if busy(str(e)) and attempt < 3:
-                    time.sleep(3 * (attempt + 1))
+                if busy(str(e)) and attempt < 1:
+                    time.sleep(2)
                     continue
                 raise
             if (reply.get('code') == 4 or str(reply.get('msg', '')).lower() == 'login timeout') and not relogin:
                 relogin = True
                 continue
-            if busy(str(reply.get('msg', ''))) and attempt < 3:      # Ruijie's rate limit: wait and try again
-                time.sleep(3 * (attempt + 1))
+            if busy(str(reply.get('msg', ''))) and attempt < 1:      # Ruijie's rate limit: wait and try again
+                time.sleep(2)
                 continue
             break
         if reply.get('code') != 0:

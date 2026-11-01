@@ -3361,7 +3361,17 @@ def _ruijie_cached(what, cloud, fn, force=False):
     hit = _ruijie_cache.get(key)
     if hit and time.time() - hit[0] < (60 if force else RUIJIE_CACHE_SECONDS):      # forced: at most once a minute
         return hit[1]
-    value = fn()
+    wait = _ruijie_paused(getattr(cloud, 'appid', None))
+    if wait:                       # Ruijie asked SafeNet to slow down: the last answer, however old, or nothing
+        if hit:
+            return hit[1]
+        raise ruijie.RuijieError(f'Ruijie asked SafeNet to slow down (too many requests); SafeNet asks again in about {wait} min.')
+    try:
+        value = fn()
+    except ruijie.RuijieError as e:
+        if _ruijie_slow_down(getattr(cloud, 'appid', None), e) and hit:
+            return hit[1]
+        raise
     _ruijie_cache[key] = (time.time(), value)
     return value
 
@@ -3373,6 +3383,36 @@ def _ruijie_projects(cloud, force=False):
 def _ruijie_where(cloud, force=False):
     """Which project each access point (serial number) is in, read at most every 5 minutes unless forced."""
     return _ruijie_cached('where', cloud, cloud.where, force)
+
+
+RUIJIE_PAUSE_MINUTES = 15      # Ruijie said "Too many requests": every worker stops asking for a while
+
+
+def _ruijie_paused(appid):
+    """Minutes left of a pause Ruijie asked for (shared by all workers through the database), or 0."""
+    row = db.session.get(PlatformSetting, f'ruijie_pause:{appid}'[:64]) if appid else None
+    try:
+        until = datetime.fromisoformat(row.value) if row and row.value else None
+    except ValueError:
+        until = None
+    left = (until - datetime.utcnow()).total_seconds() if until else 0
+    return max(0, -(-int(left) // 60)) if left > 0 else 0
+
+
+def _ruijie_slow_down(appid, error):
+    """When Ruijie's answer was its rate limit, pause asking it. True if it was."""
+    if not appid or not ruijie.busy(str(error)):
+        return False
+    try:
+        key = f'ruijie_pause:{appid}'[:64]
+        row = db.session.get(PlatformSetting, key) or PlatformSetting(key=key)
+        row.value = (datetime.utcnow() + timedelta(minutes=RUIJIE_PAUSE_MINUTES)).isoformat()
+        db.session.add(row)
+        db.session.commit()
+        log.warning('ruijie cloud: too many requests; pausing for %s minutes', RUIJIE_PAUSE_MINUTES)
+    except Exception:
+        db.session.rollback()
+    return True
 
 
 def _ruijie_info(site):
@@ -3502,6 +3542,8 @@ def _ruijie_sync_site(site, cloud=None, now=None):
         phones = cloud.clients(site.ruijie_group_id)
         site.ruijie_clients, site.ruijie_clients_at = json.dumps(phones), now
     except ruijie.RuijieError as e:
+        if ruijie.busy(str(e)):
+            raise
         log.warning('ruijie cloud: reading phones for site %s failed: %s', site.id, e)
         phones = []
     by_mac = {_mac_norm(p.get('mac')): p for p in phones}
@@ -3513,6 +3555,8 @@ def _ruijie_sync_site(site, cloud=None, now=None):
     try:
         logins = sorted(cloud.logins(site.ruijie_group_id), key=lambda x: int(x.get('loginTimes') or 0))
     except ruijie.RuijieError as e:
+        if ruijie.busy(str(e)):
+            raise
         log.warning('ruijie cloud: reading logins for site %s failed: %s', site.id, e)
         logins = []
     phone_of = {}
@@ -3572,10 +3616,15 @@ def _ruijie_sync_site(site, cloud=None, now=None):
     db.session.commit()
 
 
+RUIJIE_SYNC_SECONDS = 180      # Ruijie limits how many calls a day one account may make
+
+
 def _ruijie_sync_due():
-    """Sync each Ruijie site at most once a minute across all web workers."""
-    cutoff = datetime.utcnow() - timedelta(seconds=55)
-    for (sid,) in db.session.query(Site.id).filter(Site.ruijie_group_id.isnot(None), Site.ruijie_appid.isnot(None)).all():
+    """Sync each Ruijie site at most every 3 minutes across all web workers."""
+    cutoff = datetime.utcnow() - timedelta(seconds=RUIJIE_SYNC_SECONDS - 5)
+    for (sid, appid) in db.session.query(Site.id, Site.ruijie_appid).filter(Site.ruijie_group_id.isnot(None), Site.ruijie_appid.isnot(None)).all():
+        if _ruijie_paused(appid):
+            continue
         claimed = Site.query.filter(Site.id == sid, or_(Site.ruijie_synced_at.is_(None), Site.ruijie_synced_at < cutoff)) \
             .update({'ruijie_synced_at': datetime.utcnow()}, synchronize_session=False)
         db.session.commit()
@@ -3583,9 +3632,10 @@ def _ruijie_sync_due():
             continue
         try:
             _ruijie_sync_site(db.session.get(Site, sid))
-        except Exception as e:          # Ruijie Cloud down: try again next minute
+        except Exception as e:          # Ruijie Cloud down: try again next time
             db.session.rollback()
             log.warning('ruijie cloud: reading guests for site %s failed: %s', sid, e)
+            _ruijie_slow_down(appid, e)
 
 
 def _ruijie_loop():
