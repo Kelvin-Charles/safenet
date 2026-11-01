@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
+from models import db, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -4808,7 +4808,7 @@ def offers():
     sold = dict(db.session.query(Payment.offer_id, func.count(Payment.id)).filter(
         Payment.tenant_id == tenant_id(), Payment.status == 'paid', Payment.offer_id.isnot(None)).group_by(Payment.offer_id))
     return render_template('offers/list.html', offers=items, sold=sold, now=datetime.utcnow(),
-                           offset=_local_offset())
+                           offset=_local_offset(), sms_ready=sms_is_configured())
 
 
 @app.route('/offers/add', methods=['GET', 'POST'])
@@ -4873,6 +4873,179 @@ def delete_offer(offer_id):
     db.session.commit()
     flash(tr('Offer "{name}" deleted.', name=name), 'success')
     return redirect(url_for('offers'))
+
+
+# Offers by SMS to customers (phones that paid before)
+OFFER_SMS_MAX_TEXT = 300          # what the owner writes; the business name and the stop link are added
+OFFER_SMS_MAX_PHONES = 3000       # per send
+OFFER_SMS_DAYS = (30, 90, 365)
+_TOKEN_CHARS = 'abcdefghijkmnpqrstuvwxyz23456789'
+
+
+def _stop_link(token):
+    return f'{Config.PUBLIC_URL}/stop/{token}'
+
+
+def _offer_sms_text(tenant, text, token):
+    """The SMS a customer gets: who it's from, the owner's words, and how to stop."""
+    return f'{tenant.name}: {text.strip()} Stop: {_stop_link(token)}'
+
+
+def _offer_sms_audience(tenant, site_id=None, days=None):
+    """(phones to send to, how many said stop, how many got an offer in the last 24 hours) for a business."""
+    q = db.session.query(Payment.phone).filter(Payment.tenant_id == tenant.id, Payment.status == 'paid')
+    if site_id:
+        q = q.filter(Payment.site_id == site_id)
+    if days:
+        q = q.filter(Payment.paid_at >= datetime.utcnow() - timedelta(days=days))
+    phones = {n for n in (_normalize_tz_phone(p or '') for (p,) in q.distinct()) if n}
+    stopped = {p for (p,) in db.session.query(SmsContact.phone).filter(SmsContact.tenant_id == tenant.id,
+                                                                       SmsContact.stopped_at.isnot(None))}
+    recent = {p for (p,) in db.session.query(SmsCharge.phone).filter(
+        SmsCharge.tenant_id == tenant.id, SmsCharge.kind == 'offer', SmsCharge.created_at >= datetime.utcnow() - timedelta(hours=24))}
+    send = sorted(phones - stopped - recent)
+    return send, len(phones & stopped), len((phones - stopped) & recent)
+
+
+def _sms_contacts(tenant_id, phones):
+    """{phone: token} for these customers, making the ones that don't exist yet. Caller commits."""
+    have = {c.phone: c.token for c in SmsContact.query.filter(SmsContact.tenant_id == tenant_id, SmsContact.phone.in_(phones))} if phones else {}
+    for phone in phones:
+        if phone not in have:
+            while True:
+                token = ''.join(secrets.choice(_TOKEN_CHARS) for _ in range(7))
+                if not SmsContact.query.filter_by(token=token).first():
+                    break
+            db.session.add(SmsContact(tenant_id=tenant_id, phone=phone, token=token))
+            have[phone] = token
+    return have
+
+
+def _send_offer_campaign(campaign_id, targets):
+    """Background: send each SMS one after another; only SMS the gateway accepted are charged."""
+    from sms import send_sms
+    with app.app_context():
+        campaign = db.session.get(SmsCampaign, campaign_id)
+        tenant = db.session.get(Tenant, campaign.tenant_id)
+        method = 'balance' if tenant.payment_mode == 'platform' else 'bill'
+        price = Decimal(campaign.parts * Config.SMS_PRICE)
+        sent = 0
+        try:
+            for i, (phone, text) in enumerate(targets, 1):
+                if send_sms(phone, text, f'offer-{campaign_id}'):
+                    sent += 1
+                    db.session.add(SmsCharge(tenant_id=tenant.id, site_id=campaign.site_id, phone=phone, kind='offer',
+                                             parts=campaign.parts, amount=price, method=method, campaign_id=campaign_id))
+                if i % 20 == 0 or i == len(targets):
+                    campaign.sent, campaign.amount = sent, price * sent
+                    db.session.commit()
+        except Exception:
+            db.session.rollback()
+            log.exception('offer SMS %s stopped', campaign_id)
+            campaign = db.session.get(SmsCampaign, campaign_id)
+        campaign.status = 'done'
+        db.session.commit()
+
+
+def _offer_suggestions(tenant, items):
+    """A ready message for each offer, in the owner's language (they can change it)."""
+    sw = getattr(current_user, 'language', None) == 'sw'
+    out = {}
+    for o in items:
+        bits = []
+        if o.package:
+            price, mins = o.terms(o.package)
+            bits.append(f'{o.package.name} {o.package.currency} {price:,.0f}')
+        until = (o.ends_at + _local_offset()).strftime('%d/%m') if o.ends_at else None
+        if sw:
+            text = f'Ofa: {o.name}.' + (f' {bits[0]}.' if bits else '') + (f' Hadi {until}.' if until else '') + ' Nunua kwenye ukurasa wa Wi-Fi.'
+        else:
+            text = f'Offer: {o.name}.' + (f' {bits[0]}.' if bits else '') + (f' Until {until}.' if until else '') + ' Buy on the Wi-Fi login page.'
+        out[o.id] = text
+    return out
+
+
+@app.route('/offers/sms', methods=['GET', 'POST'])
+@login_required
+@role_required('admin')
+def offer_sms():
+    tenant = current_tenant()
+    sites = tenant_sites()
+    live_offers = [o for o in scoped(Offer).order_by(Offer.id.desc()).all() if o.is_active and (o.ends_at is None or o.ends_at > datetime.utcnow())]
+    f = request.form if request.method == 'POST' else request.args
+    text = (f.get('text') or '').strip()
+    offer_id = request.values.get('offer', type=int)
+    suggestions = _offer_suggestions(tenant, live_offers)
+    if not text and offer_id in suggestions:
+        text = suggestions[offer_id]
+    site_id = f.get('site_id', type=int) or None
+    if site_id and not any(x.id == site_id for x in sites):
+        site_id = None
+    days = f.get('days', type=int)
+    days = days if days in OFFER_SMS_DAYS else None
+    phones, stopped, recent = _offer_sms_audience(tenant, site_id, days)
+    sample = _offer_sms_text(tenant, text or '…', 'abcdefg')
+    parts = sms_parts(sample)
+    cost = Decimal(len(phones) * parts * Config.SMS_PRICE)
+    balance = tenant_balance(tenant.id)[0] if tenant.payment_mode == 'platform' else None
+    sending = SmsCampaign.query.filter(SmsCampaign.tenant_id == tenant.id, SmsCampaign.status == 'sending',
+                                       SmsCampaign.created_at >= datetime.utcnow() - timedelta(hours=2)).first()
+    preview = False
+    if request.method == 'POST':
+        _check_csrf()
+        problem = None
+        if not sms_is_configured():
+            problem = tr('SMS is not available right now. Contact SafeNet.')
+        elif not text:
+            problem = tr('Write the message.')
+        elif len(text) > OFFER_SMS_MAX_TEXT:
+            problem = tr('The message can be up to {n} characters.', n=OFFER_SMS_MAX_TEXT)
+        elif not phones:
+            problem = tr('No customers to send to: nobody has paid yet with these choices, or they all got an offer in the last 24 hours.')
+        elif len(phones) > OFFER_SMS_MAX_PHONES:
+            problem = tr('Up to {n} customers per send: choose one site or fewer days.', n=OFFER_SMS_MAX_PHONES)
+        elif balance is not None and cost > balance:
+            problem = tr('Your SafeNet Pay balance ({cur} {balance}) is less than the cost ({cur} {cost}).', cur=tenant.currency or 'TZS',
+                         balance=f'{balance:,.0f}', cost=f'{cost:,.0f}')
+        elif sending:
+            problem = tr('Your last offer is still being sent. Try again when it has finished.')
+        if problem:
+            flash(problem, 'danger')
+        elif request.form.get('action') != 'send':
+            preview = True
+        else:
+            tokens = _sms_contacts(tenant.id, phones)
+            campaign = SmsCampaign(tenant_id=tenant.id, site_id=site_id, offer_id=offer_id if offer_id in suggestions else None,
+                                   text=text, days=days, recipients=len(phones), parts=parts, status='sending',
+                                   created_by_id=current_user.id)
+            db.session.add(campaign)
+            db.session.commit()
+            targets = [(p, _offer_sms_text(tenant, text, tokens[p])) for p in phones]
+            threading.Thread(target=_send_offer_campaign, args=(campaign.id, targets), daemon=True).start()
+            log.info('tenant %s: offer SMS %s to %d customers', tenant.id, campaign.id, len(phones))
+            flash(tr('Sending your offer to {n} customers. It takes a few minutes; the list below shows how many have gone.', n=len(phones)), 'success')
+            return redirect(url_for('offer_sms'))
+    history = SmsCampaign.query.filter_by(tenant_id=tenant.id).order_by(SmsCampaign.id.desc()).limit(20).all()
+    stopped_total = SmsContact.query.filter(SmsContact.tenant_id == tenant.id, SmsContact.stopped_at.isnot(None)).count()
+    return render_template('offers/sms.html', text=text, site_id=site_id, days=days, sites=sites, offers=live_offers,
+                           offer_id=offer_id, suggestions=suggestions, phones=len(phones), stopped=stopped, recent=recent,
+                           parts=parts, cost=cost, balance=balance, sample=_offer_sms_text(tenant, text, 'abcdefg') if text else '',
+                           preview=preview, history=history, stopped_total=stopped_total, sms_ready=sms_is_configured(),
+                           price=Config.SMS_PRICE, currency=tenant.currency or 'TZS', max_text=OFFER_SMS_MAX_TEXT,
+                           day_choices=OFFER_SMS_DAYS, offset=_local_offset(), now=datetime.utcnow(),
+                           prefix=f'{tenant.name}: ', suffix=f' Stop: {_stop_link("abcdefg")}')
+
+
+@app.route('/stop/<token>', methods=['GET', 'POST'])
+def stop_offers(token):
+    """A customer's stop link from an offer SMS: no more offers from that business (or start again)."""
+    contact = SmsContact.query.filter_by(token=(token or '')[:12].lower()).first_or_404()
+    if request.method == 'POST':
+        _check_csrf()
+        contact.stopped_at = None if request.form.get('action') == 'start' else datetime.utcnow()
+        db.session.commit()
+        return redirect(url_for('stop_offers', token=contact.token))
+    return render_template('offers/stop.html', contact=contact, business=contact.tenant.name)
 
 
 # Payments

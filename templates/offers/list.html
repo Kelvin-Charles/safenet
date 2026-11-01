@@ -7,7 +7,8 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-gift"></i> {{ _('Offers on your packages') }}</span>
-        <a href="{{ url_for('add_offer') }}" class="btn btn-primary"><i class="bi bi-plus-circle"></i> {{ _('New offer') }}</a>
+        <span class="text-nowrap">{% if sms_ready %}<a href="{{ url_for('offer_sms') }}" class="btn btn-outline-primary"><i class="bi bi-chat-dots"></i> {{ _('Send by SMS') }}</a>{% endif %}
+            <a href="{{ url_for('add_offer') }}" class="btn btn-primary"><i class="bi bi-plus-circle"></i> {{ _('New offer') }}</a></span>
     </div>
     <div class="card-body">
         <p class="small text-muted">{{ _('Give guests extra free time or a lower price, e.g. "Buy 3 days, get 1 day free". Guests see the offer on the login page and in the guest app, and get it automatically when they pay. If several offers fit a package, the newest one is used.') }}</p>
@@ -31,6 +32,7 @@
                         {% else %}<span class="badge bg-secondary">{{ _('Ended') }}</span>{% endif %}</td>
                     <td class="text-nowrap">
                         <a href="{{ url_for('edit_offer', offer_id=o.id) }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i></a>
+                        {% if sms_ready and o.is_active and (not o.ends_at or o.ends_at > now) %}<a href="{{ url_for('offer_sms', offer=o.id) }}" class="btn btn-sm btn-outline-success" title="{{ _('Send by SMS') }}"><i class="bi bi-chat-dots"></i></a>{% endif %}
                         <form method="POST" action="{{ url_for('toggle_offer', offer_id=o.id) }}" class="d-inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button class="btn btn-sm {{ 'btn-outline-warning' if o.is_active else 'btn-outline-success' }}" type="submit">{{ _('Switch off') if o.is_active else _('Switch on') }}</button></form>
                         <form method="POST" action="{{ url_for('delete_offer', offer_id=o.id) }}" class="d-inline" onsubmit="return confirm({{ _('Delete offer {name}?', name=o.name)|tojson|forceescape }});"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

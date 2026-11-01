@@ -213,6 +213,9 @@ def run():
     _add_column('sites', 'omada_verify_tls', 'BOOLEAN NOT NULL DEFAULT 0')
     _add_column('sites', 'omada_hosted', 'BOOLEAN NOT NULL DEFAULT 0')
     _add_column('sites', 'omada_site_id', 'VARCHAR(64)')
+    # Offers sent by SMS to customers: each SMS belongs to its send
+    _add_column('sms_charges', 'campaign_id', 'INTEGER')
+    _add_index('sms_charges', 'ix_sms_charges_campaign_id', 'campaign_id')
     _add_column('sites', 'omada_ssid', 'VARCHAR(32)')
     _add_column('sites', 'omada_device_password_enc', 'TEXT')
     _add_column('sites', 'wifidog_enabled', 'BOOLEAN NOT NULL DEFAULT 0')

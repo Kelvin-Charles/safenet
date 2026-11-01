@@ -1,0 +1,47 @@
+"""Kiswahili: offers sent by SMS to customers (offers/sms.html and its messages)."""
+SW = {
+    'Send by SMS': 'Tuma kwa SMS',
+    'Send an offer by SMS': 'Tuma ofa kwa SMS',
+    'Message to your customers': 'Ujumbe kwa wateja wako',
+    'Customers are the phone numbers that paid for Wi-Fi at your business. Each SMS starts with your business name and ends with a link the customer can open to stop getting offers from you.':
+        'Wateja ni namba za simu zilizowahi kulipia Wi-Fi kwenye biashara yako. Kila SMS inaanza na jina la biashara yako na kuishia na kiungo ambacho mteja anaweza kufungua kuacha kupokea ofa zako.',
+    'optional': 'si lazima',
+    '— write my own message —': '— nitaandika ujumbe wangu —',
+    'Message': 'Ujumbe',
+    'SMS per customer': 'SMS kwa kila mteja',
+    'Customers of': 'Wateja wa',
+    'Who paid': 'Waliolipa',
+    'Any time': 'Wakati wowote',
+    'In the last {n} days': 'Ndani ya siku {n} zilizopita',
+    'Check before sending': 'Hakikisha kabla ya kutuma',
+    '{n} customers × {parts} SMS × {cur} {price} = {cur} {cost}': 'Wateja {n} × SMS {parts} × {cur} {price} = {cur} {cost}',
+    'Taken from your SafeNet Pay balance ({cur} {balance}).': 'Inakatwa kwenye salio lako la SafeNet Pay ({cur} {balance}).',
+    'Added to your next SafeNet bill.': 'Inaongezwa kwenye bili yako ijayo ya SafeNet.',
+    'Only SMS that go out are charged.': 'Unalipia SMS zilizotumwa tu.',
+    'Send to {n} customers': 'Tuma kwa wateja {n}',
+    'Update': 'Sasisha',
+    'Check cost and preview': 'Angalia gharama na ujumbe',
+    'Customers': 'Wateja',
+    'will get this SMS (with the choices on the left)': 'watapata SMS hii (kwa machaguo ya kushoto)',
+    '{n} left out: they got an offer in the last 24 hours.': '{n} wameachwa: walipata ofa ndani ya saa 24 zilizopita.',
+    '{n} left out: they asked to stop.': '{n} wameachwa: waliomba kuacha.',
+    'One SMS costs {cur} {price}. A long message, or one with emoji, counts as more than one SMS.':
+        'SMS moja ni {cur} {price}. Ujumbe mrefu, au wenye emoji, unahesabiwa kama SMS zaidi ya moja.',
+    '{n} customers have asked to stop getting your offers.': 'Wateja {n} wameomba kuacha kupokea ofa zako.',
+    'Offers sent by SMS': 'Ofa zilizotumwa kwa SMS',
+    'Sending': 'Inatumwa',
+    '{n} not delivered to the SMS gateway (not charged)': '{n} hazikupokelewa na mtandao wa SMS (hazilipiwi)',
+    'No offers sent by SMS yet.': 'Bado hujatuma ofa kwa SMS.',
+    'Offer to customers': 'Ofa kwa wateja',
+    'SMS is not available right now. Contact SafeNet.': 'SMS haipatikani kwa sasa. Wasiliana na SafeNet.',
+    'Write the message.': 'Andika ujumbe.',
+    'The message can be up to {n} characters.': 'Ujumbe unaweza kuwa hadi herufi {n}.',
+    'No customers to send to: nobody has paid yet with these choices, or they all got an offer in the last 24 hours.':
+        'Hakuna wateja wa kutumiwa: hakuna aliyelipa kwa machaguo haya, au wote walipata ofa ndani ya saa 24 zilizopita.',
+    'Up to {n} customers per send: choose one site or fewer days.': 'Hadi wateja {n} kwa kila utumaji: chagua eneo moja au siku chache.',
+    'Your SafeNet Pay balance ({cur} {balance}) is less than the cost ({cur} {cost}).':
+        'Salio lako la SafeNet Pay ({cur} {balance}) ni dogo kuliko gharama ({cur} {cost}).',
+    'Your last offer is still being sent. Try again when it has finished.': 'Ofa yako ya mwisho bado inatumwa. Jaribu tena ikimaliza.',
+    'Sending your offer to {n} customers. It takes a few minutes; the list below shows how many have gone.':
+        'Inatuma ofa yako kwa wateja {n}. Inachukua dakika chache; orodha hapa chini inaonyesha ngapi zimetumwa.',
+}

@@ -901,6 +901,43 @@ class SubscriptionPayment(db.Model):
         return f'<SubscriptionPayment {self.reference} {self.status}>'
 
 
+class SmsCampaign(db.Model):
+    """An offer sent by SMS to a business's customers (phones that paid before). Each SMS is an SmsCharge (kind 'offer')."""
+    __tablename__ = 'sms_campaigns'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'))        # NULL = customers of every site
+    offer_id = db.Column(db.Integer, db.ForeignKey('offers.id', ondelete='SET NULL'))
+    text = db.Column(db.String(640), nullable=False)            # as written by the owner (the stop link is added per customer)
+    days = db.Column(db.Integer)                                # customers who paid in the last N days (NULL = ever)
+    recipients = db.Column(db.Integer, nullable=False, default=0)
+    sent = db.Column(db.Integer, nullable=False, default=0)     # accepted by the SMS gateway so far
+    parts = db.Column(db.Integer, nullable=False, default=1)
+    amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    status = db.Column(db.String(16), nullable=False, default='sending')    # sending, done
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='SET NULL'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    site = db.relationship('Site')
+    offer = db.relationship('Offer')
+
+
+class SmsContact(db.Model):
+    """A customer's phone at one business: the short code in their stop link, and whether they said stop."""
+    __tablename__ = 'sms_contacts'
+    __table_args__ = (db.UniqueConstraint('tenant_id', 'phone', name='uq_sms_contact'),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    phone = db.Column(db.String(16), nullable=False)
+    token = db.Column(db.String(12), nullable=False, unique=True)
+    stopped_at = db.Column(db.DateTime)                         # no more offers from this business
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    tenant = db.relationship('Tenant')
+
+
 class SmsCharge(db.Model):
     """An SMS sent to a tenant's guest (voucher code), charged to the tenant: taken from its SafeNet Pay
     balance ('balance'), or added to its next SafeNet bill ('bill') when guests pay into its own account."""
@@ -911,11 +948,12 @@ class SmsCharge(db.Model):
     site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'), index=True)
     payment_id = db.Column(db.Integer, db.ForeignKey('payments.id', ondelete='SET NULL'))
     phone = db.Column(db.String(16), nullable=False)
-    kind = db.Column(db.String(16), nullable=False)            # voucher, gift, receipt (guests); sale, daily (to the owner)
+    kind = db.Column(db.String(16), nullable=False)            # voucher, gift, receipt, offer (guests); sale, daily (to the owner)
     parts = db.Column(db.Integer, nullable=False, default=1)   # a long message is billed as several SMS
     amount = db.Column(db.Numeric(10, 2), nullable=False)
     method = db.Column(db.String(8), nullable=False)           # balance, bill
     subscription_payment_id = db.Column(db.Integer, db.ForeignKey('subscription_payments.id', ondelete='SET NULL'), index=True)
+    campaign_id = db.Column(db.Integer, db.ForeignKey('sms_campaigns.id', ondelete='SET NULL'), index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
     def __repr__(self):
