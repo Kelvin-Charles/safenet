@@ -3344,6 +3344,37 @@ def _ruijie_cloud(site):
     return _ruijie_clients[key]
 
 
+_ruijie_cache = {}             # (what, account) -> (time, value): Ruijie limits how often it may be asked
+RUIJIE_CACHE_SECONDS = 300
+
+
+def _platform_cloud(account):
+    """SafeNet's own Ruijie Cloud account, sharing one login (token) with the sites that use it."""
+    key = (account[0], account[1], account[2])
+    if key not in _ruijie_clients:
+        _ruijie_clients[key] = ruijie.Cloud(account[0], account[1], secretbox.decrypt(account[2]))
+    return _ruijie_clients[key]
+
+
+def _ruijie_cached(what, cloud, fn, force=False):
+    key = (what, getattr(cloud, 'base', ''), getattr(cloud, 'appid', ''))
+    hit = _ruijie_cache.get(key)
+    if hit and time.time() - hit[0] < (60 if force else RUIJIE_CACHE_SECONDS):      # forced: at most once a minute
+        return hit[1]
+    value = fn()
+    _ruijie_cache[key] = (time.time(), value)
+    return value
+
+
+def _ruijie_projects(cloud, force=False):
+    return _ruijie_cached('projects', cloud, cloud.projects, force)
+
+
+def _ruijie_where(cloud, force=False):
+    """Which project each access point (serial number) is in, read at most every 5 minutes unless forced."""
+    return _ruijie_cached('where', cloud, cloud.where, force)
+
+
 def _ruijie_info(site):
     try:
         return json.loads(site.ruijie_packages or '{}')
@@ -3476,6 +3507,8 @@ def _ruijie_sync_site(site, cloud=None, now=None):
     by_mac = {_mac_norm(p.get('mac')): p for p in phones}
     theirs = {str(v.get('voucherCode') or ''): v for v in cloud.vouchers(site.ruijie_group_id)}
     theirs.pop('', None)
+    if site.ruijie_error and ruijie.busy(site.ruijie_error):       # Ruijie answers again
+        site.ruijie_error = None
     # which phone each code is on, from Ruijie's own login records (the latest login of each phone wins)
     try:
         logins = sorted(cloud.logins(site.ruijie_group_id), key=lambda x: int(x.get('loginTimes') or 0))
@@ -3883,7 +3916,7 @@ def _ruijie_match(site, found=None):
         return []
     try:
         if found is None:
-            found = _ruijie_cloud(site).project_of(_site_serials(site))
+            found = _ruijie_where(_ruijie_cloud(site), force=True)
     except ruijie.RuijieError as e:
         site.ruijie_error = str(e)[:255]
         db.session.commit()
@@ -3941,7 +3974,7 @@ def platform_reyee():
     projects, error = [], None
     if account:
         try:
-            projects = ruijie.Cloud(account[0], account[1], secretbox.decrypt(account[2])).projects()
+            projects = _ruijie_projects(_platform_cloud(account))
         except ruijie.RuijieError as e:
             error = str(e)
     sites = Site.query.filter_by(ruijie_managed=True).order_by(Site.ruijie_group_id.isnot(None), Site.id).all()
@@ -3952,8 +3985,7 @@ def platform_reyee():
     waiting = [s for s in sites if not s.ruijie_group_id and _site_serials(s)]
     if account and waiting and not error:
         try:
-            where = ruijie.Cloud(account[0], account[1], secretbox.decrypt(account[2])).project_of(
-                {sn for s in waiting for sn in _site_serials(s)})
+            where = _ruijie_where(_platform_cloud(account))
             for s in waiting:
                 groups = {where[sn] for sn in _site_serials(s) if sn in where}
                 if len(groups) == 1:
@@ -4033,8 +4065,7 @@ def platform_reyee_match():
         flash('No business is waiting with a serial number.', 'info')
         return redirect(url_for('platform_reyee'))
     try:
-        where = ruijie.Cloud(account[0], account[1], secretbox.decrypt(account[2])).project_of(
-            {sn for s in waiting for sn in _site_serials(s)})
+        where = _ruijie_where(_platform_cloud(account), force=True)
     except ruijie.RuijieError as e:
         flash(f'Ruijie Cloud: {e}', 'danger')
         return redirect(url_for('platform_reyee'))

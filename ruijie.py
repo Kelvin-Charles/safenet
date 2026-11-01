@@ -36,6 +36,12 @@ class RuijieError(Exception):
         super().__init__(safetext.clean(message))
 
 
+def busy(message):
+    """Ruijie Cloud's rate limit ("Too many requests", HTTP 429)."""
+    m = (message or '').lower()
+    return 'too many' in m or ' 429' in m
+
+
 def valid_cloud(url):
     """Only Ruijie's own HTTPS servers (the App secret is sent there)."""
     return bool(re.fullmatch(r'https://[a-z0-9-]+\.ruijienetworks\.com', (url or '').rstrip('/')))
@@ -80,8 +86,18 @@ class Cloud:
     def token(self, force=False):
         if self._token and not force and time.time() - self._token_at < TOKEN_SECONDS:
             return self._token
-        reply = self._http('POST', f'{self.base}/service/api/oauth20/client/access_token?token={TOKEN_PARAM}',
-                           {'appid': self.appid, 'secret': self.secret})
+        for attempt in range(4):
+            try:
+                reply = self._http('POST', f'{self.base}/service/api/oauth20/client/access_token?token={TOKEN_PARAM}',
+                                   {'appid': self.appid, 'secret': self.secret})
+            except RuijieError as e:
+                if busy(str(e)) and attempt < 3:
+                    time.sleep(3 * (attempt + 1))
+                    continue
+                raise
+            if not (busy(str(reply.get('msg', ''))) and attempt < 3):
+                break
+            time.sleep(3 * (attempt + 1))
         if reply.get('code') != 0 or not reply.get('accessToken'):
             raise RuijieError(f'Ruijie Cloud refused the App ID or secret: {reply.get("msg") or reply.get("code")}')
         self._token, self._token_at = reply['accessToken'], time.time()
@@ -89,10 +105,21 @@ class Cloud:
 
     def call(self, method, path, query=None, body=None, inner=None):
         """The reply's data; raises RuijieError when Ruijie says it failed."""
-        for attempt in (0, 1):
-            qs = urllib.parse.urlencode({**(query or {}), 'access_token': self.token(force=attempt == 1)})
-            reply = self._http(method, f'{self.base}/service/api/{path}?{qs}', body if method == 'POST' else None)
-            if (reply.get('code') == 4 or str(reply.get('msg', '')).lower() == 'login timeout') and attempt == 0:
+        relogin = False
+        for attempt in range(4):
+            qs = urllib.parse.urlencode({**(query or {}), 'access_token': self.token(force=relogin)})
+            try:
+                reply = self._http(method, f'{self.base}/service/api/{path}?{qs}', body if method == 'POST' else None)
+            except RuijieError as e:
+                if busy(str(e)) and attempt < 3:
+                    time.sleep(3 * (attempt + 1))
+                    continue
+                raise
+            if (reply.get('code') == 4 or str(reply.get('msg', '')).lower() == 'login timeout') and not relogin:
+                relogin = True
+                continue
+            if busy(str(reply.get('msg', ''))) and attempt < 3:      # Ruijie's rate limit: wait and try again
+                time.sleep(3 * (attempt + 1))
                 continue
             break
         if reply.get('code') != 0:
@@ -128,6 +155,14 @@ class Cloud:
             if len(items) < size or len(out) >= int(data.get('totalCount') or 0):
                 break
         return [sn for sn in out if sn]
+
+    def where(self):
+        """{serial number: (groupId, project name)} for every device in the account's projects."""
+        found = {}
+        for gid, name in self.projects():
+            for sn in self.devices(gid):
+                found.setdefault(sn, (gid, name))
+        return found
 
     def project_of(self, serials):
         """{serial number: (groupId, project name)} for those of `serials` found in the account's projects."""

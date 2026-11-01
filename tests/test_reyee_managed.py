@@ -17,7 +17,7 @@ class FakeCloud:
         if self.secret != 'platform-secret':
             raise ruijie.RuijieError('Ruijie Cloud refused the App ID or secret: Login failed')
     def projects(self): return [('111', 'Other client shop'), ('222', 'Kariakoo')]
-    def project_of(self, serials): return {}          # the access points aren't in any project yet
+    def where(self): return {}                         # the access points aren't in any project yet
     def packages(self, group_id): return [{'user_group': 'u1', 'profile': 'p1', 'minutes': 1440, 'name': 'SafeNet 1 day'}]
     def create_package(self, group_id, name, minutes, **kw): made_pkgs.append((group_id, minutes))
 

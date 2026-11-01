@@ -18,7 +18,7 @@ class FakeCloud:
     def token(self): pass
     def projects(self): return list(PROJECTS)
     def devices(self, gid): calls.append(gid); return list(DEVICES.get(gid, []))
-    project_of = ruijie.Cloud.project_of
+    where = ruijie.Cloud.where
     def packages(self, group_id): return [{'user_group': 'u', 'profile': 'p', 'minutes': 1440, 'name': '1 day'}]
     def create_package(self, *a, **k): pass
 
@@ -86,6 +86,7 @@ assert 'Waiting for SafeNet' in r
 with app.app_context():
     assert group('usmart') is None
 DEVICES['2'].append('G1USMARTNEW01')
+appmod._ruijie_cache.clear()                       # (read again: Ruijie is asked at most every few minutes)
 p = html.unescape(cb.get('/platform/reyee').text)
 assert 'Found in USMART - TICD' in p and 'its access point is here' in p
 r = html.unescape(cb.post('/platform/reyee/match', data={'csrf_token': tok(p)}, follow_redirects=True).text)
@@ -95,4 +96,10 @@ with app.app_context():
 # businesses never choose a project themselves
 c = login('split'); s = c.get('/sites').text
 assert c.post(f"/sites/{site_of['split']}/ruijie-cloud", data={'csrf_token': tok(s), 'action': 'project', 'group_id': '3'}).status_code == 403
+# Ruijie's rate limit: the platform page never offers to disconnect a site when projects can't be read
+appmod._ruijie_cache.clear()
+FakeCloud.projects = lambda self: (_ for _ in ()).throw(ruijie.RuijieError('Ruijie Cloud: Too many requests'))
+p = html.unescape(cb.get('/platform/reyee').text)
+assert "can't be read from Ruijie Cloud right now" in p and 'disconnect' not in p
+assert ruijie.busy('Ruijie Cloud: Too many requests') and ruijie.busy('Ruijie Cloud answered 429: x') and not ruijie.busy('Login failed')
 print('REYEE SERIALS OK')

@@ -49,10 +49,12 @@
                     <td>{% if s.ruijie_sn %}<code class="user-select-all">{{ s.ruijie_sn }}</code>{% else %}<small class="text-muted">set up before</small>{% endif %}</td>
                     <td>{{ s.ruijie_ssid or '—' }}</td>
                     <td>
+                        {% if projects %}
                         <form method="POST" action="{{ url_for('platform_reyee_site', site_id=s.id) }}" class="d-flex gap-1">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <select name="group_id" class="form-select form-select-sm" style="min-width: 180px">
-                                <option value="">{{ '— choose the project —' if not s.ruijie_group_id else '— none —' }}</option>
+                                <option value="">{{ '— choose the project —' if not s.ruijie_group_id else '— none (disconnect) —' }}</option>
+                                {% if s.ruijie_group_id and s.ruijie_group_id not in projects|map('first')|list %}<option value="{{ s.ruijie_group_id }}" selected>{{ s.ruijie_group_name or s.ruijie_group_id }}</option>{% endif %}
                                 {% for gid, gname in projects %}
                                 {% set other = used.get(gid) %}{% set who = owner.get(gid) %}
                                 {% set hit = found.get(s.id) %}{% set suggest = not s.ruijie_group_id and not other and hit and hit[0] == gid %}
@@ -61,6 +63,7 @@
                             </select>
                             <button class="btn btn-sm btn-primary" type="submit">Use</button>
                         </form>
+                        {% else %}<small class="d-block text-muted">Projects can't be read from Ruijie Cloud right now; try again in a few minutes.</small>{% endif %}
                         {% if s.ruijie_group_id %}<small class="text-success"><i class="bi bi-check-circle"></i> {{ s.ruijie_group_name or s.ruijie_group_id }}</small>{% elif found.get(s.id) %}<small class="text-primary">Found in {{ found[s.id][1] }}: press Use</small>{% elif s.ruijie_sn %}<small class="text-warning-emphasis">Not in any project yet: add it by its serial number</small>{% else %}<small class="text-warning-emphasis">Waiting for you</small>{% endif %}
                     </td>
                     <td class="text-nowrap"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('platform_reyee_portal', site_id=s.id) }}"><i class="bi bi-download"></i> Login page</a></td>
