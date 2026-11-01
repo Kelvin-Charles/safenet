@@ -18,7 +18,7 @@
     <tbody>
         <tr><td><strong>Ruijie enterprise access points</strong>: RG-AP820-L(V2), RG-AP820-L(V3), RG-AP840-L, RG-AP880 and other <code>RG-AP…</code> models</td><td>✅ Yes, just the access point and internet</td></tr>
         <tr><td><strong>Reyee gateway routers</strong>: <code>RG-EG…</code> models, with any Reyee access point</td><td>✅ Yes, through the router's WiFiDog setting</td></tr>
-        <tr><td><strong>Reyee access points</strong>: RG-RAP6262 and other <code>RG-RAP…</code> models whose firmware offers a <strong>third-party WiFiDog server</strong></td><td>✅ Yes, the same way as above. See <a href="#reyee">Reyee with WiFiDog</a>.</td></tr>
+        <tr><td><strong>Reyee access points</strong> whose firmware offers a <strong>third-party WiFiDog server</strong> (for example RG-RAP2260G; <em>not</em> the RG-RAP6262(G), even on ReyeeOS 2.420)</td><td>✅ Yes, the same way as above. See <a href="#reyee">Reyee with WiFiDog</a>.</td></tr>
         <tr><td><strong>Reyee access points</strong> that only offer Ruijie's own login page</td><td>✅ Yes, with <a href="#cloud">Ruijie Cloud vouchers</a>: guests buy on SafeNet and type the code on Ruijie's page. Just the access point and internet.</td></tr>
     </tbody>
 </table></div>
@@ -56,7 +56,7 @@ write</code></pre>
 <div class="note warn"><i class="bi bi-exclamation-triangle"></i><p><strong>Managed by Ruijie Cloud?</strong> Ruijie Cloud may overwrite settings made on the access point itself. Either remove the access point from Ruijie Cloud, or set the same values in Ruijie Cloud's captive portal settings (policy mode <strong>External</strong>, the authentication server URL above as the portal server URL, and the portal server IP). Firmware menus differ between models; if yours looks different, contact support with a screenshot.</p></div>
 
 <h2 id="reyee">Reyee with WiFiDog</h2>
-<p>Ruijie added third-party WiFiDog servers to some Reyee firmware (for example ReyeeOS 2.385 for the RG-RAP6262). If yours offers it, this is the best way: it works exactly like the Ruijie access points above.</p>
+<p>Ruijie added third-party WiFiDog servers to some Reyee models' firmware (for example ReyeeOS 2.385 for the RG-RAP2260G). If yours offers it, this is the best way: it works exactly like the Ruijie access points above. In Ruijie Cloud: Captive Portal → Add, Policy Mode <em>External</em>, Authentication Device <em>Reyee AP</em>, Auth Protocol <em>WiFiDog</em>, Redirect URL = the authentication server URL. If the list then shows ⚠ <em>Unsupported primary device(s)</em>, that model can't do it (the RG-RAP6262(G) can't): delete the policy at once, because the Wi-Fi is open to everyone while it's there, and use Ruijie Cloud vouchers below.</p>
 <ol class="steps">
     <li><strong>Update the firmware</strong>In the access point's web page or Ruijie Cloud, update to the newest firmware for your model.</li>
     <li><strong>Look for WiFiDog</strong>Open the captive portal (authentication) settings. If you can choose a <strong>third-party WiFiDog server</strong>, enter the <strong>Authentication server URL</strong> from the <strong>Ruijie</strong> box on your Sites page, and the portal server IP if asked. Make the guest Wi-Fi open (no password).</li>
