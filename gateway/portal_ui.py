@@ -101,6 +101,7 @@ T = {
         'trial_hint_day': 'No payment and no voucher needed. One free trial per phone each day.',
         'trial_ok': "You're on your free trial. Enjoy!",
         'buy_title': 'Choose a package', 'buy_lead': 'Pick a package, then your mobile-money network.',
+        'offer': 'Offer', 'offer_free': '+{time} free', 'offer_off': '{n}% off',
         'network': 'Your mobile-money network', 'min_from': 'From {amount}', 'choose_network': 'Choose your network first',
         'phone': 'Mobile money number', 'pay': 'Pay {price}', 'pay_hint': "You'll get a PIN prompt on your phone. Once paid, you're connected automatically and the code is sent to you by SMS.",
         'pay_hint_nosms': "You'll get a PIN prompt on your phone. Once paid, you're connected automatically and your code is shown here: write it down.",
@@ -143,6 +144,7 @@ T = {
         'trial_hint_day': 'Hakuna malipo wala vocha. Jaribio moja la bure kwa kila simu kila siku.',
         'trial_ok': 'Uko kwenye jaribio lako la bure. Furahia!',
         'buy_title': 'Chagua kifurushi', 'buy_lead': 'Chagua kifurushi, kisha mtandao wako wa malipo.',
+        'offer': 'Ofa', 'offer_free': '+{time} bure', 'offer_off': 'Punguzo {n}%',
         'network': 'Mtandao wako wa malipo', 'min_from': 'Kuanzia {amount}', 'choose_network': 'Chagua mtandao kwanza',
         'phone': 'Namba ya simu ya malipo', 'pay': 'Lipa {price}', 'pay_hint': 'Utapokea ujumbe wa kuweka PIN kwenye simu yako. Ukishalipa utaunganishwa moja kwa moja na namba ya vocha itatumwa kwa SMS.',
         'pay_hint_nosms': 'Utapokea ujumbe wa kuweka PIN kwenye simu yako. Ukishalipa utaunganishwa moja kwa moja na namba ya vocha itaonyeshwa hapa: iandike.',
@@ -519,13 +521,23 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
         for i, p in enumerate(packages):
             price = money(p.get('currency', 'TZS'), p.get('price'))
             valid = duration(p['validity_minutes'], lang) if p.get('validity_minutes') else e(p.get('validity', ''))
-            desc = f' · {e(p["description"])}' if p.get('description') else ''
-            was = f'<s style="opacity:.6;font-weight:400">{e(money(p.get("currency", "TZS"), p["old_price"]))}</s> ' if p.get('old_price') else ''
+            offer = p.get('offer') or ''
+            text = p.get('description') or ''
+            if offer and text.startswith(f'🎁 {offer}'):          # the offer has its own tag below
+                text = text[len(f'🎁 {offer}'):].lstrip(' ·')
+            desc = f' · {e(text)}' if text else ''
+            was = f'<s>{e(money(p.get("currency", "TZS"), p["old_price"]))}</s>' if p.get('old_price') else ''
+            deal = ''
+            if offer:
+                gets = [t(lang, 'offer_free', time=duration(p['bonus_minutes'], lang))] if p.get('bonus_minutes') else []
+                gets += [t(lang, 'offer_off', n=int(p['discount_percent']))] if p.get('discount_percent') else []
+                deal = (f'<span class="deal"><span class="flag">🎁 {e(t(lang, "offer"))}</span> {e(offer)}'
+                        + (f'<em>{e(" · ".join(gets))}</em>' if gets else '') + '</span>')
             options.append(
-                f'<label class="pkg{" on" if i == 0 else ""}"><input type="radio" name="package_id" value="{int(p["id"])}" '
+                f'<label class="pkg{" on" if i == 0 else ""}{" has-offer" if offer else ""}"><input type="radio" name="package_id" value="{int(p["id"])}" '
                 f'data-label="{e(t(lang, "pay", price=price))}" data-price="{e(str(p.get("price", "0")))}" required{" checked" if i == 0 else ""}>'
                 f'<span class="ic">{icon("clock", 21)}</span>'
-                f'<span class="nm"><b>{e(p["name"])}</b><small>{valid}{desc}</small></span>'
+                f'<span class="nm"><b>{e(p["name"])}</b><small>{valid}{desc}</small>{deal}</span>'
                 f'<span class="pr">{was}{e(price)}</span><span class="tick">{icon("check", 14, 3)}</span></label>')
         first_price = money(packages[0].get('currency', 'TZS'), packages[0].get('price'))
         net_tiles = ''
@@ -719,6 +731,7 @@ APP_T = {
         'not_started': 'Starts when you first connect', 'expired': 'Time is up', 'used': 'Data used', 'down': 'down', 'up': 'up',
         'package': 'Package', 'code': 'Code', 'buy_more': 'Buy more', 'buy_friend': 'Buy for a friend', 'history': 'My packages',
         'help': 'Help', 'call': 'Call', 'install': 'Add to home screen', 'install_ios': 'On iPhone: tap Share, then "Add to Home Screen".',
+        'offer': 'Offer', 'offer_free': '+{time} free', 'offer_off': '{n}% off',
         'choose': 'Choose a package', 'network': 'Mobile-money network', 'your_phone': 'Your mobile money number', 'friend_phone': "Friend's phone number",
         'pay': 'Pay {price}', 'check_phone': 'Check your phone and enter your PIN to pay {amount}.', 'waiting': 'Waiting for your payment…',
         'paid_me': 'Paid! Your new package {code} is ready: your phone connects with it by itself when the current time ends.',
@@ -735,6 +748,7 @@ APP_T = {
         'not_started': 'Inaanza ukiunganishwa mara ya kwanza', 'expired': 'Muda umeisha', 'used': 'Data uliyotumia', 'down': 'kupakua', 'up': 'kupakia',
         'package': 'Kifurushi', 'code': 'Namba', 'buy_more': 'Nunua zaidi', 'buy_friend': 'Nunulia rafiki', 'history': 'Vifurushi vyangu',
         'help': 'Msaada', 'call': 'Piga', 'install': 'Weka kwenye skrini ya simu', 'install_ios': 'Kwenye iPhone: bonyeza Share, kisha "Add to Home Screen".',
+        'offer': 'Ofa', 'offer_free': '+{time} bure', 'offer_off': 'Punguzo {n}%',
         'choose': 'Chagua kifurushi', 'network': 'Mtandao wa malipo', 'your_phone': 'Namba yako ya malipo', 'friend_phone': 'Namba ya simu ya rafiki',
         'pay': 'Lipa {price}', 'check_phone': 'Angalia simu yako na weka PIN kulipia {amount}.', 'waiting': 'Tunasubiri malipo yako…',
         'paid_me': 'Umelipa! Kifurushi kipya {code} kiko tayari: simu yako itaunganishwa nacho yenyewe muda wa sasa ukiisha.',
@@ -818,8 +832,12 @@ function buy(d,gift){var f=el('form');f.append(el('h2',null,gift?tt('buy_friend'
   var err=el('div','alert hidden');f.append(err);var pk=el('div','pkgs');
   d.packages.forEach(function(p,i){var l=el('label','pkg'+(i?'':' on'));var r=el('input');r.type='radio';r.name='package_id';r.value=p.id;r.checked=!i;
     r.onchange=function(){pk.querySelectorAll('.pkg').forEach(function(x){x.classList.toggle('on',x.contains(r));});pay.textContent=tt('pay',{price:money(p.currency,p.price)});};
-    var nm=el('span','nm');nm.append(el('b',null,p.name),el('small',null,dur(p.validity_minutes*60)+(p.offer?' · 🎁 '+p.offer:'')));
-    l.append(r,nm,el('span','pr',money(p.currency,p.price)));pk.append(l);});f.append(pk);
+    var nm=el('span','nm');nm.append(el('b',null,p.name),el('small',null,dur(p.validity_minutes*60)));
+    if(p.offer){l.className+=' has-offer';var dl=el('span','deal');dl.append(el('span','flag','🎁 '+tt('offer')),document.createTextNode(' '+p.offer));
+      var g=[];if(p.bonus_minutes)g.push(tt('offer_free',{time:dur(p.bonus_minutes*60)}));if(p.discount_percent)g.push(tt('offer_off',{n:p.discount_percent}));
+      if(g.length)dl.append(el('em',null,g.join(' · ')));nm.append(dl);}
+    var pr=el('span','pr');if(p.old_price)pr.append(el('s',null,money(p.currency,p.old_price)));pr.append(document.createTextNode(money(p.currency,p.price)));
+    l.append(r,nm,pr);pk.append(l);});f.append(pk);
   var net=null;if(d.networks.length){net=el('select','input');d.networks.forEach(function(n){var o=el('option',null,n.name);o.value=n.id;net.append(o);});
     var nf=el('div','field');nf.append(el('label',null,tt('network')),net);f.append(nf);}
   var ph=el('input','input');ph.type='tel';ph.inputMode='tel';ph.placeholder='07XX XXX XXX';ph.required=true;

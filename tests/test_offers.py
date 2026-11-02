@@ -71,7 +71,16 @@ with app.app_context():
 g = app.test_client()
 g.get('/mikrotik/mktok?link-login-only=http://10.5.50.1/login&mac=AA:BB:CC:00:00:01', base_url='https://radius.example.tz')
 page = html.unescape(g.get('/mikrotik/mktok', base_url='https://radius.example.tz').text)
-assert 'Weekend 20% off' in page and '<s ' in page and '800' in page
+assert 'Weekend 20% off' in page and '<s>' in page and '800' in page
+assert 'class="pkg on has-offer"' in page and '🎁 Ofa' in page and 'Punguzo 20%' in page or '20% off' in page
+from gateway import portal_ui
+with app.app_context():
+    pk = appmod._guest_packages(db.session.get(Tenant, TID), MAIN)
+th = portal_ui.theme({})
+en = portal_ui.login_page(th, 'en', packages=pk, buy_enabled=True, networks=[])
+sw = portal_ui.login_page(th, 'sw', packages=pk, buy_enabled=True, networks=[])
+assert '🎁 Offer</span> Weekend 20% off<em>20% off</em>' in en and 'Punguzo 20%' in sw and en.count(' has-offer"') == len(pk)
+assert '🎁 Offer</span> Nunua siku 3' not in en       # P3: the newer weekend offer applies
 # switch it off: back to normal prices; offers that ended or haven't started don't count
 lst = c.get('/offers').text
 with app.app_context():

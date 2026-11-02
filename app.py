@@ -1898,7 +1898,9 @@ def _guest_packages(tenant, site_id):
         out.append({'id': p.id, 'name': p.name, 'description': ' · '.join(x for x in (note, p.description or '') if x),
                     'price': f'{price:.0f}', 'currency': p.currency, 'validity_minutes': minutes,
                     'validity': format_minutes(minutes), 'offer': offer.name if offer else '',
-                    'old_price': f'{p.price:.0f}' if price != p.price else ''})
+                    'old_price': f'{p.price:.0f}' if price != p.price else '',
+                    'bonus_minutes': int(offer.bonus_minutes or 0) if offer else 0,
+                    'discount_percent': int(offer.discount_percent or 0) if offer else 0})
     return out
 
 
