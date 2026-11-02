@@ -9,6 +9,12 @@
     <div class="card-body">
         <p class="small text-muted">Businesses' Reyee access points go into <strong>your</strong> Ruijie Cloud account, so they need no Ruijie account or keys: they only type the access point's serial number in SafeNet. Every device added under your account works with these keys (Ruijie support confirmed no new keys are needed per device).
             {% if account %}<span class="badge bg-success">Connected · {{ cloud_name }}</span>{% else %}<span class="badge bg-light text-dark border">Not set</span>{% endif %}</p>
+        {% if requests %}{% set pct = (100 * requests.calls / requests.limit)|round|int %}
+        <div class="small mb-2">Ruijie Cloud requests today: <strong>{{ '{:,}'.format(requests.calls) }}</strong> of {{ '{:,}'.format(requests.limit) }}
+            ({{ '{:,}'.format(requests.sync) }} by the guest sync, which stops at {{ '{:,}'.format(requests.sync_cap) }} and spaces itself out to last the day) · starts again at {{ requests.resets }}
+            <div class="progress mt-1" style="height:6px"><div class="progress-bar {{ 'bg-danger' if pct >= 90 else 'bg-warning' if pct >= 65 else 'bg-success' }}" style="width: {{ pct }}%"></div></div>
+            <span class="text-muted">Ruijie allows 5,000 a day per App ID. Codes for guests who paid may use up to 98% of them; pages like this one up to 90%.</span></div>
+        {% endif %}
         {% if error %}<div class="alert alert-danger py-2 small">Ruijie Cloud: {{ error }}</div>{% endif %}
         <form method="POST" action="{{ url_for('platform_reyee_keys') }}" class="row g-2" autocomplete="off">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

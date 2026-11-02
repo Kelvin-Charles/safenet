@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
+from models import db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -3518,6 +3518,11 @@ def _ruijie_catch_up():
 
 
 def _ruijie_push_due():
+    with ruijie.lane('push'):
+        _ruijie_push_due_now()
+
+
+def _ruijie_push_due_now():
     try:
         _ruijie_catch_up()
     except Exception:
@@ -3645,26 +3650,99 @@ def _ruijie_sync_site(site, cloud=None, now=None):
     db.session.commit()
 
 
-RUIJIE_SYNC_SECONDS = 180      # Ruijie limits how many calls a day one account may make
+RUIJIE_SYNC_SECONDS = 180      # at most this often; less when the day's requests run short (see _ruijie_sync_gap)
+# Ruijie Cloud allows an App ID 5,000 requests a day. Each kind of work may use the day's requests up to its share,
+# so the background sync can never use what's needed for codes guests paid for.
+RUIJIE_SHARES = {'sync': 0.65, 'page': 0.90, 'push': 0.98}
+_ruijie_sync_cost = {}         # site id -> requests its last sync took (this worker)
+
+
+def _ruijie_day():
+    return datetime.utcnow().date()
+
+
+def _ruijie_used(appid, day=None):
+    """Requests made today with this App ID (all workers)."""
+    row = RuijieUsage.query.filter_by(appid=(appid or '')[:64], day=day or _ruijie_day()).first()
+    return row.calls if row else 0
+
+
+def _ruijie_reset_text():
+    """When Ruijie's day starts again, in local time (Ruijie counts by UTC day)."""
+    return (datetime.combine(_ruijie_day() + timedelta(days=1), datetime.min.time()) + _local_offset()).strftime('%H:%M')
+
+
+def _ruijie_meter(appid, lane):
+    """Called before every request to Ruijie Cloud: count it, or refuse when this kind of work has used its share
+    of the day's requests. Runs on its own connection so it never commits the caller's work."""
+    appid, day, limit = (appid or '')[:64], _ruijie_day(), Config.RUIJIE_DAILY_LIMIT
+    cap = int(limit * RUIJIE_SHARES.get(lane, RUIJIE_SHARES['page']))
+    try:
+        with db.engine.begin() as conn:
+            row = conn.execute(text('SELECT calls FROM ruijie_usage WHERE appid = :a AND day = :d'), {'a': appid, 'd': day}).first()
+            used = row[0] if row else 0
+            if used >= cap:
+                raise ruijie.RuijieError(f"SafeNet has used today's Ruijie Cloud requests for this ({used:,} of {limit:,}); "
+                                         f"it continues after {_ruijie_reset_text()}.")
+            sync = 1 if lane == 'sync' else 0
+            if row:
+                conn.execute(text('UPDATE ruijie_usage SET calls = calls + 1, sync_calls = sync_calls + :s WHERE appid = :a AND day = :d'),
+                             {'a': appid, 'd': day, 's': sync})
+            else:
+                conn.execute(text('INSERT INTO ruijie_usage (appid, day, calls, sync_calls) VALUES (:a, :d, 1, :s)'),
+                             {'a': appid, 'd': day, 's': sync})
+    except ruijie.RuijieError:
+        raise
+    except Exception:                  # counting failed (e.g. two workers made today's row at once): don't block the request
+        log.warning('ruijie cloud: counting a request failed', exc_info=True)
+
+
+ruijie.meter = _ruijie_meter
+
+
+def _ruijie_sync_gap(appid, site_ids):
+    """Seconds between syncs of one App ID's sites so the sync's share of today's requests lasts the day,
+    never less than RUIJIE_SYNC_SECONDS; None when the share is used up."""
+    left = int(Config.RUIJIE_DAILY_LIMIT * RUIJIE_SHARES['sync']) - _ruijie_used(appid)
+    if left <= 0:
+        return None
+    now = datetime.utcnow()
+    secs_left = (datetime.combine(now.date() + timedelta(days=1), datetime.min.time()) - now).total_seconds()
+    cost = sum(_ruijie_sync_cost.get(sid, 4) for sid in site_ids)
+    return max(RUIJIE_SYNC_SECONDS, secs_left * cost / left)
 
 
 def _ruijie_sync_due():
-    """Sync each Ruijie site at most every 3 minutes across all web workers."""
-    cutoff = datetime.utcnow() - timedelta(seconds=RUIJIE_SYNC_SECONDS - 5)
-    for (sid, appid) in db.session.query(Site.id, Site.ruijie_appid).filter(Site.ruijie_group_id.isnot(None), Site.ruijie_appid.isnot(None)).all():
-        if _ruijie_paused(appid):
-            continue
-        claimed = Site.query.filter(Site.id == sid, or_(Site.ruijie_synced_at.is_(None), Site.ruijie_synced_at < cutoff)) \
-            .update({'ruijie_synced_at': datetime.utcnow()}, synchronize_session=False)
-        db.session.commit()
-        if not claimed:
-            continue
-        try:
-            _ruijie_sync_site(db.session.get(Site, sid))
-        except Exception as e:          # Ruijie Cloud down: try again next time
-            db.session.rollback()
-            log.warning('ruijie cloud: reading guests for site %s failed: %s', sid, e)
-            _ruijie_slow_down(appid, e)
+    """Sync each Ruijie site across all web workers: every 3 minutes at most, less often when the day's requests
+    would otherwise run out (see _ruijie_sync_gap)."""
+    rows = db.session.query(Site.id, Site.ruijie_appid).filter(Site.ruijie_group_id.isnot(None), Site.ruijie_appid.isnot(None)).all()
+    by_appid = {}
+    for sid, appid in rows:
+        by_appid.setdefault(appid, []).append(sid)
+    with ruijie.lane('sync'):
+        for appid, sids in by_appid.items():
+            if _ruijie_paused(appid):
+                continue
+            gap = _ruijie_sync_gap(appid, sids)
+            if gap is None:
+                continue
+            cutoff = datetime.utcnow() - timedelta(seconds=gap - 5)
+            for sid in sids:
+                claimed = Site.query.filter(Site.id == sid, or_(Site.ruijie_synced_at.is_(None), Site.ruijie_synced_at < cutoff)) \
+                    .update({'ruijie_synced_at': datetime.utcnow()}, synchronize_session=False)
+                db.session.commit()
+                if not claimed:
+                    continue
+                before = ruijie.requests_made()
+                try:
+                    _ruijie_sync_site(db.session.get(Site, sid))
+                except Exception as e:          # Ruijie Cloud down: try again next time
+                    db.session.rollback()
+                    log.warning('ruijie cloud: reading guests for site %s failed: %s', sid, e)
+                    if _ruijie_slow_down(appid, e):
+                        break
+                finally:
+                    _ruijie_sync_cost[sid] = max(1, ruijie.requests_made() - before)
 
 
 def _ruijie_loop():
@@ -4074,7 +4152,15 @@ def platform_reyee():
     return render_template('platform/reyee.html', account=account, projects=projects, error=error, sites=sites, used=used,
                            owner=owner, found=found,
                            tenants={t.id: t for t in Tenant.query.all()}, clouds=ruijie.CLOUDS,
-                           cloud_name=ruijie.CLOUDS.get(account[0]) if account else None, allowed_host=urlparse(Config.PUBLIC_URL or request.host_url).hostname)
+                           cloud_name=ruijie.CLOUDS.get(account[0]) if account else None, allowed_host=urlparse(Config.PUBLIC_URL or request.host_url).hostname,
+                           requests=_ruijie_requests_today(account[1]) if account else None)
+
+
+def _ruijie_requests_today(appid):
+    row = RuijieUsage.query.filter_by(appid=(appid or '')[:64], day=_ruijie_day()).first()
+    limit = Config.RUIJIE_DAILY_LIMIT
+    return {'calls': row.calls if row else 0, 'sync': row.sync_calls if row else 0, 'limit': limit,
+            'sync_cap': int(limit * RUIJIE_SHARES['sync']), 'resets': _ruijie_reset_text()}
 
 
 @app.route('/platform/reyee/keys', methods=['POST'])

@@ -901,6 +901,18 @@ class SubscriptionPayment(db.Model):
         return f'<SubscriptionPayment {self.reference} {self.status}>'
 
 
+class RuijieUsage(db.Model):
+    """Requests SafeNet made to Ruijie Cloud with one App ID on one day (UTC); Ruijie allows 5,000 a day."""
+    __tablename__ = 'ruijie_usage'
+    __table_args__ = (db.UniqueConstraint('appid', 'day', name='uq_ruijie_usage'),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    appid = db.Column(db.String(64), nullable=False)
+    day = db.Column(db.Date, nullable=False)
+    calls = db.Column(db.Integer, nullable=False, default=0)
+    sync_calls = db.Column(db.Integer, nullable=False, default=0)
+
+
 class SmsCampaign(db.Model):
     """An offer sent by SMS to a business's customers (phones that paid before). Each SMS is an SmsCharge (kind 'offer')."""
     __tablename__ = 'sms_campaigns'

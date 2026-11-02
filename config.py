@@ -131,6 +131,7 @@ class Config:
     MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER', '')
 
     # SMS (NextSMS): payment confirmations with voucher codes, billing notices
+    RUIJIE_DAILY_LIMIT = int(os.getenv('RUIJIE_DAILY_LIMIT', '5000'))     # Ruijie Cloud's requests a day per App ID
     NEXTSMS_USERNAME = os.getenv('NEXTSMS_USERNAME', '')
     NEXTSMS_PASSWORD = os.getenv('NEXTSMS_PASSWORD', '')
     NEXTSMS_SENDER_ID = os.getenv('NEXTSMS_SENDER_ID', '')

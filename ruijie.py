@@ -12,7 +12,9 @@ Every call carries ?access_token=...; an expired token answers code 4 or "Login 
 """
 import json
 import re
+import threading
 import time
+from contextlib import contextmanager
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -27,7 +29,32 @@ CLOUDS = {
     'https://cloud-us.ruijienetworks.com': 'Americas (cloud-us)',
 }
 TOKEN_PARAM = 'd63dss0a81e4415a889ac5b78fsc904a'     # fixed value from Ruijie's manual
-TOKEN_SECONDS = 20 * 60
+TOKEN_SECONDS = 2 * 60 * 60     # an expired token is noticed ("login timeout") and renewed at once
+# Ruijie allows one App ID 20 requests a second and 5,000 a day. The app sets `meter(appid, lane)`, called before
+# every request: it counts the day's requests and raises RuijieError when the lane's share is used up.
+meter = None
+MIN_GAP = 0.2                   # seconds between requests from one process (4 web workers: under 20 a second)
+_last, _gap_lock, _local = {}, threading.Lock(), threading.local()
+
+
+@contextmanager
+def lane(name):
+    """What the requests made inside are for: 'push' (codes for paying guests), 'sync' (background), else 'page'."""
+    old = getattr(_local, 'lane', None)
+    _local.lane = name
+    try:
+        yield
+    finally:
+        _local.lane = old
+
+
+def current_lane():
+    return getattr(_local, 'lane', None) or 'page'
+
+
+def requests_made():
+    """Requests this thread has sent so far (compare before and after some work)."""
+    return getattr(_local, 'count', 0)
 
 
 class RuijieError(Exception):
@@ -39,7 +66,7 @@ class RuijieError(Exception):
 def busy(message):
     """Ruijie Cloud's rate limit ("Too many requests", HTTP 429)."""
     m = (message or '').lower()
-    return 'too many' in m or ' 429' in m
+    return 'too many' in m or ' 429' in m or "today's ruijie cloud requests" in m
 
 
 def valid_cloud(url):
@@ -71,7 +98,19 @@ class Cloud:
         self.base, self.appid, self.secret = base.rstrip('/'), appid, secret
         self._token, self._token_at = None, 0.0
 
+    def _wait_turn(self):
+        with _gap_lock:
+            now = time.time()
+            wait = _last.get(self.appid, 0) + MIN_GAP - now
+            _last[self.appid] = now + max(0, wait)
+        if wait > 0:
+            time.sleep(wait)
+
     def _http(self, method, url, body=None, timeout=20):
+        if meter is not None:
+            meter(self.appid, current_lane())
+        _local.count = getattr(_local, 'count', 0) + 1      # requests made by this thread (what a sync costs)
+        self._wait_turn()
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(url, data=data, method=method,
                                      headers={'Accept': 'application/json', 'Content-Type': 'application/json'})
