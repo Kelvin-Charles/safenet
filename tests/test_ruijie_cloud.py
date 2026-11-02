@@ -243,6 +243,26 @@ with app.app_context():
     assert all(c_.startswith('7') for c_ in codes) and all(Voucher.query.filter_by(code=c_).one().ruijie_state == 'ok' for c_ in codes)
 pr = html.unescape(c.get('/vouchers/print?batch=reyee').text)
 assert 'still being made' not in pr and all(c_ in pr for c_ in codes)
+# codes made before the site joined Ruijie Cloud are sent there too, keeping their (maybe printed) code
+with app.app_context():
+    early = appmod._create_vouchers(2, None, 60, None, 'before-reyee', tenant=TID, site_id=SID)
+    for v in early:
+        v.ruijie_state = None
+    db.session.commit()
+    EARLY = [v.code for v in early]
+    own_codes[0] = True
+    down[0] = True; appmod._ruijie_push_due()                                   # Ruijie away: they wait, code kept
+    assert all(Voucher.query.filter_by(code=x).one().ruijie_state == 'catchup' for x in EARLY)
+    down[0] = False; appmod._ruijie_push_due()
+    assert all(Voucher.query.filter_by(code=x).one().ruijie_state == 'ok' for x in EARLY) and made[-1][1] == EARLY[-1]
+    late = appmod._create_vouchers(1, None, 60, None, 'before-reyee2', tenant=TID, site_id=SID)[0]
+    late.ruijie_state = None; db.session.commit(); LATE = late.code
+    own_codes[0] = False; appmod._ruijie_push_due()                             # Ruijie won't take it: never renamed
+    assert Voucher.query.filter_by(code=LATE).one().ruijie_state == 'failed'
+    own_codes[0] = False
+vl = html.unescape(c.get('/vouchers?batch=before-reyee').text)
+assert 'On Reyee' in vl
+assert 'Not on Reyee' in html.unescape(c.get('/vouchers?batch=before-reyee2').text)
 
 # guests online: Ruijie says which codes have a phone on now; they show on Live as Reyee sessions, with Ruijie's times
 from models import RadAcct

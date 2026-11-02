@@ -467,7 +467,7 @@ class Voucher(db.Model):
     max_devices = db.Column(db.Integer, nullable=False, default=1, server_default='1')   # devices online at once
     is_free = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())  # marketing free trial
     first_mac = db.Column(db.String(17))    # device that first used it (one free trial per phone)
-    ruijie_state = db.Column(db.String(8))   # Ruijie Cloud copy: pending, ok, failed (None: not needed)
+    ruijie_state = db.Column(db.String(8))   # Ruijie Cloud copy: pending, catchup (made before the site joined Ruijie: code kept), sending, ok, failed (None: not needed)
     disabled_reason = db.Column(db.String(120))   # why SafeNet disabled it by itself (e.g. shared through a hotspot)
     status = db.Column(db.String(16), nullable=False, default='unused')  # unused, active, disabled
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

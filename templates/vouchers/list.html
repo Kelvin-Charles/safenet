@@ -127,6 +127,9 @@
                                 {% if v.remaining_label %}<small class="text-muted d-block">{{ _('{time} left', time=v.remaining_label) }}</small>{% endif %}
                             {% elif st == 'expired' %}<span class="badge bg-secondary">{{ _('Expired') }}</span>
                             {% else %}<span class="badge bg-danger">{{ _('Disabled') }}</span>{% endif %}
+                            {% if v.ruijie_state == 'ok' %}<small class="d-block text-success" title="{{ _('This code works on the Reyee login page.') }}"><i class="bi bi-check-circle"></i> {{ _('On Reyee') }}</small>
+                            {% elif v.ruijie_state in ('pending', 'catchup', 'sending') %}<small class="d-block text-warning" title="{{ _('Guests can use it on the Reyee login page once it has been sent (usually within a minute).') }}"><i class="bi bi-hourglass-split"></i> {{ _('Being sent to Reyee') }}</small>
+                            {% elif v.ruijie_state == 'failed' %}<small class="d-block text-danger" title="{{ _('Ruijie Cloud has no package that lasts this long, or refused the code. The Reyee login page will say Authentication failed.') }}"><i class="bi bi-x-circle"></i> {{ _('Not on Reyee') }}</small>{% endif %}
                         </td>
                         <td><a href="{{ url_for('vouchers', batch=v.batch) }}" class="small">{{ v.batch }}</a>{% if v.sites %}<small class="d-block text-muted"><i class="bi bi-geo-alt"></i> {{ v.sites|map(attribute='name')|join(', ') }}</small>{% endif %}</td>
                         <td class="text-nowrap">

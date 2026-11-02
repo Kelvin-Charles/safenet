@@ -1707,7 +1707,7 @@ def print_vouchers():
         flash(tr('Choose a batch to print.'), 'warning')
         return redirect(url_for('vouchers'))
     items = scoped(Voucher).filter_by(batch=batch, status='unused').order_by(Voucher.id).all()
-    waiting = [v for v in items if v.ruijie_state in ('pending', 'sending')]
+    waiting = [v for v in items if v.ruijie_state in ('pending', 'sending')]      # 'catchup' codes never change
     if waiting:            # their code may still change on Ruijie Cloud
         _ruijie_push_soon()
         items = [v for v in items if v not in waiting]
@@ -3426,10 +3426,13 @@ def _ruijie_package(site, minutes):
     return next((p for p in _ruijie_info(site).get('packages', []) if p.get('minutes') == minutes), None)
 
 
-def _ruijie_make_voucher(site, cloud, voucher, package):
+def _ruijie_make_voucher(site, cloud, voucher, package, keep_code=False):
     """Make the voucher on Ruijie Cloud with SafeNet's code; when Ruijie won't take codes it didn't make
-    ("Invalid code"), let Ruijie make one and use that code in SafeNet too (remembered for the site)."""
+    ("Invalid code"), let Ruijie make one and use that code in SafeNet too (remembered for the site).
+    keep_code: the code may already be printed or sent, so it is never changed (Ruijie must take it as it is)."""
     info = _ruijie_info(site)
+    if keep_code:
+        return cloud.create_voucher(site.ruijie_group_id, voucher.code, package)
     if not info.get('ruijie_codes'):
         try:
             return cloud.create_voucher(site.ruijie_group_id, voucher.code, package)
@@ -3458,9 +3461,10 @@ def _ruijie_push_site(site):
     """Copy this site's waiting codes to Ruijie Cloud. A code whose duration has no Ruijie package is marked failed."""
     cloud = _ruijie_cloud(site)
     missing = set()
-    for vid in [i for (i,) in db.session.query(Voucher.id).filter_by(site_id=site.id, ruijie_state='pending').order_by(Voucher.id).limit(RUIJIE_BATCH)]:
+    for vid, state in db.session.query(Voucher.id, Voucher.ruijie_state).filter(
+            Voucher.site_id == site.id, Voucher.ruijie_state.in_(('pending', 'catchup'))).order_by(Voucher.id).limit(RUIJIE_BATCH).all():
         # claim it (another web worker may be copying too)
-        if not Voucher.query.filter_by(id=vid, ruijie_state='pending').update({'ruijie_state': 'sending'}, synchronize_session=False):
+        if not Voucher.query.filter_by(id=vid, ruijie_state=state).update({'ruijie_state': 'sending'}, synchronize_session=False):
             db.session.commit()
             continue
         db.session.commit()
@@ -3472,16 +3476,20 @@ def _ruijie_push_site(site):
             db.session.commit()
             continue
         try:
-            _ruijie_make_voucher(site, cloud, voucher, package)
+            _ruijie_make_voucher(site, cloud, voucher, package, keep_code=state == 'catchup')
             voucher.ruijie_state = 'ok'
             db.session.commit()
         except ruijie.RuijieError as e:
             if 'exist' in str(e).lower():          # already made (a retry after a timeout)
                 voucher.ruijie_state = 'ok'
                 db.session.commit()
+            elif state == 'catchup' and 'invalid code' in str(e).lower():     # Ruijie only takes codes it makes
+                db.session.rollback()
+                Voucher.query.filter_by(id=vid).update({'ruijie_state': 'failed'})
+                db.session.commit()
             else:
                 db.session.rollback()
-                Voucher.query.filter_by(id=vid).update({'ruijie_state': 'pending'})      # try again next time
+                Voucher.query.filter_by(id=vid).update({'ruijie_state': state})      # try again next time
                 db.session.commit()
                 raise
         payment = Payment.query.filter_by(voucher_id=vid).first()
@@ -3493,8 +3501,27 @@ def _ruijie_push_site(site):
                                     d=', '.join(format_minutes(m) for m in sorted(missing))))
 
 
+def _ruijie_catch_up():
+    """Unused codes made before their site was connected to Ruijie Cloud were never sent there, so Ruijie's login
+    page refuses them ("Authentication failed"): queue them, keeping their code. Commits."""
+    ready = [x.id for x in Site.query.filter(Site.ruijie_group_id.isnot(None), Site.ruijie_appid.isnot(None)).all() if x.ruijie_ready]
+    if not ready:
+        return 0
+    n = Voucher.query.filter(Voucher.site_id.in_(ready), Voucher.ruijie_state.is_(None), Voucher.status == 'unused') \
+        .update({'ruijie_state': 'catchup'}, synchronize_session=False)
+    db.session.commit()
+    if n:
+        log.info('ruijie cloud: %s codes made before their site joined Ruijie are being sent there', n)
+    return n
+
+
 def _ruijie_push_due():
-    for sid in [i for (i,) in db.session.query(Voucher.site_id).filter_by(ruijie_state='pending').distinct()]:
+    try:
+        _ruijie_catch_up()
+    except Exception:
+        db.session.rollback()
+        log.exception('ruijie catch-up failed')
+    for sid in [i for (i,) in db.session.query(Voucher.site_id).filter(Voucher.ruijie_state.in_(('pending', 'catchup'))).distinct()]:
         site = db.session.get(Site, sid) if sid else None
         if site is None or not site.ruijie_ready:
             continue

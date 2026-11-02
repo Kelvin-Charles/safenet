@@ -491,4 +491,10 @@ SW = {
     'Your access points are connected.': 'Vifaa vyako vimeunganishwa.',
     'Your project in Ruijie Cloud for this place': 'Mradi wako wa Ruijie Cloud kwa eneo hili',
     'Check now': 'Angalia sasa',
+    'This code works on the Reyee login page.': 'Namba hii inafanya kazi kwenye ukurasa wa kuingia wa Reyee.',
+    'On Reyee': 'Iko Reyee',
+    'Guests can use it on the Reyee login page once it has been sent (usually within a minute).': 'Wageni wanaweza kuitumia kwenye ukurasa wa Reyee ikishatumwa (kwa kawaida ndani ya dakika moja).',
+    'Being sent to Reyee': 'Inatumwa Reyee',
+    'Ruijie Cloud has no package that lasts this long, or refused the code. The Reyee login page will say Authentication failed.': 'Ruijie Cloud haina kifurushi cha muda huu, au imekataa namba. Ukurasa wa Reyee utasema Authentication failed.',
+    'Not on Reyee': 'Haiko Reyee',
 }
