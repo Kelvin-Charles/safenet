@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
+from models import voucher_sites, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -1441,6 +1441,11 @@ def _create_vouchers(count, plan, minutes, price, batch, tenant=None, max_device
     work at (none: all); the first Reyee one among them (else the first) is their home site."""
     if sites:
         site_id = next((x for x in sites if x.ruijie_ready), sites[0]).id
+    elif sites is not None and tenant is None:      # every site (made in the dashboard): Ruijie's login page needs
+        here = db.session.get(Site, site_id) if site_id else None     # the code on Ruijie Cloud, so a Reyee site is home
+        if here is None or not here.ruijie_ready:
+            reyee = next((x for x in tenant_sites() if x.ruijie_ready), None)
+            site_id = reyee.id if reyee else site_id
     # Codes double as RADIUS usernames, so avoid clashes with both tables.
     taken = {c for (c,) in db.session.query(Voucher.code)}
     taken |= {u for (u,) in db.session.query(RadCheck.username).distinct()}
@@ -3506,9 +3511,20 @@ def _ruijie_push_site(site):
 def _ruijie_catch_up():
     """Unused codes made before their site was connected to Ruijie Cloud were never sent there, so Ruijie's login
     page refuses them ("Authentication failed"): queue them, keeping their code. Commits."""
-    ready = [x.id for x in Site.query.filter(Site.ruijie_group_id.isnot(None), Site.ruijie_appid.isnot(None)).all() if x.ruijie_ready]
-    if not ready:
+    sites = [x for x in Site.query.filter(Site.ruijie_group_id.isnot(None), Site.ruijie_appid.isnot(None)).order_by(Site.id).all() if x.ruijie_ready]
+    if not sites:
         return 0
+    ready = [x.id for x in sites]
+    # codes that work at every site but were filed under a site without Reyee: their home becomes the Reyee site
+    reyee_of = {}
+    for x in sites:
+        reyee_of.setdefault(x.tenant_id, x.id)
+    limited = db.session.query(voucher_sites.c.voucher_id)
+    for tid, sid in reyee_of.items():
+        Voucher.query.filter(Voucher.tenant_id == tid, Voucher.ruijie_state.is_(None), Voucher.status == 'unused',
+                             or_(Voucher.site_id.is_(None), Voucher.site_id.notin_(ready)), Voucher.id.notin_(limited),
+                             Voucher.is_free.is_(False), Voucher.batch != 'online-payments') \
+            .update({'site_id': sid}, synchronize_session=False)
     n = Voucher.query.filter(Voucher.site_id.in_(ready), Voucher.ruijie_state.is_(None), Voucher.status == 'unused') \
         .update({'ruijie_state': 'catchup'}, synchronize_session=False)
     db.session.commit()
@@ -3898,7 +3914,9 @@ def _ruijie_portal_pages(site, tenant, th):
                        'body': body.group(2), 'script': body.group(3), 'wait': wait, 'wait_gift': wait_gift,
                        'connecting': connecting, 'gift_sent': gift_sent}
     css = re.search(r'<style>(.*?)</style>', full, re.S).group(1)
-    texts = {lang: {**RUIJIE_PAGE_TEXT[lang], 'pay': portal_ui.t(lang, 'pay', price='{price}')} for lang in portal_ui.LANGS}
+    texts = {lang: {**RUIJIE_PAGE_TEXT[lang], 'pay': portal_ui.t(lang, 'pay', price='{price}'), 'offer': portal_ui.t(lang, 'offer'),
+                    'offer_free': portal_ui.t(lang, 'offer_free', time='{time}'), 'offer_off': portal_ui.t(lang, 'offer_off', n='{n}')}
+             for lang in portal_ui.LANGS}
     return pages, css, texts
 
 
@@ -4624,7 +4642,7 @@ def guest_app_payment(slug, reference):
     if payment.status == 'paid' and payment.voucher:
         out['code'] = payment.voucher.code
         out['ruijie'] = payment.voucher.ruijie_state is not None      # typed on Ruijie's login page
-        out['ready'] = payment.voucher.ruijie_state not in ('pending', 'sending')   # made on Ruijie Cloud
+        out['ready'] = payment.voucher.ruijie_state not in ('pending', 'sending', 'catchup')   # made on Ruijie Cloud
         if not out['ready']:
             _ruijie_push_soon()
         if not payment.gift_phone:

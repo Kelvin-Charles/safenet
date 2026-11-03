@@ -145,7 +145,7 @@ with app.app_context():
     appmod._ruijie_push_due()
     assert Voucher.query.filter_by(code=w.code).one().ruijie_state == 'failed' and 'No Ruijie package lasts 7 days' in db.session.get(Site, SID).ruijie_error
     # another site's codes aren't copied
-    o = appmod._create_vouchers(1, None, 60, None, 'x', tenant=TID, site_id=OTHER)[0]; db.session.commit()
+    o = appmod._create_vouchers(1, None, 60, None, 'x', tenant=TID, site_id=OTHER, sites=[db.session.get(Site, OTHER)])[0]; db.session.commit()
     assert o.ruijie_state is None
 p = html.unescape(c.get('/sites').text)
 assert '4 codes made on Ruijie Cloud, 0 waiting, 1 failed' in p and 'Try failed codes again' in p
@@ -260,6 +260,29 @@ with app.app_context():
     own_codes[0] = False; appmod._ruijie_push_due()                             # Ruijie won't take it: never renamed
     assert Voucher.query.filter_by(code=LATE).one().ruijie_state == 'failed'
     own_codes[0] = False
+# codes for every site made while another site is picked at the top: their home is the Reyee site (Ruijie needs them)
+own_codes[0] = True
+sw = c.get('/sites').text
+c.post('/sites/switch', data={'csrf_token': tok(sw), 'site_id': OTHER})
+r = c.get('/vouchers/generate')
+c.post('/vouchers/generate', data={'csrf_token': tok(r.text), 'count': 2, 'validity_value': 1, 'validity_unit': 'hours', 'max_devices': 1,
+                                   'plan_id': 0, 'batch': 'all-sites', 'sites_form': '1', 'sites_all': '1'})
+c.post('/sites/switch', data={'csrf_token': tok(sw), 'site_id': ''})
+with app.app_context():
+    made_here = Voucher.query.filter_by(batch='all-sites').all()
+    assert len(made_here) == 2 and all(v.site_id == SID and v.ruijie_state == 'pending' for v in made_here)
+    # and ones made that way before this fix are moved and sent, keeping their code
+    old = appmod._create_vouchers(1, None, 60, None, 'all-sites-old', tenant=TID, site_id=OTHER)[0]
+    db.session.commit(); OLD_ALL = old.code
+    assert old.ruijie_state is None
+    limited = appmod._create_vouchers(1, None, 60, None, 'town-only', tenant=TID, site_id=OTHER, sites=[db.session.get(Site, OTHER)])[0]
+    db.session.commit(); TOWN = limited.code
+    appmod._ruijie_push_due()
+    v = Voucher.query.filter_by(code=OLD_ALL).one()
+    assert v.site_id == SID and v.ruijie_state == 'ok' and made[-1][1] == OLD_ALL
+    assert Voucher.query.filter_by(code=TOWN).one().site_id == OTHER          # a code only for Town stays there
+    assert all(x.ruijie_state == 'ok' for x in Voucher.query.filter_by(batch='all-sites'))
+own_codes[0] = False
 vl = html.unescape(c.get('/vouchers?batch=before-reyee').text)
 assert 'On Reyee' in vl
 assert 'Not on Reyee' in html.unescape(c.get('/vouchers?batch=before-reyee2').text)

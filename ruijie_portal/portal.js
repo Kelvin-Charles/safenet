@@ -7,6 +7,8 @@ Portal = {
   lang: "en",
   live: null,       // packages from SafeNet (fresher than the ones in this file)
   payment: null,
+  opened: Date.now(),
+  STALE_MS: 4 * 60000,   // Ruijie's login session on this page may expire after a few minutes
 
   init() {
     this.lang = SAFENET.lang || "en";
@@ -14,10 +16,10 @@ Portal = {
     if (loading) loading.classList.add("hide");
     this.render();
     const saved = this.saved();
-    if (saved) {           // back with a fresh login session after a failed try: connect with the paid code
+    if (saved) {           // back with a fresh login session: connect with the saved code
       this.payment = { reference: "" };
       document.querySelector(".card").innerHTML = this.page().connecting.split("@@CODE@@").join(saved.code);
-      this.connect(saved.code, 8);
+      this.connect(saved.code, 0);
       return;
     }
     const self = this;
@@ -114,9 +116,38 @@ Portal = {
       input.setAttribute("data-price", pk.price);
       input.setAttribute("data-label", self.text("pay", { price: price }));
       row.classList.toggle("on", i === 0);
+      row.classList.toggle("has-offer", !!pk.offer);
       row.querySelector(".nm b").textContent = pk.name;
-      row.querySelector(".nm small").textContent = self.duration(pk.validity_minutes) + (pk.description ? " · " + pk.description : "");
-      row.querySelector(".pr").textContent = price;
+      let desc = pk.description || "";
+      if (pk.offer && desc.indexOf("🎁 " + pk.offer) === 0) desc = desc.slice(("🎁 " + pk.offer).length).replace(/^[\s·]+/, "");
+      row.querySelector(".nm small").textContent = self.duration(pk.validity_minutes) + (desc ? " · " + desc : "");
+      const old = row.querySelector(".nm .deal");
+      if (old) old.remove();
+      if (pk.offer) {
+        const deal = document.createElement("span");
+        deal.className = "deal";
+        const flag = document.createElement("span");
+        flag.className = "flag";
+        flag.textContent = "🎁 " + self.text("offer");
+        deal.append(flag, document.createTextNode(" " + pk.offer));
+        const gets = [];
+        if (pk.bonus_minutes) gets.push(self.text("offer_free", { time: self.duration(pk.bonus_minutes) }));
+        if (pk.discount_percent) gets.push(self.text("offer_off", { n: pk.discount_percent }));
+        if (gets.length) {
+          const em = document.createElement("em");
+          em.textContent = gets.join(" · ");
+          deal.append(em);
+        }
+        row.querySelector(".nm").append(deal);
+      }
+      const pr = row.querySelector(".pr");
+      pr.textContent = "";
+      if (pk.old_price) {
+        const was = document.createElement("s");
+        was.textContent = self.money(pk.currency, pk.old_price);
+        pr.append(was);
+      }
+      pr.append(document.createTextNode(price));
       return row;
     });
     list.replaceChildren.apply(list, made);
@@ -170,9 +201,10 @@ Portal = {
     document.querySelector(".card").innerHTML = html;
   },
 
-  poll(n) {
+  poll(n, paid) {
     const self = this;
-    if (n > 60) { this.payment = null; this.render(this.text("timeout"), "buy"); return; }
+    // waiting for the payment: 3 minutes; paid and the code still being made on Ruijie Cloud: up to 10 minutes
+    if (n > (paid ? 200 : 60)) { this.payment = null; this.render(this.text("timeout"), "buy"); return; }
     setTimeout(function () {
       self.api("/pay/" + self.payment.reference).then(function (s) {
         if (s.status === "paid" && s.code) {
@@ -181,8 +213,9 @@ Portal = {
             return;
           }
           document.querySelector(".card").innerHTML = self.page().connecting.split("@@CODE@@").join(s.code);
-          if (s.ready === false) return self.poll(n + 1);     // SafeNet is still creating it on Ruijie Cloud
+          if (s.ready === false) return self.poll(n + 1, true);     // SafeNet is still creating it on Ruijie Cloud
           self.keep({ code: s.code, at: Date.now(), fresh: 0 });
+          if (self.stale()) return self.refresh(s.code);          // the guest took a while: get a fresh login session first
           return self.connect(s.code, 0);
         }
         if (s.status === "failed" || s.status === "review") {
@@ -190,8 +223,8 @@ Portal = {
           self.render(self.text("failed", { reason: s.message || "" }), "buy");
           return;
         }
-        self.poll(n + 1);
-      }, function () { self.poll(n + 1); });
+        self.poll(n + 1, paid);
+      }, function () { self.poll(n + 1, paid); });
     }, 3000);
   },
 
@@ -201,18 +234,22 @@ Portal = {
     this.authenticate(code).then(function (r) {
       self.online(code, r.result.logonUrl);
     }, function (message) {
-      // a new voucher can take a little while to reach the access point: keep trying for about 40 seconds
-      if (tries < 12) return setTimeout(function () { self.connect(code, tries + 1); }, 3000);
-      self.report(code, message);
-      // Ruijie's login session on this page may have gone stale while the guest approved the payment: ask the
-      // access point for a new one (it sends the phone back here) and connect with the saved code (twice at most)
       const saved = self.saved();
-      if (saved && saved.code === code && saved.fresh < 2) {
-        saved.fresh += 1;
-        self.keep(saved);
-        location.href = "http://neverssl.com/?sn=" + Date.now();
+      // a new voucher can take a little while to reach the access point: keep trying (longer on a fresh session)
+      const typed = saved && saved.typed;      // typed by the guest (may simply be wrong): one short retry
+      if (tries < (typed ? 1 : saved && saved.fresh ? 15 : 5)) return setTimeout(function () { self.connect(code, tries + 1); }, 3000);
+      self.report(code, message);
+      if (typed) {
+        self.keep(null);
+        self.payment = null;
+        self.render(message || self.text("bad_code"), "voucher");
+        const box = document.getElementById("code");
+        if (box) box.value = code;
         return;
       }
+      // Ruijie's login session on this page may have gone stale: ask the access point for a new one (it sends the
+      // phone back here) and connect with the saved code (twice at most)
+      if (saved && saved.code === code && saved.fresh < 2) return self.refresh(code);
       self.keep(null);
       self.payment = null;
       self.render(self.text("login_failed") + (message ? " (" + message + ")" : ""), "voucher");
@@ -228,10 +265,31 @@ Portal = {
     this.authenticate(code).then(function (r) {
       self.online(code, r.result.logonUrl);
     }, function (message) {
+      // the page has been open a while: Ruijie's login session may have expired, so get a fresh one and try again
+      const saved = self.saved();
+      if (self.stale() && !(saved && saved.code === code)) {
+        self.keep({ code: code, at: Date.now(), fresh: 0, typed: true });
+        return self.refresh(code);
+      }
+      self.keep(null);
+      self.report(code, message);
       self.render(message || self.text("bad_code"), "voucher");
       const box = document.getElementById("code");
       if (box) box.value = code;
     });
+  },
+
+  stale() {
+    return Date.now() - this.opened > this.STALE_MS;
+  },
+
+  // a new login session from the access point: any plain web address sends the phone back to this page
+  refresh(code) {
+    const saved = this.saved() || { code: code, at: Date.now(), fresh: 0 };
+    saved.code = code;
+    saved.fresh = (saved.fresh || 0) + 1;
+    this.keep(saved);
+    location.href = "http://neverssl.com/?sn=" + Date.now();
   },
 
   // the paid code, kept on the phone for a few minutes in case the page has to start again
