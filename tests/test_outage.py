@@ -85,8 +85,8 @@ post = lambda **d: html.unescape(c.post('/vouchers/outage', data={'csrf_token': 
 r = post(site_id=TOWN, action='preview')
 assert '11110001' in r and '11110002' in r and '11110003' not in r
 assert '10 hours' in r or '10h' in r
-assert 'end moves later' in r and '1 customers × 1 SMS × TZS 30 = TZS 30' in r
-assert "We've added 10 hours to your code 11110001" in r or "added 10h" in r
+assert 'end moves later' in r and '1 customers × 2 SMS × TZS 30 = TZS 60' in r      # the apology with its link: 2 SMS
+assert 'JRIIT: Dear customer, we sincerely apologise' in r and 'free to your code 11110001. See your time left: http' in r and '/my/abcdefg' in r
 r = post(site_id=TOWN, action='apply', picking='1', vid=[A, B], sms='1', text="Sorry for the outage. We've added {time} to your code {code}.")
 assert '2 codes got their lost time back' in r and '1 SMS are being sent' in r
 with app.app_context():
@@ -138,4 +138,18 @@ c.post('/offers/sms', data={'csrf_token': tok(sp), 'text': 'Hello', 'action': 's
 assert outbox[-1][0] == '255700000011' and outbox[-1][1].startswith('JRIIT: Hello Stop: ') and len(outbox) == 3
 with app.app_context():
     assert SmsCharge.query.filter_by(kind='notice').count() == 1
+# the guest's own page from the SMS link: time left, the offer it was bought with, and the make-up
+with app.app_context():
+    from models import SmsContact
+    Payment.query.filter_by(voucher_id=A).update({'offer_name': 'Buy 3 days, get 1 free'}); db.session.commit()
+    tok_a = SmsContact.query.filter_by(phone='255700000001').one().token
+    tok_h = SmsContact.query.filter_by(phone='255700000011').one().token
+my = html.unescape(app.test_client().get(f'/my/{tok_a}').text)
+assert 'JRIIT' in my and '11110001' in my and 'Muda uliobaki' in my and 'Buy 3 days, get 1 free' in my and '+10h 59m' in my.replace('10 hours 59', '10h 59m') or '+10' in my
+mh = html.unescape(app.test_client().get(f'/my/{tok_h}').text)
+assert '22220001' in mh and gift1.code in mh and 'Vocha ya fidia' in mh
+assert '11110001' not in mh                                           # only this phone's codes
+assert app.test_client().get('/my/nothere').status_code == 404
+# the default apology carries the link
+r = post(site_id=TOWN, action='preview')
 print('OUTAGE OK')

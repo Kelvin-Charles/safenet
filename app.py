@@ -5226,11 +5226,40 @@ def _outage_affected(tenant, site, starts, ends):
 
 
 def _outage_template(reyee, sw):
+    """A humble apology: what happened, what we give back, where to see the time left ({link})."""
     if reyee:
-        return ('Samahani kwa kukatika kwa intaneti. Zawadi: vocha ya bure ya {time}: {code}. Iweke kwenye ukurasa wa Wi-Fi.' if sw else
-                "Sorry for the internet outage. Here's a free {time} code: {code}. Enter it on the Wi-Fi login page.")
-    return ('Samahani kwa kukatika kwa intaneti. Tumekuongezea {time} kwenye vocha yako {code}.' if sw else
-            "Sorry for the internet outage. We've added {time} to your code {code}.")
+        return ('Ndugu mteja, tunaomba radhi kwa kukatika kwa intaneti kulikotokana na hitilafu ya kiufundi. Kama fidia, '
+                'tumekupa vocha ya bure ya {time}: {code}. Angalia muda wako: {link}' if sw else
+                'Dear customer, we sincerely apologise for the internet outage caused by a technical fault. To make up for it, '
+                'here is a free {time} code: {code}. See your time left: {link}')
+    return ('Ndugu mteja, tunaomba radhi kwa kukatika kwa intaneti kulikotokana na hitilafu ya kiufundi. Kama fidia, '
+            'tumekuongezea {time} bure kwenye vocha yako {code}. Angalia muda wako: {link}' if sw else
+            'Dear customer, we sincerely apologise for the internet outage caused by a technical fault. To make up for it, '
+            "we've added {time} free to your code {code}. See your time left: {link}")
+
+
+def _my_link(token):
+    return f'{Config.PUBLIC_URL}/my/{token}'
+
+
+def _phone_codes(tenant_id, phone, days=30):
+    """A customer's codes at a business (bought by or for this phone, or given to it after an outage), newest first:
+    [(voucher, payment or None, outage credits for it, credit that gave it or None)]."""
+    since = datetime.utcnow() - timedelta(days=days)
+    pays = Payment.query.filter(Payment.tenant_id == tenant_id, Payment.status == 'paid', Payment.voucher_id.isnot(None),
+                                or_(Payment.phone == phone, Payment.gift_phone == phone), Payment.paid_at >= since).all()
+    by_voucher = {p.voucher_id: p for p in pays if not (p.gift_phone and p.gift_phone != phone)}
+    gifts = OutageCredit.query.join(Outage).filter(Outage.tenant_id == tenant_id, OutageCredit.phone == phone,
+                                                   OutageCredit.gift_voucher_id.isnot(None), Outage.created_at >= since).all()
+    given = {c.gift_voucher_id: c for c in gifts}
+    ids = set(by_voucher) | set(given)
+    vouchers = Voucher.query.filter(Voucher.id.in_(ids)).all() if ids else []
+    credits = {}
+    for c in OutageCredit.query.filter(OutageCredit.voucher_id.in_(ids)).all() if ids else []:
+        credits.setdefault(c.voucher_id, []).append(c)
+    out = [(v, by_voucher.get(v.id), credits.get(v.id, []), given.get(v.id)) for v in vouchers]
+    order = {'active': 0, 'unused': 1, 'expired': 2, 'disabled': 3}
+    return sorted(out, key=lambda x: (order.get(x[0].state, 9), -(x[0].id)))
 
 
 @app.route('/vouchers/outage', methods=['GET', 'POST'])
@@ -5276,6 +5305,7 @@ def outage():
     minutes_for = lambda lost: give or lost
     sms_lang = 'sw' if sw else 'en'
     texts = [(phone, f'{tenant.name}: ' + template.replace('{time}', portal_ui.duration(minutes_for(lost), sms_lang))) for v, lost, phone in chosen if phone]
+    texts = [(p, t.replace('{link}', _my_link('abcdefg'))) for p, t in texts]
     parts = max((sms_parts(t.replace('{code}', 'X' * 8)) for _, t in texts), default=1)
     cost = Decimal(len(texts) * parts * Config.SMS_PRICE) if send_sms else Decimal(0)
     balance = tenant_balance(tenant.id)[0] if tenant.payment_mode == 'platform' else None
@@ -5288,8 +5318,8 @@ def outage():
                 problem = tr('Ruijie Cloud has no voucher packages for this site yet. Press Read packages on Sites, then try again.')
             elif send_sms and texts and '{code}' not in template and reyee:
                 problem = tr('Keep {code} in the message: it is the free code the guest types.')
-            elif send_sms and len(template) > 300:
-                problem = tr('The message can be up to {n} characters.', n=300)
+            elif send_sms and len(template) > 400:
+                problem = tr('The message can be up to {n} characters.', n=400)
             elif send_sms and balance is not None and cost > balance:
                 problem = tr('Your SafeNet Pay balance ({cur} {balance}) is less than the cost ({cur} {cost}).', cur=tenant.currency or 'TZS',
                              balance=f'{balance:,.0f}', cost=f'{cost:,.0f}')
@@ -5298,6 +5328,7 @@ def outage():
                                 note=(f.get('note') or '').strip()[:120] or None)
                 db.session.add(record)
                 db.session.flush()
+                links = {p: _my_link(t) for p, t in _sms_contacts(tenant.id, sorted({ph for _, _, ph in chosen if ph})).items()}
                 targets = []
                 for v, lost, phone in chosen:
                     m = minutes_for(lost)
@@ -5308,13 +5339,15 @@ def outage():
                         db.session.flush()
                         credit.gift_voucher_id = gift.id
                         if phone:
-                            targets.append((phone, f'{tenant.name}: ' + template.replace('{time}', portal_ui.duration(m, sms_lang)), gift.id))
+                            targets.append((phone, f'{tenant.name}: ' + template.replace('{time}', portal_ui.duration(m, sms_lang))
+                                            .replace('{link}', links[phone]), gift.id))
                     else:              # SafeNet keeps the time: the code's end moves later (from now, if it ended meanwhile)
                         new_end = max(v.expires_at, now) + timedelta(minutes=m)
                         v.validity_minutes = math.ceil((new_end - v.first_used_at).total_seconds() / 60)
                         v.expires_at = new_end
                         if phone:
-                            targets.append((phone, f'{tenant.name}: ' + template.replace('{time}', portal_ui.duration(m, sms_lang)).replace('{code}', v.code)))
+                            targets.append((phone, f'{tenant.name}: ' + template.replace('{time}', portal_ui.duration(m, sms_lang))
+                                            .replace('{code}', v.code).replace('{link}', links[phone])))
                     db.session.add(credit)
                 if send_sms and targets:
                     campaign = SmsCampaign(tenant_id=tenant.id, site_id=site.id, kind='outage', text=template[:640], recipients=len(targets),
@@ -5341,7 +5374,25 @@ def outage():
                            chosen=len(chosen), with_phone=len(texts), template=template, send_sms=send_sms, sms_ready=sms_is_configured(),
                            parts=parts, cost=cost, balance=balance, currency=tenant.currency or 'TZS', price=Config.SMS_PRICE,
                            history=history, offset=offset, checked=bool(starts and ends and problem is None),
-                           sample=texts[0][1].replace('{code}', chosen[0][0].code if not reyee else '12345678') if texts else '')
+                           sample=texts[0][1].replace('{code}', next(v.code for v, _, ph in chosen if ph) if not reyee else '12345678') if texts else '')
+
+
+@app.route('/my/<token>')
+def my_codes(token):
+    """A customer's own page from an SMS link: each code's time left, the offer it was bought with, and what was
+    given back after an outage (only this phone's codes at this business)."""
+    contact = SmsContact.query.filter_by(token=(token or '')[:12].lower()).first_or_404()
+    rows = []
+    offset = _local_offset()
+    for v, pay, credits, given in _phone_codes(contact.tenant_id, contact.phone):
+        rows.append({'code': v.code, 'state': v.state, 'left': v.remaining_label, 'package': (pay.package_name if pay else None),
+                     'validity': format_minutes(v.validity_minutes), 'offer': pay.offer_name if pay else None,
+                     'ends': (v.expires_at + offset).strftime('%d/%m %H:%M') if v.expires_at else None,
+                     'added': [c.minutes for c in credits if not c.gift_voucher_id],
+                     'gift': ({'minutes': given.minutes, 'when': (given.outage.starts_at + offset).strftime('%d/%m')} if given else None),
+                     'gave': [c.gift.code for c in credits if c.gift is not None]})
+    return render_template('offers/my.html', business=contact.tenant.name, rows=rows, token=contact.token,
+                           fmt=format_minutes, support=contact.tenant.phone or '')
 
 
 @app.route('/stop/<token>', methods=['GET', 'POST'])

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="sw">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{ business }}</title>
+<style>
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#f4f6fb;color:#1c2340;padding:16px;box-sizing:border-box}
+.wrap{max-width:460px;margin:0 auto}
+h1{font-size:1.3rem;margin:8px 0 4px}.sub{color:#667;font-size:.9rem;margin:0 0 14px}
+.card{background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,.07);padding:16px;margin-bottom:12px}
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.code{font-family:ui-monospace,Menlo,monospace;font-size:1.15rem;font-weight:700;letter-spacing:.06em}
+.pill{border-radius:20px;padding:2px 10px;font-size:.78rem;font-weight:700;white-space:nowrap}
+.active{background:#e3f6e8;color:#1e7d32}.unused{background:#e8ecf6;color:#2b3a75}.expired,.disabled{background:#eee;color:#666}
+.left{font-size:1.6rem;font-weight:800;margin:8px 0 2px}.muted{color:#667;font-size:.85rem}
+.tag{display:block;margin-top:8px;border-radius:10px;padding:8px 10px;font-size:.88rem;line-height:1.35}
+.offer{background:#fffaeb;color:#8a5a00;border:1px solid #f0d38a}.fix{background:#eef6ff;color:#174a8c;border:1px solid #bcd6f5}
+.en{color:#778;font-size:.8rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+    <h1>{{ business }}</h1>
+    <p class="sub">Vifurushi vyako · Your packages</p>
+    {% for r in rows %}
+    <div class="card">
+        <div class="top">
+            <span class="code">{{ r.code }}</span>
+            <span class="pill {{ r.state }}">{{ {'active': 'Inatumika · Active', 'unused': 'Haijaanza · Not started', 'expired': 'Imeisha · Ended', 'disabled': 'Imezimwa · Off'}.get(r.state, r.state) }}</span>
+        </div>
+        {% if r.state == 'active' and r.left %}
+        <div class="left">{{ r.left }}</div>
+        <div class="muted">Muda uliobaki · Time left{% if r.ends %} — hadi · until {{ r.ends }}{% endif %}</div>
+        {% elif r.state == 'unused' %}
+        <div class="muted" style="margin-top:6px">{{ r.validity }} · Muda unaanza ukiunganishwa · Starts when you connect</div>
+        {% elif r.ends %}
+        <div class="muted" style="margin-top:6px">Iliisha · Ended {{ r.ends }}</div>
+        {% endif %}
+        {% if r.package %}<div class="muted" style="margin-top:6px">{{ r.package }} · {{ r.validity }}</div>{% endif %}
+        {% if r.offer %}<span class="tag offer">🎁 <b>Ofa · Offer:</b> {{ r.offer }}<br><span class="en">Ulinunua kifurushi hiki kwa ofa (muda/bei tayari vimo) · Bought with this offer</span></span>{% endif %}
+        {% for m in r.added %}<span class="tag fix">🛠 <b>Fidia · Make-up:</b> +{{ fmt(m) }} bure kwa muda uliopotea intaneti ilipokatika<br><span class="en">+{{ fmt(m) }} free for the time lost in the outage</span></span>{% endfor %}
+        {% for g in r.gave %}<span class="tag fix">🛠 <b>Fidia · Make-up:</b> umepewa vocha ya bure <b>{{ g }}</b> kwa muda uliopotea<br><span class="en">You got the free code {{ g }} for the time lost in the outage</span></span>{% endfor %}
+        {% if r.gift %}<span class="tag fix">🛠 <b>Vocha ya fidia · Make-up code</b> ({{ fmt(r.gift.minutes) }}) — kukatika kwa {{ r.gift.when }}<br><span class="en">Free code for the outage on {{ r.gift.when }}. Weka kwenye ukurasa wa Wi-Fi · Enter it on the Wi-Fi login page.</span></span>{% endif %}
+    </div>
+    {% else %}
+    <div class="card"><p>Hakuna kifurushi ndani ya siku 30 zilizopita.</p><p class="en">No packages in the last 30 days.</p></div>
+    {% endfor %}
+    <p class="muted" style="text-align:center">Tunaomba radhi kwa usumbufu · We're sorry for the trouble{% if support %}<br>Msaada · Help: <a href="tel:{{ support|replace(' ', '') }}">{{ support }}</a>{% endif %}</p>
+    <p class="en" style="text-align:center"><a href="{{ url_for('stop_offers', token=token) }}" style="color:#99a">Acha kupokea ofa · Stop offers</a></p>
+</div>
+</body>
+</html>

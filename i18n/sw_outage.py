@@ -25,6 +25,8 @@ SW = {
     'Tell them by SMS ({n} with a phone number)': 'Waarifu kwa SMS ({n} wenye namba ya simu)',
     '{time} becomes the time given, {code} the code. Your business name is added at the start.':
         '{time} inakuwa muda unaotolewa, {code} namba ya vocha. Jina la biashara yako linaongezwa mwanzoni.',
+    '{time} becomes the time given, {code} the code, {link} a link where the guest sees their time left. Your business name is added at the start.':
+        '{time} inakuwa muda unaotolewa, {code} namba ya vocha, {link} kiungo ambapo mteja anaona muda wake uliobaki. Jina la biashara yako linaongezwa mwanzoni.',
     'Give the time back to the ticked guests?': 'Uwarudishie muda wateja uliowachagua?',
     'Give the time back': 'Rudisha muda',
     'Outages made up for': 'Fidia zilizotolewa',

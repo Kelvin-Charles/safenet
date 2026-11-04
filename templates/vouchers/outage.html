@@ -79,8 +79,8 @@
                 <label class="form-check-label" for="smsOn">{{ _('Tell them by SMS ({n} with a phone number)', n=with_phone) }}</label>
             </div>
             <div class="mb-2">
-                <textarea name="text" class="form-control" rows="3" maxlength="300">{{ template }}</textarea>
-                <div class="form-text">{{ _('{time} becomes the time given, {code} the code. Your business name is added at the start.') }}</div>
+                <textarea name="text" class="form-control" rows="4" maxlength="400">{{ template }}</textarea>
+                <div class="form-text">{{ _('{time} becomes the time given, {code} the code, {link} a link where the guest sees their time left. Your business name is added at the start.') }}</div>
             </div>
             {% if sample and send_sms %}<div class="border rounded bg-light p-2 small mb-2" style="white-space:pre-wrap">{{ sample }}</div>{% endif %}
             {% if send_sms %}<div class="small mb-3">
