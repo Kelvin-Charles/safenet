@@ -5374,7 +5374,18 @@ def outage():
                            chosen=len(chosen), with_phone=len(texts), template=template, send_sms=send_sms, sms_ready=sms_is_configured(),
                            parts=parts, cost=cost, balance=balance, currency=tenant.currency or 'TZS', price=Config.SMS_PRICE,
                            history=history, offset=offset, checked=bool(starts and ends and problem is None),
-                           sample=texts[0][1].replace('{code}', next(v.code for v, _, ph in chosen if ph) if not reyee else '12345678') if texts else '')
+                           first=_outage_first(tenant, chosen, give, reyee, sms_lang))
+
+
+def _outage_first(tenant, chosen, give, reyee, lang):
+    """The first ticked guest with a phone, for the SMS preview: their phone, code, time given and their own link."""
+    v, lost, phone = next(((v, lost, ph) for v, lost, ph in chosen if ph), (None, 0, None))
+    if v is None:
+        return None
+    contact = SmsContact.query.filter_by(tenant_id=tenant.id, phone=phone).first()
+    return {'phone': '0' + phone[3:] if phone.startswith('255') else phone, 'code': '48213907' if reyee else v.code,
+            'own_code': v.code, 'lost': format_minutes(lost), 'time': portal_ui.duration(give or lost, lang),
+            'link': _my_link(contact.token if contact else 'k7m2xq9'), 'prefix': f'{tenant.name}: '}
 
 
 @app.route('/my/<token>')

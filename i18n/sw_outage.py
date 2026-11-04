@@ -27,6 +27,11 @@ SW = {
         '{time} inakuwa muda unaotolewa, {code} namba ya vocha. Jina la biashara yako linaongezwa mwanzoni.',
     '{time} becomes the time given, {code} the code, {link} a link where the guest sees their time left. Your business name is added at the start.':
         '{time} inakuwa muda unaotolewa, {code} namba ya vocha, {link} kiungo ambapo mteja anaona muda wake uliobaki. Jina la biashara yako linaongezwa mwanzoni.',
+    'Preview for the first customer: {phone} · code {code} · lost {lost}': 'Mfano kwa mteja wa kwanza: {phone} · vocha {code} · alipoteza {lost}',
+    'characters': 'herufi',
+    'emoji or special characters: 70 characters per SMS': 'emoji au herufi maalum: herufi 70 kwa kila SMS',
+    'The free code is made when you press Give the time back; the preview shows an example.':
+        'Vocha ya bure inatengenezwa ukibonyeza Rudisha muda; mfano unaonyesha namba ya mfano.',
     'Give the time back to the ticked guests?': 'Uwarudishie muda wateja uliowachagua?',
     'Give the time back': 'Rudisha muda',
     'Outages made up for': 'Fidia zilizotolewa',

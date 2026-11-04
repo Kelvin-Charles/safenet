@@ -86,7 +86,11 @@ r = post(site_id=TOWN, action='preview')
 assert '11110001' in r and '11110002' in r and '11110003' not in r
 assert '10 hours' in r or '10h' in r
 assert 'end moves later' in r and '1 customers × 2 SMS × TZS 30 = TZS 60' in r      # the apology with its link: 2 SMS
-assert 'JRIIT: Dear customer, we sincerely apologise' in r and 'free to your code 11110001. See your time left: http' in r and '/my/abcdefg' in r
+# the preview is the first ticked customer with a phone (the cash code 11110002 has none)
+assert 'Preview for the first customer: 0700000001 · code 11110001 · lost 10h 59m' in r
+first = json.loads(re.search(r'data-first="(\{.*?\})">', r).group(1))
+assert first['code'] == '11110001' and first['prefix'] == 'JRIIT: ' and first['link'].startswith('https://') and '/my/' in first['link']
+assert 'apologise' in r and '{link}' in r                             # the message box, filled in by the page's script
 r = post(site_id=TOWN, action='apply', picking='1', vid=[A, B], sms='1', text="Sorry for the outage. We've added {time} to your code {code}.")
 assert '2 codes got their lost time back' in r and '1 SMS are being sent' in r
 with app.app_context():

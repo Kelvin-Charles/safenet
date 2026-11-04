@@ -82,7 +82,35 @@
                 <textarea name="text" class="form-control" rows="4" maxlength="400">{{ template }}</textarea>
                 <div class="form-text">{{ _('{time} becomes the time given, {code} the code, {link} a link where the guest sees their time left. Your business name is added at the start.') }}</div>
             </div>
-            {% if sample and send_sms %}<div class="border rounded bg-light p-2 small mb-2" style="white-space:pre-wrap">{{ sample }}</div>{% endif %}
+            {% if first %}
+            <div class="card bg-light border-0 mb-2" id="smsPreview" data-first="{{ first|tojson|forceescape }}">
+                <div class="card-body py-2">
+                    <div class="small text-muted mb-1"><i class="bi bi-phone"></i>
+                        {{ _('Preview for the first customer: {phone} · code {code} · lost {lost}', phone=first.phone, code=first.own_code, lost=first.lost) }}</div>
+                    <div class="bg-white border rounded p-2" style="white-space:pre-wrap" id="smsSample"></div>
+                    <div class="small mt-1"><span id="smsLen">0</span> {{ _('characters') }} · <strong id="smsParts">1</strong> {{ _('SMS per customer') }}
+                        <span class="text-danger d-none" id="smsUnicode">· {{ _('emoji or special characters: 70 characters per SMS') }}</span></div>
+                    {% if reyee %}<div class="small text-muted">{{ _('The free code is made when you press Give the time back; the preview shows an example.') }}</div>{% endif %}
+                </div>
+            </div>
+            <script>
+            (function () {
+                var box = document.querySelector('textarea[name=text]'), card = document.getElementById('smsPreview');
+                var f = JSON.parse(card.dataset.first);
+                function parts(t) { var gsm = /^[\x00-\x7F]*$/.test(t), one = gsm ? 160 : 70, part = gsm ? 153 : 67;
+                    return { n: t.length <= one ? 1 : Math.ceil(t.length / part), gsm: gsm }; }
+                function show() {
+                    var t = f.prefix + box.value.trim().split('{time}').join(f.time).split('{code}').join(f.code).split('{link}').join(f.link);
+                    var p = parts(t);
+                    document.getElementById('smsSample').textContent = t;
+                    document.getElementById('smsLen').textContent = t.length;
+                    document.getElementById('smsParts').textContent = p.n;
+                    document.getElementById('smsUnicode').classList.toggle('d-none', p.gsm);
+                }
+                box.addEventListener('input', show); show();
+            })();
+            </script>
+            {% endif %}
             {% if send_sms %}<div class="small mb-3">
                 {{ _('{n} customers × {parts} SMS × {cur} {price} = {cur} {cost}', n=with_phone, parts=parts, cur=currency, price=price, cost='{:,.0f}'.format(cost)) }}
                 · {% if balance is not none %}{{ _('Taken from your SafeNet Pay balance ({cur} {balance}).', cur=currency, balance='{:,.0f}'.format(balance)) }}{% else %}{{ _('Added to your next SafeNet bill.') }}{% endif %}
