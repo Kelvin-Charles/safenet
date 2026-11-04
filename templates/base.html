@@ -221,9 +221,34 @@
         body.view-only a[href$="/settings/payments"], body.view-only .bulk-pick, body.view-only #bulk-page { display: none !important; }
     </style>
     {% endif %}
+    {% if session.get('in_app') %}
+    <style>
+        /* Opened inside the SafeNet mobile app: the app has its own top bar and menu, so the page is just its content,
+           laid out for a phone in the app's look */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        body.in-app { background: #F5F7FB; font-family: 'Inter', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+        body.in-app .sidebar, body.in-app .sidebar-backdrop, body.in-app .navbar-top { display: none !important; }
+        body.in-app .main-content { margin-left: 0 !important; padding: 12px 14px 32px !important; min-height: auto; }
+        body.in-app .card { border-radius: 18px; box-shadow: none; border: 1px solid #E8ECF4; margin-bottom: 14px; }
+        body.in-app .card-header { background: #fff; border-bottom: 1px solid #EEF1F6; border-radius: 18px 18px 0 0 !important; font-weight: 700; padding: 14px 16px; }
+        body.in-app .card-body { padding: 14px 16px; }
+        body.in-app .btn { border-radius: 12px; font-weight: 600; padding: .55rem 1rem; }
+        body.in-app .btn-sm { border-radius: 10px; padding: .35rem .7rem; }
+        body.in-app .btn-primary { background: #051D60; border-color: #051D60; }
+        body.in-app .form-control, body.in-app .form-select { border-radius: 12px; padding: .65rem .85rem; border-color: #DDE3EE; font-size: 16px; }
+        body.in-app .form-control-sm, body.in-app .form-select-sm { padding: .5rem .7rem; font-size: 15px; }
+        body.in-app .alert { border-radius: 14px; border: 0; }
+        body.in-app .table { font-size: .9rem; }
+        body.in-app .table-responsive { border-radius: 12px; }
+        body.in-app .badge { border-radius: 20px; font-weight: 600; }
+        body.in-app h1, body.in-app h2, body.in-app h3 { font-size: 1.25rem; font-weight: 800; }
+        body.in-app .modal-content { border-radius: 22px; border: 0; }
+        body.in-app .row > [class*="col-md"], body.in-app .row > [class*="col-lg"] { margin-bottom: 4px; }
+    </style>
+    {% endif %}
     {% block extra_css %}{% endblock %}
 </head>
-<body class="{{ 'view-only' if current_user.is_authenticated and current_user.is_viewer }}">
+<body class="{{ 'view-only' if current_user.is_authenticated and current_user.is_viewer }} {{ 'in-app' if session.get('in_app') }}">
     {% if current_user.is_authenticated %}
     <!-- Sidebar -->
     <div class="sidebar">

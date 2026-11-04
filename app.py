@@ -4891,9 +4891,9 @@ def _local_offset():
     return timedelta(minutes=round((datetime.now() - datetime.utcnow()).total_seconds() / 60))
 
 
-def _offer_from_form(offer):
-    """Fill an offer from the form. Returns a problem in words, or None."""
-    f = request.form
+def _offer_from_form(offer, f=None):
+    """Fill an offer from the form (or the mobile app's fields). Returns a problem in words, or None."""
+    f = request.form if f is None else f
     name = (f.get('name') or '').strip()[:80]
     package_id = f.get('package_id', type=int) or None
     site_id = f.get('site_id', type=int) or None

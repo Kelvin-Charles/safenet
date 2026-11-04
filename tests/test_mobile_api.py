@@ -1,13 +1,17 @@
 """The mobile app's API: business accounts sign in for a token and use the dashboard's data per site; partners only look;
 Wi-Fi customers sign in with their phone and a code bought with it and see their codes, businesses and spending."""
-import os, sys
+import os, re, sys
 from datetime import datetime, timedelta
 from decimal import Decimal
 os.environ.update(DB_PASSWORD='x', SECRET_KEY='k' * 40)
 sys.path.insert(0, os.getcwd())
 import config; config.Config.SQLALCHEMY_DATABASE_URI = 'sqlite://'
 import app as appmod
-appmod.send_sms_async = lambda *a, **k: None
+texts = []
+appmod.send_sms_async = lambda to, text, *a, **k: texts.append((to, text))
+appmod.sms_is_configured = lambda: True
+mails = []
+appmod._send_verification = lambda admin: mails.append(admin.email)
 appmod._ruijie_push_soon = lambda *a, **k: None
 from app import app, db
 import migrations
@@ -129,16 +133,31 @@ with app.app_context():
     a = Admin.query.filter_by(username='owner').one(); a.set_password('password2'); db.session.commit()
 assert fresh.get('/api/m/me', headers=H).status_code == 401
 
-# --- Wi-Fi customers
+# --- Wi-Fi customers: with a voucher code alone (sees that code)
 g = app.test_client()
-assert g.post('/api/m/guest/login', json={'phone': '0700000001', 'code': '50000009'}).status_code == 401
-assert g.post('/api/m/guest/login', json={'phone': '0700000002', 'code': '50000001'}).status_code == 401   # not their code
-r = g.post('/api/m/guest/login', json={'phone': '0700 000 001', 'code': '50000001'})
+assert g.post('/api/m/guest/login', json={'code': '59999999'}).status_code == 401
+r = g.post('/api/m/guest/login', json={'code': '5000 0001'})
+assert r.status_code == 200, r.text
+V = {'Authorization': f"Bearer {J(r)['token']}"}
+home = J(g.get('/api/m/guest/home', headers=V))
+assert [x['code'] for x in home['codes']] == ['50000001'] and home['spent'] == 1000.0 and home['phone'] is None, home
+assert [b['name'] for b in home['businesses']] == ['Kpstar'] and home['businesses'][0]['sites'] == ['Hostel']
+assert g.get('/api/m/me', headers=V).status_code == 401                 # a guest token isn't a business token
+assert g.get('/api/m/guest/home', headers=H).status_code == 401        # and the other way round
+
+# --- with the phone number: SafeNet texts a code
+assert g.post('/api/m/guest/send-code', json={'phone': '0711111111'}).status_code == 404     # never bought
+r = g.post('/api/m/guest/send-code', json={'phone': '0700 000 001'})
+assert r.status_code == 200, r.text
+to, text = texts[-1]
+assert to == '255700000001'
+otp = re.search(r'\b(\d{6})\b', text).group(1)
+wrong = '000000' if otp != '000000' else '111111'
+assert g.post('/api/m/guest/login', json={'phone': '0700000001', 'otp': wrong}).status_code == 401
+r = g.post('/api/m/guest/login', json={'phone': '0700000001', 'otp': otp})
 assert r.status_code == 200, r.text
 G = {'Authorization': f"Bearer {J(r)['token']}"}
-assert g.get('/api/m/guest/home').status_code == 401
-assert g.get('/api/m/guest/home', headers=H).status_code == 401        # a business token isn't a guest token
-assert g.get('/api/m/me', headers=G).status_code == 401                 # and the other way round
+assert g.post('/api/m/guest/login', json={'phone': '0700000001', 'otp': otp}).status_code == 401   # works once
 home = J(g.get('/api/m/guest/home', headers=G))
 names = {b['name']: b for b in home['businesses']}
 assert set(names) == {'Kpstar', 'Other Net'}, names
@@ -152,7 +171,100 @@ assert codes['50000002']['state'] == 'expired'
 assert home['codes'][0]['state'] == 'active'
 gift = next(h for h in home['history'] if h['code'] == '50000003')
 assert gift['from'] == '255700000009'
+for _ in range(3):
+    g.post('/api/m/guest/send-code', json={'phone': '0700000001'})
+assert g.post('/api/m/guest/send-code', json={'phone': '0700000001'}).status_code == 429       # 3 an hour per number
 for _ in range(12):
-    g.post('/api/m/guest/login', json={'phone': '0700000001', 'code': '1'})
-assert g.post('/api/m/guest/login', json={'phone': '0700000001', 'code': '50000001'}).status_code == 429
+    g.post('/api/m/guest/login', json={'code': '1'})
+assert g.post('/api/m/guest/login', json={'code': '50000001'}).status_code == 429
+
+# --- registering a business from the app
+appmod.Config.SIGNUP_ENABLED = True
+cfg = J(c.get('/api/m/config'))
+assert cfg['signup'] and cfg['sms_login'] and cfg['trial_days'] >= 0
+bad = c.post('/api/m/signup', json={'business_name': 'X', 'username': 'a b', 'email': 'nope', 'password': 'short'})
+assert bad.status_code == 400 and set(J(bad)['fields']) >= {'business_name', 'username', 'email', 'password', 'accept'}, J(bad)
+taken = c.post('/api/m/signup', json={'business_name': 'Mpya Net', 'username': 'owner', 'email': 'new@x.tz', 'password': 'password1', 'accept': True})
+assert J(taken)['fields'] == {'username': 'That username is taken.'}
+r = c.post('/api/m/signup', json={'business_name': 'Mpya Net', 'username': 'mpya', 'email': 'New@X.tz', 'phone': '0755123456',
+                                  'password': 'password1', 'accept': True})
+assert r.status_code == 200 and J(r)['email'] == 'new@x.tz' and mails == ['new@x.tz'], r.text
+with app.app_context():
+    a = Admin.query.filter_by(username='mpya').one()
+    assert a.role == 'owner' and a.tenant.name == 'Mpya Net' and a.tenant.status == 'trial' and a.email_verified_at is None
+r = c.post('/api/m/login', json={'username': 'mpya', 'password': 'password1'})
+assert r.status_code == 403 and J(r)['unverified'] and J(r)['email'] == 'new@x.tz'
+assert c.post('/api/m/resend', json={'email': 'new@x.tz'}).status_code == 200 and mails == ['new@x.tz', 'new@x.tz']
+appmod.Config.SIGNUP_ENABLED = False
+assert c.post('/api/m/signup', json={}).status_code == 404
 print('ok')
+
+# ================================================================ managing the business from the app
+with app.app_context():
+    a = Admin.query.filter_by(username='owner').one(); a.set_password('password1'); db.session.commit()
+H = {'Authorization': 'Bearer ' + J(c.post('/api/m/login', json={'username': 'owner', 'password': 'password1'}))['token']}
+m = app.test_client()
+
+# packages
+form = J(m.get('/api/m/packages/form', headers=H)); assert len(form['sites']) == 2
+assert m.post('/api/m/packages/new', headers=H, json={'name': '', 'price': 500, 'minutes': 60}).status_code == 400
+pid = J(m.post('/api/m/packages/new', headers=H, json={'name': 'Hour', 'price': 500, 'minutes': 60, 'devices': 1, 'site_id': HOSTEL}))['id']
+full = J(m.get(f'/api/m/packages/{pid}/full', headers=H)); assert full['site_id'] == HOSTEL and full['price'] == 500.0
+assert m.post(f'/api/m/packages/{pid}/save', headers=H, json={**full, 'price': 600}).status_code == 200
+assert J(m.get(f'/api/m/packages/{pid}/full', headers=H))['price'] == 600.0
+
+# offers
+o = m.post('/api/m/offers', headers=H, json={'name': 'Buy a day, get 6 hours', 'package_id': pid, 'bonus_minutes': 360, 'active': True})
+assert o.status_code == 200 and J(o)['bonus_minutes'] == 360 and J(o)['live'], o.text
+oid = J(o)['id']
+assert m.post('/api/m/offers', headers=H, json={'name': 'Nothing'}).status_code == 400          # no extra time or discount
+assert J(m.post(f'/api/m/offers/{oid}/toggle', headers=H))['active'] is False
+assert [x['id'] for x in J(m.get('/api/m/offers', headers=H))['items']] == [oid]
+assert m.delete(f'/api/m/offers/{oid}', headers=H).status_code == 200
+
+# SMS to customers: audience, cost, send
+pre = J(m.post('/api/m/sms', headers=H, json={'text': 'Habari! Ofa leo.'}))
+assert pre['count'] == 2 and pre['parts'] == 1 and pre['cost'] == pre['count'] * pre['price'] and pre['sample'].startswith('Kpstar: '), pre
+one = J(m.post('/api/m/sms', headers=H, json={'text': 'Hi', 'site_id': HOSTEL}))
+assert one['count'] == 1
+assert m.post('/api/m/sms', headers=H, json={'text': '', 'action': 'send'}).status_code == 400
+sent = m.post('/api/m/sms', headers=H, json={'text': 'Habari', 'phones': ['255700000001'], 'action': 'send'})
+assert sent.status_code == 200 and J(sent)['sent'] == 1, sent.text
+assert J(m.get('/api/m/sms/history', headers=H))['items'][0]['recipients'] == 1
+
+# speed plans
+pl = m.post('/api/m/plans', headers=H, json={'name': 'Fast', 'down': '10M', 'up': '2m'})
+assert pl.status_code == 200 and J(pl)['up'] == '2M', pl.text
+assert m.post('/api/m/plans', headers=H, json={'name': 'Bad', 'down': 'fast'}).status_code == 400
+assert m.post('/api/m/plans', headers=H, json={'name': 'Fast'}).status_code == 400              # same name
+assert m.delete(f"/api/m/plans/{J(pl)['id']}", headers=H).status_code == 200
+
+# team
+tm = J(m.get('/api/m/team', headers=H)); assert 'viewer' in tm['roles'] and any(x['me'] for x in tm['items'])
+r = m.post('/api/m/team', headers=H, json={'username': 'cashier', 'email': 'c@x.tz', 'role': 'staff', 'password': 'password1'})
+assert r.status_code == 200, r.text
+cid_ = J(r)['id']
+assert J(m.post(f'/api/m/team/{cid_}/toggle', headers=H))['active'] is False
+me_id = next(x['id'] for x in tm['items'] if x['me'])
+assert m.post(f'/api/m/team/{me_id}/toggle', headers=H).status_code == 403                      # not yourself
+assert m.delete(f'/api/m/team/{cid_}', headers=H).status_code == 200
+
+# settings
+st = J(m.post('/api/m/settings', headers=H, json={'support_phone': '0755000111', 'sale_sms': True, 'notify_phone': '0755000222'}))
+assert st['support_phone'] == '0755000111' and st['sale_sms'] and st['notify_phone'] == '255755000222'
+assert m.post('/api/m/settings', headers=H, json={'notify_phone': 'abc'}).status_code == 400
+
+# sites and devices
+sv = J(m.get('/api/m/sites', headers=H)); assert {x['name'] for x in sv['sites']} == {'Main site', 'Hostel'}
+assert m.post(f'/api/m/sites/{HOSTEL}', headers=H, json={'name': 'Hostel A'}).status_code == 200
+assert 'Hostel A' in {x['name'] for x in J(m.get('/api/m/sites', headers=H))['sites']}
+
+# a partner can't manage
+assert m.post('/api/m/plans', headers=P, json={'name': 'X'}).status_code in (401, 403)
+
+# pages opened in the app lose the web menu
+link = J(m.post('/api/m/web-link', headers=H, json={'path': '/team'}))['url']
+w = app.test_client(); w.get('/' + link.split('/', 3)[3])
+assert 'body.in-app' in w.get('/team').text and 'in-app' in w.get('/team').text.split('<body', 1)[1][:200]
+assert 'in-app' not in app.test_client().get('/login').text.split('<body', 1)[1][:200]
+print('manage ok')
