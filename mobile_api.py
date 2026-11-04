@@ -626,7 +626,9 @@ OTP_MINUTES = 10
 
 
 def _otp_key(phone, otp):
-    return f"{phone}:{hashlib.sha256(f'{phone}:{otp}:{A.app.config['SECRET_KEY']}'.encode()).hexdigest()[:40]}"
+    secret = A.app.config['SECRET_KEY']
+    digest = hashlib.sha256(f'{phone}:{otp}:{secret}'.encode()).hexdigest()[:40]
+    return f'{phone}:{digest}'
 
 
 def _has_bought(phone):
