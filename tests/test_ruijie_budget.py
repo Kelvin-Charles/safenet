@@ -74,5 +74,6 @@ with app.app_context():
     secs_left = 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
     assert abs(gap - max(180, secs_left * 12 / 3250)) < 5, gap
     appmod._ruijie_sync_cost.update({1: 40})                            # a site with many codes costs more: syncs less often
-    assert appmod._ruijie_sync_gap('openabc', [1, 2, 3]) > gap
+    more = appmod._ruijie_sync_gap('openabc', [1, 2, 3])                # (late in the UTC day both are at the 3-minute floor)
+    assert more > gap or more == gap == appmod.RUIJIE_SYNC_SECONDS, (more, gap)
 print('RUIJIE BUDGET OK')

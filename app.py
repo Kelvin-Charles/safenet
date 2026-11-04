@@ -190,6 +190,8 @@ def partners_are_read_only():
     if not (current_user.is_authenticated and getattr(current_user, 'is_viewer', False)):
         return None
     allowed = VIEWER_PAGES if current_user.site_id else VIEWER_BUSINESS_PAGES
+    if (request.endpoint or '').startswith('mobile.'):      # the mobile app's API checks each change itself
+        return None
     if request.endpoint in allowed and (request.method in ('GET', 'HEAD') or request.endpoint in VIEWER_CHANGES):
         return None
     if request.path.startswith('/api/'):
@@ -9197,6 +9199,11 @@ def seed_users(path, update_password, plan, tenant_slug):
         f'Done. created={created} updated={updated} skipped={skipped} '
         f'total_input={len(users)}'
     )
+
+
+# The mobile app's API (mobile_api.py)
+import mobile_api  # noqa: E402
+mobile_api.init(app, sys.modules[__name__])
 
 
 # Background jobs in the web server's workers (not in scripts, tests or `flask` commands)

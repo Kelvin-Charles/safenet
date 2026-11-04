@@ -7,7 +7,7 @@ read or change another tenant's data.
 """
 from functools import wraps
 
-from flask import abort, flash, redirect, session, url_for
+from flask import abort, flash, g, redirect, session, url_for
 from flask_login import current_user
 from sqlalchemy import select, union
 
@@ -55,7 +55,7 @@ def current_site():
     if fixed and not current_user.is_superadmin:             # a partner limited to one site
         site = db.session.get(Site, fixed)
         return site if site and site.tenant_id == tenant_id() else None
-    sid = session.get('site_id')
+    sid = g.get('site_id') if g.get('mobile') else session.get('site_id')    # the mobile app picks the site per request
     if not sid:
         return None
     site = db.session.get(Site, sid)
