@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import voucher_sites, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
+from models import voucher_sites, Outage, OutageCredit, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -5035,7 +5035,7 @@ def _offer_sms_audience(tenant, site_id=None, days=None):
     stopped = {p for (p,) in db.session.query(SmsContact.phone).filter(SmsContact.tenant_id == tenant.id,
                                                                        SmsContact.stopped_at.isnot(None))}
     recent = {p for (p,) in db.session.query(SmsCharge.phone).filter(
-        SmsCharge.tenant_id == tenant.id, SmsCharge.kind == 'offer', SmsCharge.created_at >= datetime.utcnow() - timedelta(hours=24))}
+        SmsCharge.tenant_id == tenant.id, SmsCharge.kind.in_(('offer', 'notice')), SmsCharge.created_at >= datetime.utcnow() - timedelta(hours=24))}
     send = sorted(phones - stopped - recent)
     return send, len(phones & stopped), len((phones - stopped) & recent)
 
@@ -5055,9 +5055,32 @@ def _sms_contacts(tenant_id, phones):
 
 
 def _send_offer_campaign(campaign_id, targets):
-    """Background: send each SMS one after another; only SMS the gateway accepted are charged."""
+    """Background: send each SMS one after another; only SMS the gateway accepted are charged.
+    targets: (phone, text), or (phone, template, voucher id) for a code that must be on Ruijie Cloud first:
+    the text is made from the template ({code}) once the code is final, and left out if Ruijie refused it."""
     from sms import send_sms
     with app.app_context():
+        waiting = [t[2] for t in targets if len(t) > 2]
+        until = time.time() + 15 * 60
+        while waiting and time.time() < until:          # Reyee codes: sent to Ruijie Cloud first (their code may change)
+            if not Voucher.query.filter(Voucher.id.in_(waiting), Voucher.ruijie_state.in_(('pending', 'sending', 'catchup'))).count():
+                break
+            try:
+                _ruijie_push_due()
+            except Exception:
+                db.session.rollback()
+            time.sleep(0 if app.config.get('TESTING') else 20)
+        final = []
+        for t in targets:
+            if len(t) == 2:
+                final.append(t)
+                continue
+            v = db.session.get(Voucher, t[2])
+            if v is not None and v.ruijie_state in (None, 'ok'):
+                final.append((t[0], t[1].replace('{code}', v.code)))
+            else:
+                log.warning('outage SMS %s: code %s is not on Ruijie Cloud, not sent', campaign_id, v.code if v else t[2])
+        targets = final
         campaign = db.session.get(SmsCampaign, campaign_id)
         tenant = db.session.get(Tenant, campaign.tenant_id)
         method = 'balance' if tenant.payment_mode == 'platform' else 'bill'
@@ -5067,7 +5090,7 @@ def _send_offer_campaign(campaign_id, targets):
             for i, (phone, text) in enumerate(targets, 1):
                 if send_sms(phone, text, f'offer-{campaign_id}'):
                     sent += 1
-                    db.session.add(SmsCharge(tenant_id=tenant.id, site_id=campaign.site_id, phone=phone, kind='offer',
+                    db.session.add(SmsCharge(tenant_id=tenant.id, site_id=campaign.site_id, phone=phone, kind=campaign.kind or 'offer',
                                              parts=campaign.parts, amount=price, method=method, campaign_id=campaign_id))
                 if i % 20 == 0 or i == len(targets):
                     campaign.sent, campaign.amount = sent, price * sent
@@ -5117,6 +5140,10 @@ def offer_sms():
     days = f.get('days', type=int)
     days = days if days in OFFER_SMS_DAYS else None
     phones, stopped, recent = _offer_sms_audience(tenant, site_id, days)
+    audience = phones
+    if request.form.get('picking') == f'{site_id or ""}-{days or ""}':     # the owner ticked who gets it (for these choices)
+        ticked = set(request.form.getlist('phone'))
+        phones = [p for p in audience if p in ticked]
     sample = _offer_sms_text(tenant, text or '…', 'abcdefg')
     parts = sms_parts(sample)
     cost = Decimal(len(phones) * parts * Config.SMS_PRICE)
@@ -5149,6 +5176,7 @@ def offer_sms():
         else:
             tokens = _sms_contacts(tenant.id, phones)
             campaign = SmsCampaign(tenant_id=tenant.id, site_id=site_id, offer_id=offer_id if offer_id in suggestions else None,
+                                   kind='offer' if offer_id in suggestions else 'notice',
                                    text=text, days=days, recipients=len(phones), parts=parts, status='sending',
                                    created_by_id=current_user.id)
             db.session.add(campaign)
@@ -5165,11 +5193,155 @@ def offer_sms():
     stopped_total = SmsContact.query.filter(SmsContact.tenant_id == tenant.id, SmsContact.stopped_at.isnot(None)).count()
     return render_template('offers/sms.html', text=text, site_id=site_id, days=days, sites=sites, offers=live_offers,
                            offer_id=offer_id, suggestions=suggestions, phones=len(phones), stopped=stopped, recent=recent,
+                           audience=audience if len(audience) <= 500 else [], picked=set(phones),
                            parts=parts, cost=cost, balance=balance, sample=_offer_sms_text(tenant, text, 'abcdefg') if text else '',
                            preview=preview, history=history, stopped_total=stopped_total, sms_ready=sms_is_configured(),
                            price=Config.SMS_PRICE, currency=tenant.currency or 'TZS', max_text=OFFER_SMS_MAX_TEXT,
                            day_choices=OFFER_SMS_DAYS, offset=_local_offset(), now=datetime.utcnow(),
                            prefix=f'{tenant.name}: ', suffix=f' Stop: {_stop_link("abcdefg")}')
+
+
+# Outages: give guests the time they lost when a site's internet was down
+OUTAGE_MAX_DAYS = 7
+
+
+def _outage_affected(tenant, site, starts, ends):
+    """Codes of a site that were running during [starts, ends) and not made up for already: [(voucher, lost minutes, phone)]."""
+    done = {vid for (vid,) in db.session.query(OutageCredit.voucher_id).join(Outage).filter(
+        Outage.tenant_id == tenant.id, Outage.site_id == site.id, Outage.starts_at < ends, Outage.ends_at > starts)}
+    rows = Voucher.query.filter(Voucher.tenant_id == tenant.id, Voucher.site_id == site.id, Voucher.first_used_at.isnot(None),
+                                Voucher.expires_at.isnot(None), Voucher.first_used_at < ends, Voucher.expires_at > starts,
+                                Voucher.status != 'disabled').order_by(Voucher.first_used_at).all()
+    phones = {}
+    for p in Payment.query.filter(Payment.voucher_id.in_([v.id for v in rows]), Payment.status == 'paid').all() if rows else []:
+        phones[p.voucher_id] = p.gift_phone or p.phone
+    out = []
+    for v in rows:
+        if v.id in done:
+            continue
+        lost = math.ceil((min(ends, v.expires_at) - max(starts, v.first_used_at)).total_seconds() / 60)
+        if lost >= 1:
+            out.append((v, lost, _normalize_tz_phone(phones.get(v.id) or '') or None))
+    return out
+
+
+def _outage_template(reyee, sw):
+    if reyee:
+        return ('Samahani kwa kukatika kwa intaneti. Zawadi: vocha ya bure ya {time}: {code}. Iweke kwenye ukurasa wa Wi-Fi.' if sw else
+                "Sorry for the internet outage. Here's a free {time} code: {code}. Enter it on the Wi-Fi login page.")
+    return ('Samahani kwa kukatika kwa intaneti. Tumekuongezea {time} kwenye vocha yako {code}.' if sw else
+            "Sorry for the internet outage. We've added {time} to your code {code}.")
+
+
+@app.route('/vouchers/outage', methods=['GET', 'POST'])
+@login_required
+@role_required('admin')
+def outage():
+    tenant = current_tenant()
+    sites = tenant_sites()
+    sw = getattr(current_user, 'language', None) == 'sw'
+    f = request.form if request.method == 'POST' else request.args
+    site = next((x for x in sites if x.id == f.get('site_id', type=int)), None) or next((x for x in sites if x.ruijie_ready), sites[0])
+    reyee = bool(site.ruijie_ready)
+    offset = _local_offset()
+    parse = lambda x: datetime.strptime(x, '%Y-%m-%dT%H:%M') - offset if x else None
+    now = datetime.utcnow()
+    try:
+        starts, ends = parse(f.get('starts_at')), parse(f.get('ends_at'))
+    except ValueError:
+        starts = ends = None
+        flash(tr('Check the dates.'), 'danger')
+    lengths = sorted({int(p['minutes']) for p in _ruijie_info(site).get('packages', []) if p.get('minutes')}) if reyee else []
+    give = f.get('give', type=int)                      # minutes for everyone; 0/None = the time each one lost
+    template = (f.get('text') or '').strip() or _outage_template(reyee, sw)
+    # SMS on until the owner unticks it (the box only exists once guests are listed)
+    send_sms = sms_is_configured() and (f.get('sms') == '1' if request.form.get('picking') else True)
+    items, problem = [], None
+    if starts and ends:
+        if ends <= starts:
+            problem = tr('The outage must end after it starts.')
+        elif ends > now + timedelta(minutes=5):
+            problem = tr("The outage can't end in the future.")
+        elif ends - starts > timedelta(days=OUTAGE_MAX_DAYS):
+            problem = tr('An outage can be up to {n} days.', n=OUTAGE_MAX_DAYS)
+        else:
+            items = _outage_affected(tenant, site, starts, ends)
+    if reyee and lengths and give not in lengths:
+        need = max((lost for _, lost, _ in items), default=0)
+        give = next((m for m in lengths if m >= need), lengths[-1])
+    if not reyee and give not in (60, 120, 180, 360, 720, 1440, 2880):
+        give = 0
+    picked = {int(x) for x in request.form.getlist('vid') if x.isdigit()} if request.form.get('picking') else {v.id for v, _, _ in items}
+    chosen = [(v, lost, phone) for v, lost, phone in items if v.id in picked]
+    minutes_for = lambda lost: give or lost
+    sms_lang = 'sw' if sw else 'en'
+    texts = [(phone, f'{tenant.name}: ' + template.replace('{time}', portal_ui.duration(minutes_for(lost), sms_lang))) for v, lost, phone in chosen if phone]
+    parts = max((sms_parts(t.replace('{code}', 'X' * 8)) for _, t in texts), default=1)
+    cost = Decimal(len(texts) * parts * Config.SMS_PRICE) if send_sms else Decimal(0)
+    balance = tenant_balance(tenant.id)[0] if tenant.payment_mode == 'platform' else None
+    if request.method == 'POST' and problem is None:
+        _check_csrf()
+        if f.get('action') == 'apply':
+            if not chosen:
+                problem = tr('Tick at least one code.')
+            elif reyee and not lengths:
+                problem = tr('Ruijie Cloud has no voucher packages for this site yet. Press Read packages on Sites, then try again.')
+            elif send_sms and texts and '{code}' not in template and reyee:
+                problem = tr('Keep {code} in the message: it is the free code the guest types.')
+            elif send_sms and len(template) > 300:
+                problem = tr('The message can be up to {n} characters.', n=300)
+            elif send_sms and balance is not None and cost > balance:
+                problem = tr('Your SafeNet Pay balance ({cur} {balance}) is less than the cost ({cur} {cost}).', cur=tenant.currency or 'TZS',
+                             balance=f'{balance:,.0f}', cost=f'{cost:,.0f}')
+            else:
+                record = Outage(tenant_id=tenant.id, site_id=site.id, starts_at=starts, ends_at=ends, created_by_id=current_user.id,
+                                note=(f.get('note') or '').strip()[:120] or None)
+                db.session.add(record)
+                db.session.flush()
+                targets = []
+                for v, lost, phone in chosen:
+                    m = minutes_for(lost)
+                    credit = OutageCredit(outage_id=record.id, voucher_id=v.id, minutes=m, phone=phone)
+                    if reyee:          # Ruijie Cloud keeps the code's time: a free code for the time lost
+                        gift = _create_vouchers(1, v.plan, m, None, f'Outage {(starts + offset).strftime("%d/%m %H:%M")}',
+                                                tenant=tenant.id, max_devices=v.max_devices, site_id=site.id)[0]
+                        db.session.flush()
+                        credit.gift_voucher_id = gift.id
+                        if phone:
+                            targets.append((phone, f'{tenant.name}: ' + template.replace('{time}', portal_ui.duration(m, sms_lang)), gift.id))
+                    else:              # SafeNet keeps the time: the code's end moves later (from now, if it ended meanwhile)
+                        new_end = max(v.expires_at, now) + timedelta(minutes=m)
+                        v.validity_minutes = math.ceil((new_end - v.first_used_at).total_seconds() / 60)
+                        v.expires_at = new_end
+                        if phone:
+                            targets.append((phone, f'{tenant.name}: ' + template.replace('{time}', portal_ui.duration(m, sms_lang)).replace('{code}', v.code)))
+                    db.session.add(credit)
+                if send_sms and targets:
+                    campaign = SmsCampaign(tenant_id=tenant.id, site_id=site.id, kind='outage', text=template[:640], recipients=len(targets),
+                                           parts=parts, status='sending', created_by_id=current_user.id)
+                    db.session.add(campaign)
+                    db.session.flush()
+                    record.campaign_id = campaign.id
+                db.session.commit()
+                if reyee:
+                    _ruijie_push_soon()
+                if send_sms and targets:
+                    threading.Thread(target=_send_offer_campaign, args=(record.campaign_id, targets), daemon=True).start()
+                log.info('tenant %s: outage %s at site %s, %d codes made up for', tenant.id, record.id, site.id, len(chosen))
+                flash((tr('{n} guests got a free code for the time they lost.', n=len(chosen)) if reyee else
+                       tr('{n} codes got their lost time back.', n=len(chosen)))
+                      + (' ' + tr('{n} SMS are being sent.', n=len(targets)) if send_sms and targets else ''), 'success')
+                return redirect(url_for('outage', site_id=site.id))
+    if problem:
+        flash(problem, 'danger')
+    history = Outage.query.filter_by(tenant_id=tenant.id).order_by(Outage.id.desc()).limit(10).all()
+    local = lambda d: (d + offset).strftime('%Y-%m-%dT%H:%M') if d else ''
+    return render_template('vouchers/outage.html', sites=sites, site=site, reyee=reyee, lengths=lengths, give=give,
+                           starts_local=local(starts), ends_local=local(ends) or local(now), items=items, picked=picked,
+                           chosen=len(chosen), with_phone=len(texts), template=template, send_sms=send_sms, sms_ready=sms_is_configured(),
+                           parts=parts, cost=cost, balance=balance, currency=tenant.currency or 'TZS', price=Config.SMS_PRICE,
+                           history=history, offset=offset, checked=bool(starts and ends and problem is None),
+                           sample=texts[0][1].replace('{code}', chosen[0][0].code if not reyee else '12345678') if texts else '')
 
 
 @app.route('/stop/<token>', methods=['GET', 'POST'])

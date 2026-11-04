@@ -921,6 +921,7 @@ class SmsCampaign(db.Model):
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
     site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'))        # NULL = customers of every site
     offer_id = db.Column(db.Integer, db.ForeignKey('offers.id', ondelete='SET NULL'))
+    kind = db.Column(db.String(16), nullable=False, default='offer', server_default='offer')   # offer, notice, outage
     text = db.Column(db.String(640), nullable=False)            # as written by the owner (the stop link is added per customer)
     days = db.Column(db.Integer)                                # customers who paid in the last N days (NULL = ever)
     recipients = db.Column(db.Integer, nullable=False, default=0)
@@ -933,6 +934,40 @@ class SmsCampaign(db.Model):
 
     site = db.relationship('Site')
     offer = db.relationship('Offer')
+
+
+class Outage(db.Model):
+    """The internet was down at a site: guests who had a package running then got the lost time back
+    (their code's end moved later, or a free code where Ruijie Cloud keeps the time)."""
+    __tablename__ = 'outages'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'))
+    starts_at = db.Column(db.DateTime, nullable=False)          # UTC
+    ends_at = db.Column(db.DateTime, nullable=False)
+    note = db.Column(db.String(120))
+    campaign_id = db.Column(db.Integer, db.ForeignKey('sms_campaigns.id', ondelete='SET NULL'))
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='SET NULL'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    site = db.relationship('Site')
+    credits = db.relationship('OutageCredit', backref='outage', lazy='selectin')
+
+
+class OutageCredit(db.Model):
+    """One code made up for after an outage (each code at most once per outage time)."""
+    __tablename__ = 'outage_credits'
+
+    id = db.Column(db.Integer, primary_key=True)
+    outage_id = db.Column(db.Integer, db.ForeignKey('outages.id', ondelete='CASCADE'), nullable=False, index=True)
+    voucher_id = db.Column(db.Integer, db.ForeignKey('vouchers.id', ondelete='CASCADE'), nullable=False, index=True)
+    minutes = db.Column(db.Integer, nullable=False)              # time given back
+    gift_voucher_id = db.Column(db.Integer, db.ForeignKey('vouchers.id', ondelete='SET NULL'))    # Reyee: the free code
+    phone = db.Column(db.String(16))
+
+    voucher = db.relationship('Voucher', foreign_keys=[voucher_id])
+    gift = db.relationship('Voucher', foreign_keys=[gift_voucher_id])
 
 
 class SmsContact(db.Model):

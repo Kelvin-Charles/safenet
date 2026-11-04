@@ -61,6 +61,18 @@
                 <div>{{ _('{n} customers × {parts} SMS × {cur} {price} = {cur} {cost}', n=phones, parts=parts, cur=currency, price=price, cost='{:,.0f}'.format(cost)) }}</div>
                 <small class="text-muted">{% if balance is not none %}{{ _('Taken from your SafeNet Pay balance ({cur} {balance}).', cur=currency, balance='{:,.0f}'.format(balance)) }} {{ _('Balance after sending: {cur} {left}.', cur=currency, left='{:,.0f}'.format(balance - cost)) }}{% else %}{{ _('Added to your next SafeNet bill.') }}{% endif %}
                     {{ _('Only SMS that go out are charged.') }}</small>
+                {% if audience %}
+                <input type="hidden" name="picking" value="{{ site_id or '' }}-{{ days or '' }}">
+                <details class="mt-2" {{ 'open' if picked|length < audience|length }}>
+                    <summary class="small">{{ _('Choose customers ({n} of {total} ticked)', n=picked|length, total=audience|length) }}</summary>
+                    <div class="form-check small my-1"><input class="form-check-input" type="checkbox" id="pickAll" {{ 'checked' if picked|length == audience|length }}
+                        onclick="document.querySelectorAll('.ppick').forEach(b => b.checked = this.checked)"><label class="form-check-label" for="pickAll">{{ _('All') }}</label></div>
+                    <div class="row row-cols-2 row-cols-md-3 g-1 small" style="max-height:240px;overflow:auto">
+                        {% for p in audience %}<div class="col"><label class="form-check-label"><input class="form-check-input ppick me-1" type="checkbox" name="phone" value="{{ p }}" {{ 'checked' if p in picked }}>{{ '0' ~ p[3:] if p.startswith('255') else p }}</label></div>{% endfor %}
+                    </div>
+                    <div class="form-text">{{ _('Untick anyone who should not get it, then press Update to see the new cost.') }}</div>
+                </details>
+                {% endif %}
                 <div class="mt-2">
                     <button class="btn btn-success" name="action" value="send" type="submit" onclick="return confirm({{ (_('{cur} {cost} will be taken from your SafeNet Pay balance. Send?', cur=currency, cost='{:,.0f}'.format(cost)) if balance is not none else _('{cur} {cost} will be added to your next SafeNet bill. Send?', cur=currency, cost='{:,.0f}'.format(cost)))|tojson|forceescape }});"><i class="bi bi-send"></i> {{ _('Send to {n} customers', n=phones) }}</button>
                     <button class="btn btn-outline-secondary" name="action" value="preview" type="submit">{{ _('Update') }}</button>

@@ -242,7 +242,7 @@
             {% if not site_partner %}{{ link(['sites_page'], url_for('sites_page'), 'bi-geo-alt', _('Sites')) }}{% endif %}
             {{ link(['live'], url_for('live'), 'bi-broadcast', _('Live')) }}
             {% if not site_partner %}{{ link(['users', 'add_user', 'edit_user'], url_for('users'), 'bi-people', _('Users')) }}{% endif %}
-            {{ link(['vouchers', 'generate_vouchers'], url_for('vouchers'), 'bi-ticket-perforated', _('Vouchers')) }}
+            {{ link(['vouchers', 'generate_vouchers', 'outage'], url_for('vouchers'), 'bi-ticket-perforated', _('Vouchers')) }}
             {{ link(['payments'], url_for('payments'), 'bi-phone', _('Payments')) }}
             {% if partner and not site_partner %}{{ link(['earnings'], url_for('earnings'), 'bi-wallet2', _('Earnings')) }}{% endif %}
             {% if is_admin %}

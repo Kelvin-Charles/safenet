@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Make up for an outage') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Make up for an outage') }}{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+    <div class="card-header"><i class="bi bi-lightning-charge"></i> {{ _('When was the internet down?') }}</div>
+    <div class="card-body">
+        <p class="small text-muted">{{ _('SafeNet finds the codes that were running at the site during that time and gives each guest the time they lost. You can also tell them by SMS.') }}</p>
+        <form method="POST" id="outageForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label">{{ _('Site') }}</label>
+                    <select name="site_id" class="form-select">
+                        {% for x in sites %}<option value="{{ x.id }}" {{ 'selected' if x.id == site.id }}>{{ x.name }}{% if x.ruijie_ready %} (Reyee){% endif %}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">{{ _('Down from') }}</label>
+                    <input type="datetime-local" name="starts_at" class="form-control" value="{{ starts_local }}" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">{{ _('Back at') }}</label>
+                    <input type="datetime-local" name="ends_at" class="form-control" value="{{ ends_local }}" required>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary w-100" name="action" value="preview" type="submit"><i class="bi bi-search"></i> {{ _('Find guests') }}</button>
+                </div>
+            </div>
+
+            {% if checked %}
+            <hr>
+            {% if not items %}
+            <p class="text-muted mb-0">{{ _('No codes were running at this site during that time (or they were already made up for).') }}</p>
+            {% else %}
+            <input type="hidden" name="picking" value="1">
+            <div class="alert alert-info small py-2">
+                {% if reyee %}{{ _("This is a Reyee site: Ruijie Cloud keeps each code's time, so SafeNet can't extend it. Each guest gets a free code instead.") }}
+                {% else %}{{ _("Each code's end moves later by the time given (from now, if it ended during the outage).") }}{% endif %}
+            </div>
+            <div class="row g-2 mb-3">
+                <div class="col-md-5">
+                    <label class="form-label">{{ _('Give back') }}</label>
+                    <select name="give" class="form-select" onchange="this.form.querySelector('[value=preview]').click()">
+                        {% if reyee %}
+                            {% for m in lengths %}<option value="{{ m }}" {{ 'selected' if give == m }}>{{ _('A free code of {time}', time=m|minutes) }}</option>{% endfor %}
+                        {% else %}
+                            <option value="0" {{ 'selected' if not give }}>{{ _('The time each guest lost') }}</option>
+                            {% for m in (60, 120, 180, 360, 720, 1440, 2880) %}<option value="{{ m }}" {{ 'selected' if give == m }}>{{ _('{time} for everyone', time=m|minutes) }}</option>{% endfor %}
+                        {% endif %}
+                    </select>
+                    {% if reyee and not lengths %}<div class="form-text text-danger">{{ _('Ruijie Cloud has no voucher packages for this site yet. Press Read packages on Sites, then try again.') }}</div>{% endif %}
+                </div>
+            </div>
+            <div class="table-responsive mb-3">
+                <table class="table table-sm align-middle">
+                    <thead><tr><th><input type="checkbox" class="form-check-input" checked onclick="document.querySelectorAll('.vpick').forEach(b => b.checked = this.checked)" aria-label="{{ _('All') }}"></th>
+                        <th>{{ _('Code') }}</th><th>{{ _('Phone') }}</th><th>{{ _('Started') }}</th><th>{{ _('Ends') }}</th><th>{{ _('Lost') }}</th><th>{{ _('Gets') }}</th></tr></thead>
+                    <tbody>
+                    {% for v, lost, phone in items %}
+                    <tr>
+                        <td><input type="checkbox" class="form-check-input vpick" name="vid" value="{{ v.id }}" {{ 'checked' if v.id in picked }}></td>
+                        <td class="font-monospace">{{ v.code }}</td>
+                        <td>{{ phone or '—' }}</td>
+                        <td><small>{{ (v.first_used_at + offset).strftime('%d %b %H:%M') }}</small></td>
+                        <td><small>{{ (v.expires_at + offset).strftime('%d %b %H:%M') }}</small></td>
+                        <td>{{ lost|minutes }}</td>
+                        <td>{{ (give or lost)|minutes }}{% if reyee %} <small class="text-muted">({{ _('new code') }})</small>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if sms_ready %}
+            <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="sms" value="1" id="smsOn" {{ 'checked' if send_sms }}>
+                <label class="form-check-label" for="smsOn">{{ _('Tell them by SMS ({n} with a phone number)', n=with_phone) }}</label>
+            </div>
+            <div class="mb-2">
+                <textarea name="text" class="form-control" rows="3" maxlength="300">{{ template }}</textarea>
+                <div class="form-text">{{ _('{time} becomes the time given, {code} the code. Your business name is added at the start.') }}</div>
+            </div>
+            {% if sample and send_sms %}<div class="border rounded bg-light p-2 small mb-2" style="white-space:pre-wrap">{{ sample }}</div>{% endif %}
+            {% if send_sms %}<div class="small mb-3">
+                {{ _('{n} customers × {parts} SMS × {cur} {price} = {cur} {cost}', n=with_phone, parts=parts, cur=currency, price=price, cost='{:,.0f}'.format(cost)) }}
+                · {% if balance is not none %}{{ _('Taken from your SafeNet Pay balance ({cur} {balance}).', cur=currency, balance='{:,.0f}'.format(balance)) }}{% else %}{{ _('Added to your next SafeNet bill.') }}{% endif %}
+            </div>{% endif %}
+            {% endif %}
+            <button class="btn btn-outline-secondary" name="action" value="preview" type="submit">{{ _('Update') }}</button>
+            <button class="btn btn-success" name="action" value="apply" type="submit"
+                    onclick="return confirm({{ _('Give the time back to the ticked guests?')|tojson|forceescape }});"><i class="bi bi-check2-circle"></i> {{ _('Give the time back') }}</button>
+            {% endif %}
+            {% endif %}
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><i class="bi bi-clock-history"></i> {{ _('Outages made up for') }}</div>
+    <div class="card-body">
+        {% if history %}
+        <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead><tr><th>{{ _('Site') }}</th><th>{{ _('Down') }}</th><th>{{ _('Guests') }}</th><th>{{ _('Free codes') }}</th></tr></thead>
+            <tbody>
+            {% for o in history %}
+            <tr>
+                <td>{{ o.site.name if o.site else '—' }}</td>
+                <td><small>{{ (o.starts_at + offset).strftime('%d %b %H:%M') }} → {{ (o.ends_at + offset).strftime('%d %b %H:%M') }}</small></td>
+                <td>{{ o.credits|length }}</td>
+                <td><small class="font-monospace">{% for c in o.credits if c.gift %}{{ c.gift.code }}{% if c.gift.ruijie_state in ('pending', 'sending', 'catchup') %}…{% elif c.gift.ruijie_state == 'failed' %} ✗{% endif %}{% if not c.phone %} ({{ _('no phone: give by hand') }}){% endif %}{{ ', ' if not loop.last }}{% else %}—{% endfor %}</small></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">{{ _('None yet.') }}</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
