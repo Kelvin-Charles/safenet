@@ -133,12 +133,12 @@ assert 'must end after it starts' in html.unescape(c.post('/vouchers/outage', da
 sp = c.get('/offers/sms').text
 r = html.unescape(c.post('/offers/sms', data={'csrf_token': tok(sp), 'text': 'Hello', 'action': 'preview'}).text)
 assert 'Choose customers (3 of 3 ticked)' in r
-r = html.unescape(c.post('/offers/sms', data={'csrf_token': tok(sp), 'text': 'Hello', 'action': 'preview', 'picking': '-', 'phone': ['255700000011']}).text)
+r = html.unescape(c.post('/offers/sms', data={'csrf_token': tok(sp), 'text': 'Hello', 'action': 'preview', 'picking': '-----0', 'phone': ['255700000011']}).text)
 assert '1 customers × 1 SMS' in r and 'Choose customers (1 of 3 ticked)' in r
-r = html.unescape(c.post('/offers/sms', data={'csrf_token': tok(sp), 'text': 'Hello', 'site_id': HOSTEL, 'action': 'preview', 'picking': '-',
+r = html.unescape(c.post('/offers/sms', data={'csrf_token': tok(sp), 'text': 'Hello', 'site_id': HOSTEL, 'action': 'preview', 'picking': '-----0',
                                               'phone': ['255700000011']}).text)
 assert '2 customers × 1 SMS' in r                                    # other choices: the ticks don't carry over
-c.post('/offers/sms', data={'csrf_token': tok(sp), 'text': 'Hello', 'action': 'send', 'picking': '-', 'phone': ['255700000011']})
+c.post('/offers/sms', data={'csrf_token': tok(sp), 'text': 'Hello', 'action': 'send', 'picking': '-----0', 'phone': ['255700000011']})
 assert outbox[-1][0] == '255700000011' and outbox[-1][1].startswith('JRIIT: Hello Stop: ') and len(outbox) == 3
 with app.app_context():
     assert SmsCharge.query.filter_by(kind='notice').count() == 1
@@ -156,4 +156,40 @@ assert '11110001' not in mh                                           # only thi
 assert app.test_client().get('/my/nothere').status_code == 404
 # the default apology carries the link
 r = post(site_id=TOWN, action='preview')
+# Customers: everyone who paid is on the list (a new purchase adds them by itself), with tags, filters and SMS
+with app.app_context():
+    from models import SmsContact, Package
+    pay = Payment(tenant_id=TID, site_id=HOSTEL, reference='PNEW', package_name='Siku 1', validity_minutes=1440, phone='255700000077',
+                  amount=Decimal(1000), net_amount=Decimal(970), currency='TZS', provider='snippe', provider_account='platform', status='pending')
+    db.session.add(pay); db.session.commit()
+    pay.payer_name = appmod._real_payer_name(pay, 'Hostel JRIIT')        # only what SafeNet sent: not a name
+    assert pay.payer_name is None
+    pay.payer_name = appmod._real_payer_name(pay, 'Asha  Mussa')
+    appmod._fulfil_payment(pay); db.session.commit()
+    new = SmsContact.query.filter_by(tenant_id=TID, phone='255700000077').one()
+    assert new.name == 'Asha Mussa' and new.purchases == 1 and new.spent == 1000 and new.last_site_id == HOSTEL and new.last_package == 'Siku 1'
+    NEW = new.id
+with app.app_context():      # customers from past payments (run once when this is deployed)
+    migrations._fill_customers()
+    one = SmsContact.query.filter_by(tenant_id=TID, phone='255700000001').one()
+    assert one.purchases == 1 and one.spent == 1000 and one.last_site_id == TOWN and one.first_paid_at
+    assert SmsContact.query.filter_by(tenant_id=TID, phone='255700000077').one().purchases == 1     # not counted twice
+cl = html.unescape(c.get('/customers').text)
+assert 'Asha Mussa' in cl and '0700000077' in cl and 'Has time left' in cl
+c.post(f'/customers/{NEW}', data={'csrf_token': tok(cl), 'name': 'Asha M.', 'tags': 'students, hostel, students', 'note': 'room 12'})
+with app.app_context():
+    n = db.session.get(SmsContact, NEW)
+    assert n.name == 'Asha M.' and n.tags == 'students, hostel' and n.note == 'room 12'
+assert '0700000077' in html.unescape(c.get('/customers?tag=hostel').text) and '0700000011' not in html.unescape(c.get('/customers?tag=hostel').text)
+assert '0700000077' in html.unescape(c.get('/customers?q=asha').text)
+assert '0700000077' in html.unescape(c.get('/customers?q=0700000077').text)
+# picked on Customers -> the SMS page sends to exactly them
+sp = html.unescape(c.get(f'/offers/sms?cid={NEW}').text)
+assert 'To the 1 customers you picked' in sp
+r = html.unescape(c.post('/offers/sms', data={'csrf_token': tok(sp), 'text': 'Karibu', 'cid': NEW, 'action': 'preview'}).text)
+assert '1 customers × 1 SMS' in r
+# by tag and "has time left"
+r = html.unescape(c.post('/offers/sms', data={'csrf_token': tok(sp), 'text': 'Karibu', 'tag': 'hostel', 'action': 'preview'}).text)
+assert '1 customers × 1 SMS' in r
+assert c.get('/customers').status_code == 200
 print('OUTAGE OK')

@@ -607,6 +607,7 @@ class Payment(db.Model):
     customer_fee = db.Column(db.Numeric(10, 2), default=0)    # provider's fee, paid by the guest on top of amount
     offer_id = db.Column(db.Integer, db.ForeignKey('offers.id', ondelete='SET NULL'))
     offer_name = db.Column(db.String(80))                      # the offer it was bought with (time/price already in it)
+    payer_name = db.Column(db.String(80))                      # the mobile-money account's name, when the provider says it
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     checked_at = db.Column(db.DateTime)
@@ -971,7 +972,8 @@ class OutageCredit(db.Model):
 
 
 class SmsContact(db.Model):
-    """A customer's phone at one business: the short code in their stop link, and whether they said stop."""
+    """A business's customer (one phone): added when they first pay, with what they bought; the short code in their
+    SMS links, and whether they said stop to offers. The owner can give them a name, tags and a note."""
     __tablename__ = 'sms_contacts'
     __table_args__ = (db.UniqueConstraint('tenant_id', 'phone', name='uq_sms_contact'),)
 
@@ -981,6 +983,25 @@ class SmsContact(db.Model):
     token = db.Column(db.String(12), nullable=False, unique=True)
     stopped_at = db.Column(db.DateTime)                         # no more offers from this business
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    name = db.Column(db.String(80))                             # from the payment when the provider gives it, or typed by the owner
+    purchases = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    spent = db.Column(db.Numeric(12, 2), nullable=False, default=0, server_default='0')
+    first_paid_at = db.Column(db.DateTime)
+    last_paid_at = db.Column(db.DateTime, index=True)
+    last_site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'))
+    last_package = db.Column(db.String(64))
+    tags = db.Column(db.String(160))                            # comma separated, e.g. "students, hostel"
+    note = db.Column(db.String(255))
+
+    last_site = db.relationship('Site')
+
+    @property
+    def tag_list(self):
+        return [t.strip() for t in (self.tags or '').split(',') if t.strip()]
+
+    @property
+    def local_phone(self):
+        return '0' + self.phone[3:] if self.phone and self.phone.startswith('255') else self.phone
 
     tenant = db.relationship('Tenant')
 

@@ -129,7 +129,7 @@ def check(account, reference, provider_id=None):
                     'channel': (channel.get('provider') if isinstance(channel, dict) else channel) or None,
                     'provider_status': status.upper() or None,
                     'message': failure_reason(record) if status in ('failed', 'voided', 'expired') else None,
-                    'provider_id': record.get('reference')}
+                    'provider_id': record.get('reference'), 'payer_name': payer_name(record)}
         record = clickpesa.query_payment(reference, account.creds)
     except (snippe.SnippeError, clickpesa.ClickPesaError) as e:
         raise PaymentError(str(e)) from None
@@ -139,4 +139,22 @@ def check(account, reference, provider_id=None):
     collected = record.get('collectedAmount')
     return {'state': 'paid' if status in ('SUCCESS', 'SETTLED') else 'failed' if status == 'FAILED' else 'pending',
             'amount': Decimal(str(collected)) if collected is not None else None,
-            'channel': record.get('channel'), 'provider_status': status or None, 'message': record.get('message')}
+            'channel': record.get('channel'), 'provider_status': status or None, 'message': record.get('message'),
+            'payer_name': payer_name(record)}
+
+
+def payer_name(record):
+    """The mobile-money account holder's name, if the provider's record has one (keys vary by provider)."""
+    def pick(d, *keys):
+        for k in keys:
+            v = d.get(k) if isinstance(d, dict) else None
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        return None
+    for holder in (record, record.get('customer'), record.get('payer'), record.get('channel'), record.get('metadata')):
+        name = pick(holder, 'payer_name', 'customerName', 'customer_name', 'account_name', 'accountName', 'name', 'full_name')
+        if not name and isinstance(holder, dict) and (holder.get('firstname') or holder.get('lastname')):
+            name = ' '.join(x for x in (holder.get('firstname'), holder.get('lastname')) if x)
+        if name:
+            return name[:80]
+    return None

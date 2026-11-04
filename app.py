@@ -5024,20 +5024,62 @@ def _offer_sms_text(tenant, text, token):
     return f'{tenant.name}: {text.strip()} Stop: {_stop_link(token)}'
 
 
-def _offer_sms_audience(tenant, site_id=None, days=None):
-    """(phones to send to, how many said stop, how many got an offer in the last 24 hours) for a business."""
+CUSTOMER_STATES = ('active', 'idle')       # has time left now / doesn't
+CUSTOMER_QUIET = (7, 14, 30, 60)           # hasn't bought for N days
+
+
+def _active_phones(tenant_id):
+    """Phones whose code (bought by or for them) still has time left."""
+    now = datetime.utcnow()
+    rows = db.session.query(Payment.phone, Payment.gift_phone).join(Voucher, Voucher.id == Payment.voucher_id).filter(
+        Payment.tenant_id == tenant_id, Payment.status == 'paid', Voucher.status != 'disabled',
+        or_(Voucher.expires_at > now, Voucher.status == 'unused')).all()
+    return {_normalize_tz_phone(g or p or '') for p, g in rows} - {None}
+
+
+def _customer_phones(tenant, site_id=None, days=None, tag=None, state=None, quiet=None, ids=None):
+    """Phones of a business's customers matching the choices: bought at a site, bought in the last `days`,
+    tagged, with time left now or not, or not bought for `quiet` days; or exactly the customers `ids`."""
+    if ids:
+        return {c.phone for c in SmsContact.query.filter(SmsContact.tenant_id == tenant.id, SmsContact.id.in_(ids))}
     q = db.session.query(Payment.phone).filter(Payment.tenant_id == tenant.id, Payment.status == 'paid')
     if site_id:
         q = q.filter(Payment.site_id == site_id)
     if days:
         q = q.filter(Payment.paid_at >= datetime.utcnow() - timedelta(days=days))
     phones = {n for n in (_normalize_tz_phone(p or '') for (p,) in q.distinct()) if n}
+    if quiet:
+        cutoff = datetime.utcnow() - timedelta(days=quiet)
+        recent_buyers = {_normalize_tz_phone(p or '') for (p,) in db.session.query(Payment.phone).filter(
+            Payment.tenant_id == tenant.id, Payment.status == 'paid', Payment.paid_at >= cutoff).distinct()}
+        phones -= recent_buyers
+    if tag:
+        like = f'%{tag.strip()}%'
+        tagged = {c.phone for c in SmsContact.query.filter(SmsContact.tenant_id == tenant.id, SmsContact.tags.ilike(like))
+                  if tag.strip().lower() in [t.lower() for t in c.tag_list]}
+        phones &= tagged
+    if state in CUSTOMER_STATES:
+        active = _active_phones(tenant.id)
+        phones = phones & active if state == 'active' else phones - active
+    return phones
+
+
+def _offer_sms_audience(tenant, site_id=None, days=None, tag=None, state=None, quiet=None, ids=None):
+    """(phones to send to, how many said stop, how many got an offer in the last 24 hours) for a business."""
+    phones = _customer_phones(tenant, site_id, days, tag, state, quiet, ids)
     stopped = {p for (p,) in db.session.query(SmsContact.phone).filter(SmsContact.tenant_id == tenant.id,
                                                                        SmsContact.stopped_at.isnot(None))}
     recent = {p for (p,) in db.session.query(SmsCharge.phone).filter(
         SmsCharge.tenant_id == tenant.id, SmsCharge.kind.in_(('offer', 'notice')), SmsCharge.created_at >= datetime.utcnow() - timedelta(hours=24))}
     send = sorted(phones - stopped - recent)
     return send, len(phones & stopped), len((phones - stopped) & recent)
+
+
+def _tenant_tags(tenant_id):
+    tags = set()
+    for (t,) in db.session.query(SmsContact.tags).filter(SmsContact.tenant_id == tenant_id, SmsContact.tags.isnot(None)):
+        tags |= {x.strip() for x in (t or '').split(',') if x.strip()}
+    return sorted(tags, key=str.lower)
 
 
 def _sms_contacts(tenant_id, phones):
@@ -5139,9 +5181,15 @@ def offer_sms():
         site_id = None
     days = f.get('days', type=int)
     days = days if days in OFFER_SMS_DAYS else None
-    phones, stopped, recent = _offer_sms_audience(tenant, site_id, days)
+    tag = (f.get('tag') or '').strip()[:40] or None
+    state = f.get('state') if f.get('state') in CUSTOMER_STATES else None
+    quiet = f.get('quiet', type=int)
+    quiet = quiet if quiet in CUSTOMER_QUIET else None
+    ids = sorted({int(x) for x in request.values.getlist('cid') if x.isdigit()})[:OFFER_SMS_MAX_PHONES]   # picked on Customers
+    phones, stopped, recent = _offer_sms_audience(tenant, site_id, days, tag, state, quiet, ids)
     audience = phones
-    if request.form.get('picking') == f'{site_id or ""}-{days or ""}':     # the owner ticked who gets it (for these choices)
+    choice = f'{site_id or ""}-{days or ""}-{tag or ""}-{state or ""}-{quiet or ""}-{len(ids)}'
+    if request.form.get('picking') == choice:     # the owner ticked who gets it (for these choices)
         ticked = set(request.form.getlist('phone'))
         phones = [p for p in audience if p in ticked]
     sample = _offer_sms_text(tenant, text or '…', 'abcdefg')
@@ -5193,12 +5241,64 @@ def offer_sms():
     stopped_total = SmsContact.query.filter(SmsContact.tenant_id == tenant.id, SmsContact.stopped_at.isnot(None)).count()
     return render_template('offers/sms.html', text=text, site_id=site_id, days=days, sites=sites, offers=live_offers,
                            offer_id=offer_id, suggestions=suggestions, phones=len(phones), stopped=stopped, recent=recent,
-                           audience=audience if len(audience) <= 500 else [], picked=set(phones),
+                           audience=audience if len(audience) <= 500 else [], picked=set(phones), choice=choice,
+                           tag=tag, state=state, quiet=quiet, ids=ids, quiet_choices=CUSTOMER_QUIET, all_tags=_tenant_tags(tenant.id),
+                           names={c.phone: c.name for c in SmsContact.query.filter(SmsContact.tenant_id == tenant.id,
+                                                                                   SmsContact.name.isnot(None))},
                            parts=parts, cost=cost, balance=balance, sample=_offer_sms_text(tenant, text, 'abcdefg') if text else '',
                            preview=preview, history=history, stopped_total=stopped_total, sms_ready=sms_is_configured(),
                            price=Config.SMS_PRICE, currency=tenant.currency or 'TZS', max_text=OFFER_SMS_MAX_TEXT,
                            day_choices=OFFER_SMS_DAYS, offset=_local_offset(), now=datetime.utcnow(),
                            prefix=f'{tenant.name}: ', suffix=f' Stop: {_stop_link("abcdefg")}')
+
+
+# Customers: everyone who paid a business (added automatically), to look up, tag and send SMS to
+@app.route('/customers')
+@login_required
+@role_required('admin')
+def customers():
+    tenant = current_tenant()
+    a = request.args
+    site_id = a.get('site_id', type=int) or None
+    days = a.get('days', type=int) if a.get('days', type=int) in OFFER_SMS_DAYS else None
+    tag = (a.get('tag') or '').strip()[:40] or None
+    state = a.get('state') if a.get('state') in CUSTOMER_STATES else None
+    quiet = a.get('quiet', type=int) if a.get('quiet', type=int) in CUSTOMER_QUIET else None
+    search = (a.get('q') or '').strip()[:40]
+    q = SmsContact.query.filter(SmsContact.tenant_id == tenant.id)
+    if any((site_id, days, tag, state, quiet)):
+        q = q.filter(SmsContact.phone.in_(list(_customer_phones(tenant, site_id, days, tag, state, quiet)) or ['-']))
+    if search:
+        digits = re.sub(r'\D', '', search)
+        conds = [SmsContact.name.ilike(f'%{search}%'), SmsContact.tags.ilike(f'%{search}%')]
+        if len(digits) >= 3:
+            conds.append(SmsContact.phone.like(f'%{digits.lstrip("0")}%'))
+        q = q.filter(or_(*conds))
+    total = q.count()
+    page = q.order_by(SmsContact.last_paid_at.is_(None), SmsContact.last_paid_at.desc(), SmsContact.id.desc()).paginate(
+        page=a.get('page', 1, type=int), per_page=50, error_out=False)
+    active = _active_phones(tenant.id)
+    return render_template('customers/list.html', page=page, total=total, sites=tenant_sites(), site_id=site_id, days=days, tag=tag,
+                           state=state, quiet=quiet, search=search, day_choices=OFFER_SMS_DAYS, quiet_choices=CUSTOMER_QUIET,
+                           all_tags=_tenant_tags(tenant.id), active=active, currency=tenant.currency or 'TZS', offset=_local_offset(),
+                           sms_ready=sms_is_configured(),
+                           filters={k: v for k, v in (('site_id', site_id), ('days', days), ('tag', tag), ('state', state), ('quiet', quiet)) if v},
+                           everyone=SmsContact.query.filter_by(tenant_id=tenant.id).count())
+
+
+@app.route('/customers/<int:cid>', methods=['POST'])
+@login_required
+@role_required('admin')
+def edit_customer(cid):
+    _check_csrf()
+    contact = owned_or_404(SmsContact, cid)
+    contact.name = re.sub(r'\s+', ' ', request.form.get('name') or '').strip()[:80] or None
+    tags = [t.strip()[:30] for t in (request.form.get('tags') or '').split(',') if t.strip()]
+    contact.tags = ', '.join(dict.fromkeys(tags))[:160] or None
+    contact.note = (request.form.get('note') or '').strip()[:255] or None
+    db.session.commit()
+    flash(tr('Customer {phone} saved.', phone=contact.local_phone), 'success')
+    return redirect(request.form.get('back') or url_for('customers'))
 
 
 # Outages: give guests the time they lost when a site's internet was down
@@ -5699,6 +5799,41 @@ def plan_from_balance(tid):
         SubscriptionPayment.tenant_id == tid, SubscriptionPayment.status.in_(('pending', 'paid', 'review'))).scalar()))
 
 
+def _real_payer_name(payment, name):
+    """A payer's name from the provider, unless it's only what SafeNet sent as the customer (site and business names)."""
+    name = re.sub(r'\s+', ' ', (name or '')).strip()[:80]
+    if not name:
+        return None
+    site = db.session.get(Site, payment.site_id) if payment.site_id else None
+    tenant = db.session.get(Tenant, payment.tenant_id) if payment.tenant_id else None
+    words = lambda t: set(re.findall(r'[a-z0-9]+', (t or '').lower()))
+    ours = words(f'{site.name if site else ""} {tenant.name if tenant else ""} wifi guest safenet plan')
+    return None if words(name) <= ours else name          # every word is from the names SafeNet sent
+
+
+def _note_customer(payment):
+    """A paid purchase adds the payer to the business's customers (and the friend a code was bought for). Caller commits."""
+    phone = _normalize_tz_phone(payment.phone or '')
+    if not phone or not payment.tenant_id:
+        return
+    contact = SmsContact.query.filter_by(tenant_id=payment.tenant_id, phone=phone).first()
+    if contact is None:
+        _sms_contacts(payment.tenant_id, [phone])
+        db.session.flush()
+        contact = SmsContact.query.filter_by(tenant_id=payment.tenant_id, phone=phone).first()
+    when = payment.paid_at or datetime.utcnow()
+    contact.purchases = (contact.purchases or 0) + 1
+    contact.spent = (contact.spent or 0) + (payment.amount or 0)
+    contact.first_paid_at = min(contact.first_paid_at or when, when)
+    if not contact.last_paid_at or when >= contact.last_paid_at:
+        contact.last_paid_at, contact.last_site_id, contact.last_package = when, payment.site_id, payment.package_name
+    if payment.payer_name and not contact.name:
+        contact.name = payment.payer_name
+    friend = _normalize_tz_phone(payment.gift_phone or '')
+    if friend and friend != phone and not SmsContact.query.filter_by(tenant_id=payment.tenant_id, phone=friend).first():
+        _sms_contacts(payment.tenant_id, [friend])
+
+
 def _fulfil_payment(payment):
     """Paid: issue a voucher for the package (once)."""
     if payment.voucher_id:
@@ -5710,6 +5845,11 @@ def _fulfil_payment(payment):
     payment.status = 'paid'
     payment.paid_at = datetime.utcnow()
     log.info('payment %s paid: voucher %s', payment.reference, voucher.code)
+    try:
+        with db.session.no_autoflush:
+            _note_customer(payment)
+    except Exception:
+        log.exception('adding the customer of payment %s failed', payment.reference)
     _sale_alert(payment)
     if voucher.ruijie_state:
         _ruijie_push_soon(delay=1)       # after this payment is committed
@@ -5801,6 +5941,7 @@ def _refresh_payment(reference, force=False):
         if result['state']:
             payment.provider_status = result.get('provider_status') or payment.provider_status
             payment.channel = result.get('channel') or payment.channel
+            payment.payer_name = _real_payer_name(payment, result.get('payer_name')) or payment.payer_name
             payment.message = (result.get('message') or '')[:255] or None
             if result['state'] == 'paid':
                 collected = result.get('amount')

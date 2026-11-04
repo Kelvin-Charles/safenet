@@ -36,6 +36,11 @@
                 <textarea name="text" id="smsText" class="form-control" rows="4" maxlength="{{ max_text }}" required>{{ text }}</textarea>
                 <div class="form-text"><span id="smsCount">0</span>/{{ max_text }} · <span id="smsParts">1</span> {{ _('SMS per customer') }}</div>
             </div>
+            {% if ids %}
+            {% for i in ids %}<input type="hidden" name="cid" value="{{ i }}">{% endfor %}
+            <div class="alert alert-secondary py-2 small"><i class="bi bi-person-check"></i> {{ _('To the {n} customers you picked on Customers.', n=ids|length) }}
+                <a href="{{ url_for('offer_sms') }}">{{ _('Choose by site instead') }}</a></div>
+            {% else %}
             <div class="row g-2 mb-3">
                 {% if sites|length > 1 %}
                 <div class="col-sm-6">
@@ -53,7 +58,32 @@
                         {% for d in day_choices %}<option value="{{ d }}" {{ 'selected' if days == d }}>{{ _('In the last {n} days', n=d) }}</option>{% endfor %}
                     </select>
                 </div>
+                <div class="col-sm-4">
+                    <label class="form-label">{{ _('Package now') }}</label>
+                    <select name="state" class="form-select">
+                        <option value="">{{ _('Anyone') }}</option>
+                        <option value="active" {{ 'selected' if state == 'active' }}>{{ _('Has time left') }}</option>
+                        <option value="idle" {{ 'selected' if state == 'idle' }}>{{ _('No time left') }}</option>
+                    </select>
+                </div>
+                <div class="col-sm-4">
+                    <label class="form-label">{{ _("Hasn't bought for") }}</label>
+                    <select name="quiet" class="form-select">
+                        <option value="">—</option>
+                        {% for d in quiet_choices %}<option value="{{ d }}" {{ 'selected' if quiet == d }}>{{ _('{n} days', n=d) }}</option>{% endfor %}
+                    </select>
+                </div>
+                {% if all_tags %}
+                <div class="col-sm-4">
+                    <label class="form-label">{{ _('Tag') }}</label>
+                    <select name="tag" class="form-select">
+                        <option value="">{{ _('Any') }}</option>
+                        {% for t in all_tags %}<option value="{{ t }}" {{ 'selected' if tag and tag.lower() == t.lower() }}>{{ t }}</option>{% endfor %}
+                    </select>
+                </div>
+                {% endif %}
             </div>
+            {% endif %}
             {% if preview %}
             <div class="alert alert-info">
                 <div class="fw-semibold mb-1">{{ _('Check before sending') }}</div>
@@ -62,13 +92,13 @@
                 <small class="text-muted">{% if balance is not none %}{{ _('Taken from your SafeNet Pay balance ({cur} {balance}).', cur=currency, balance='{:,.0f}'.format(balance)) }} {{ _('Balance after sending: {cur} {left}.', cur=currency, left='{:,.0f}'.format(balance - cost)) }}{% else %}{{ _('Added to your next SafeNet bill.') }}{% endif %}
                     {{ _('Only SMS that go out are charged.') }}</small>
                 {% if audience %}
-                <input type="hidden" name="picking" value="{{ site_id or '' }}-{{ days or '' }}">
+                <input type="hidden" name="picking" value="{{ choice }}">
                 <details class="mt-2" {{ 'open' if picked|length < audience|length }}>
                     <summary class="small">{{ _('Choose customers ({n} of {total} ticked)', n=picked|length, total=audience|length) }}</summary>
                     <div class="form-check small my-1"><input class="form-check-input" type="checkbox" id="pickAll" {{ 'checked' if picked|length == audience|length }}
                         onclick="document.querySelectorAll('.ppick').forEach(b => b.checked = this.checked)"><label class="form-check-label" for="pickAll">{{ _('All') }}</label></div>
                     <div class="row row-cols-2 row-cols-md-3 g-1 small" style="max-height:240px;overflow:auto">
-                        {% for p in audience %}<div class="col"><label class="form-check-label"><input class="form-check-input ppick me-1" type="checkbox" name="phone" value="{{ p }}" {{ 'checked' if p in picked }}>{{ '0' ~ p[3:] if p.startswith('255') else p }}</label></div>{% endfor %}
+                        {% for p in audience %}<div class="col"><label class="form-check-label"><input class="form-check-input ppick me-1" type="checkbox" name="phone" value="{{ p }}" {{ 'checked' if p in picked }}>{{ '0' ~ p[3:] if p.startswith('255') else p }}{% if names.get(p) %} <span class="text-muted">{{ names[p] }}</span>{% endif %}</label></div>{% endfor %}
                     </div>
                     <div class="form-text">{{ _('Untick anyone who should not get it, then press Update to see the new cost.') }}</div>
                 </details>

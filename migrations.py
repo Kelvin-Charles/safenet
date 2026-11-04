@@ -216,6 +216,15 @@ def run():
     # Offers sent by SMS to customers: each SMS belongs to its send
     _add_column('sms_charges', 'campaign_id', 'INTEGER')
     _add_column('sms_campaigns', 'kind', "VARCHAR(16) NOT NULL DEFAULT 'offer'")
+    # Customers: every phone that paid a business, with what they bought (filled from past payments once)
+    _add_column('payments', 'payer_name', 'VARCHAR(80)')
+    for column, ddl in (('name', 'VARCHAR(80)'), ('spent', 'NUMERIC(12, 2) NOT NULL DEFAULT 0'), ('first_paid_at', 'DATETIME'),
+                        ('last_paid_at', 'DATETIME'), ('last_site_id', 'INTEGER'), ('last_package', 'VARCHAR(64)'),
+                        ('tags', 'VARCHAR(160)'), ('note', 'VARCHAR(255)')):
+        _add_column('sms_contacts', column, ddl)
+    if _add_column('sms_contacts', 'purchases', 'INTEGER NOT NULL DEFAULT 0'):
+        _fill_customers()
+    _add_index('sms_contacts', 'ix_sms_contacts_last_paid_at', 'last_paid_at')
     _add_index('sms_charges', 'ix_sms_charges_campaign_id', 'campaign_id')
     _add_column('sites', 'omada_ssid', 'VARCHAR(32)')
     _add_column('sites', 'omada_device_password_enc', 'TEXT')
@@ -306,3 +315,33 @@ def _scrub_provider_messages():
                 db.session.execute(text(f'UPDATE {_q(table)} SET {_q(column)} = :v WHERE id = :i'), {'v': cleaned, 'i': row_id})
                 print(f'migrate: cleaned {table}.{column} #{row_id}')
         db.session.commit()
+
+
+def _fill_customers():
+    """Every phone that has paid a business becomes one of its customers, with its purchases so far."""
+    import secrets
+    chars = 'abcdefghijkmnpqrstuvwxyz23456789'
+    taken = {t for (t,) in db.session.execute(text('SELECT token FROM sms_contacts')).all()}
+    have = {(t, p) for t, p in db.session.execute(text('SELECT tenant_id, phone FROM sms_contacts')).all()}
+    rows = db.session.execute(text(
+        "SELECT tenant_id, phone, COUNT(*), COALESCE(SUM(amount), 0), MIN(paid_at), MAX(paid_at) FROM payments "
+        "WHERE status = 'paid' AND tenant_id IS NOT NULL AND phone IS NOT NULL GROUP BY tenant_id, phone")).all()
+    for tid, phone, count, spent, first, last in rows:
+        last_row = db.session.execute(text(
+            "SELECT site_id, package_name FROM payments WHERE tenant_id = :t AND phone = :p AND status = 'paid' "
+            "ORDER BY paid_at DESC LIMIT 1"), {'t': tid, 'p': phone}).first()
+        values = {'t': tid, 'p': phone, 'n': count, 's': spent, 'f': first, 'l': last,
+                  'site': last_row[0] if last_row else None, 'pkg': last_row[1] if last_row else None}
+        if (tid, phone) in have:
+            db.session.execute(text('UPDATE sms_contacts SET purchases = :n, spent = :s, first_paid_at = :f, last_paid_at = :l, '
+                                    'last_site_id = :site, last_package = :pkg WHERE tenant_id = :t AND phone = :p'), values)
+        else:
+            token = ''.join(secrets.choice(chars) for _ in range(7))
+            while token in taken:
+                token = ''.join(secrets.choice(chars) for _ in range(7))
+            taken.add(token)
+            db.session.execute(text('INSERT INTO sms_contacts (tenant_id, phone, token, created_at, purchases, spent, first_paid_at, '
+                                    'last_paid_at, last_site_id, last_package) VALUES (:t, :p, :tok, :f, :n, :s, :f, :l, :site, :pkg)'),
+                               {**values, 'tok': token})
+    db.session.commit()
+    print(f'migrate: {len(rows)} customers from past payments')

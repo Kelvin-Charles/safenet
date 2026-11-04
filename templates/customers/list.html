@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Customers') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Customers') }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-person-lines-fill"></i> {{ _('Your customers') }} <span class="badge bg-secondary">{{ everyone }}</span></span>
+        {% if sms_ready and total %}
+        <a href="{{ url_for('offer_sms', **filters) }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-chat-dots"></i>
+            {{ _('SMS all {n} shown', n=total) if filters else _('SMS customers') }}</a>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        <p class="small text-muted">{{ _('Everyone who pays for Wi-Fi is added here by themselves, with what they bought. Give them a name and tags (e.g. students, hostel) to find and message them later.') }}</p>
+        <form method="GET" class="row g-2 mb-3">
+            <div class="col-md-3"><input type="search" name="q" value="{{ search }}" class="form-control form-control-sm" placeholder="{{ _('Phone, name or tag') }}"></div>
+            {% if sites|length > 1 %}
+            <div class="col-md-2"><select name="site_id" class="form-select form-select-sm"><option value="">{{ _('All sites') }}</option>
+                {% for x in sites %}<option value="{{ x.id }}" {{ 'selected' if site_id == x.id }}>{{ x.name }}</option>{% endfor %}</select></div>
+            {% endif %}
+            <div class="col-md-2"><select name="days" class="form-select form-select-sm"><option value="">{{ _('Bought any time') }}</option>
+                {% for d in day_choices %}<option value="{{ d }}" {{ 'selected' if days == d }}>{{ _('In the last {n} days', n=d) }}</option>{% endfor %}</select></div>
+            <div class="col-md-2"><select name="state" class="form-select form-select-sm"><option value="">{{ _('Package now') }}: {{ _('Anyone') }}</option>
+                <option value="active" {{ 'selected' if state == 'active' }}>{{ _('Has time left') }}</option>
+                <option value="idle" {{ 'selected' if state == 'idle' }}>{{ _('No time left') }}</option></select></div>
+            <div class="col-md-2"><select name="quiet" class="form-select form-select-sm"><option value="">{{ _("Hasn't bought for") }} —</option>
+                {% for d in quiet_choices %}<option value="{{ d }}" {{ 'selected' if quiet == d }}>{{ _("Hasn't bought for") }} {{ _('{n} days', n=d) }}</option>{% endfor %}</select></div>
+            {% if all_tags %}
+            <div class="col-md-2"><select name="tag" class="form-select form-select-sm"><option value="">{{ _('Tag') }}: {{ _('Any') }}</option>
+                {% for t in all_tags %}<option value="{{ t }}" {{ 'selected' if tag and tag.lower() == t.lower() }}>{{ t }}</option>{% endfor %}</select></div>
+            {% endif %}
+            <div class="col-md-1"><button class="btn btn-sm btn-primary w-100" type="submit"><i class="bi bi-funnel"></i></button></div>
+        </form>
+
+        {% if page.items %}
+        <form method="GET" action="{{ url_for('offer_sms') }}" id="pickForm">
+        <div class="d-flex align-items-center gap-2 mb-2">
+            <small class="text-muted">{{ _('{n} customers', n=total) }}</small>
+            {% if sms_ready %}<button class="btn btn-sm btn-success ms-auto" type="submit" id="pickBtn" disabled><i class="bi bi-send"></i> {{ _('SMS selected') }} (<span id="pickN">0</span>)</button>{% endif %}
+        </div>
+        </form>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead><tr>
+                    <th><input type="checkbox" class="form-check-input" id="pickAll" aria-label="{{ _('All') }}"></th>
+                    <th>{{ _('Customer') }}</th><th>{{ _('Bought') }}</th><th>{{ _('Last purchase') }}</th><th>{{ _('Package now') }}</th><th>{{ _('Tags') }}</th><th></th>
+                </tr></thead>
+                <tbody>
+                {% for c in page.items %}
+                <tr>
+                    <td><input type="checkbox" class="form-check-input cpick" name="cid" value="{{ c.id }}" form="pickForm" {{ 'disabled' if c.stopped_at }}></td>
+                    <td><strong>{{ c.name or '—' }}</strong><small class="d-block font-monospace">{{ c.local_phone }}</small>
+                        {% if c.stopped_at %}<small class="text-danger d-block">{{ _('Asked to stop offers') }}</small>{% endif %}
+                        {% if c.note %}<small class="text-muted d-block">{{ c.note }}</small>{% endif %}</td>
+                    <td>{{ c.purchases }}× <small class="d-block text-muted">{{ currency }} {{ '{:,.0f}'.format(c.spent or 0) }}</small></td>
+                    <td><small>{% if c.last_paid_at %}{{ (c.last_paid_at + offset).strftime('%d %b %Y') }}{% else %}—{% endif %}
+                        {% if c.last_package %}<span class="d-block text-muted">{{ c.last_package }}{% if c.last_site and sites|length > 1 %} · {{ c.last_site.name }}{% endif %}</span>{% endif %}</small></td>
+                    <td>{% if c.phone in active %}<span class="badge bg-success">{{ _('Has time left') }}</span>{% else %}<span class="badge bg-light text-dark border">{{ _('No time left') }}</span>{% endif %}</td>
+                    <td>{% for t in c.tag_list %}<a href="{{ url_for('customers', tag=t) }}" class="badge bg-info text-dark text-decoration-none">{{ t }}</a> {% endfor %}</td>
+                    <td class="text-nowrap">
+                        <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#edit{{ c.id }}" title="{{ _('Edit') }}"><i class="bi bi-pencil"></i></button>
+                    </td>
+                </tr>
+                <tr class="collapse" id="edit{{ c.id }}"><td colspan="7">
+                    <form method="POST" action="{{ url_for('edit_customer', cid=c.id) }}" class="row g-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="back" value="{{ request.full_path }}">
+                        <div class="col-md-3"><input name="name" value="{{ c.name or '' }}" maxlength="80" class="form-control form-control-sm" placeholder="{{ _('Name') }}"></div>
+                        <div class="col-md-3"><input name="tags" value="{{ c.tags or '' }}" maxlength="160" class="form-control form-control-sm" placeholder="{{ _('Tags, separated by commas') }}" list="tagList"></div>
+                        <div class="col-md-4"><input name="note" value="{{ c.note or '' }}" maxlength="255" class="form-control form-control-sm" placeholder="{{ _('Note') }}"></div>
+                        <div class="col-md-2"><button class="btn btn-sm btn-primary w-100" type="submit">{{ _('Save') }}</button></div>
+                    </form>
+                </td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <datalist id="tagList">{% for t in all_tags %}<option value="{{ t }}">{% endfor %}</datalist>
+        {% if page.pages > 1 %}
+        <nav><ul class="pagination pagination-sm">
+            {% for n in page.iter_pages() %}{% if n %}<li class="page-item {{ 'active' if n == page.page }}"><a class="page-link" href="{{ url_for('customers', page=n, q=search or None, **filters) }}">{{ n }}</a></li>{% else %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}{% endfor %}
+        </ul></nav>
+        {% endif %}
+        {% else %}
+        <div class="text-center py-4 text-muted"><i class="bi bi-person-lines-fill" style="font-size:2.5rem"></i>
+            <p class="mt-2">{{ _('No customers here yet. They are added when they pay for Wi-Fi.') if not (search or filters) else _('No customers match.') }}</p></div>
+        {% endif %}
+    </div>
+</div>
+<script>
+(function () {
+    var picks = document.querySelectorAll('.cpick:not([disabled])'), all = document.getElementById('pickAll'), btn = document.getElementById('pickBtn');
+    function count() { var n = document.querySelectorAll('.cpick:checked').length; if (btn) { btn.disabled = !n; document.getElementById('pickN').textContent = n; } }
+    picks.forEach(function (b) { b.addEventListener('change', count); });
+    if (all) all.addEventListener('change', function () { picks.forEach(function (b) { b.checked = all.checked; }); count(); });
+})();
+</script>
+{% endblock %}
