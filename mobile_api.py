@@ -726,12 +726,33 @@ def _business_json(tenant, mine, b_codes, spent, purchases, contact=None):
             'buy_url': f'{A.Config.PUBLIC_URL}/app/{tenant.slug}', 'active': sum(1 for c in b_codes if c['state'] == 'active')}
 
 
-def _history_json(pays, phone=None):
-    return [{'business': p.tenant.name if p.tenant else '', 'site': _site_name(p.site_id),
+def _history_json(pays, phone=None, limit=None):
+    """Purchases, newest first, each with its business and site (so the app can show them per site)."""
+    return [{'business': p.tenant.name if p.tenant else '', 'business_id': p.tenant_id, 'site': _site_name(p.site_id), 'site_id': p.site_id,
              'package': p.package_name, 'amount': _money(p.amount), 'currency': p.currency, 'at': _iso(p.paid_at),
-             'code': p.voucher.code if p.voucher else None,
+             'code': p.voucher.code if p.voucher else None, 'offer': p.offer_name,
              'for': p.gift_phone if phone and p.gift_phone and p.gift_phone != phone else None,
-             'from': p.phone if phone and p.gift_phone == phone and p.phone != phone else None} for p in pays[:50]]
+             'from': p.phone if phone and p.gift_phone == phone and p.phone != phone else None} for p in pays[:limit]]
+
+
+def _places_json(pays, codes, phone=None):
+    """Every SafeNet site the customer bought at (or holds codes for): purchases, money spent, last visit, codes running."""
+    places = {}
+    for p in pays:
+        x = places.setdefault((p.tenant_id, p.site_id), {'business': p.tenant.name if p.tenant else '', 'business_id': p.tenant_id,
+                                                          'site': _site_name(p.site_id), 'site_id': p.site_id, 'purchases': 0, 'spent': 0.0,
+                                                          'currency': p.currency, 'last': None, 'first': None, 'active': 0})
+        if not phone or p.phone == phone:           # what they paid (not what friends paid for them)
+            x['purchases'] += 1
+            x['spent'] += _money(p.amount)
+        at = _iso(p.paid_at)
+        x['last'] = max(filter(None, (x['last'], at)), default=None)
+        x['first'] = min(filter(None, (x['first'], at)), default=None)
+    for c in codes:
+        x = places.get((c.get('business_id'), c.get('site_id')))
+        if x is not None and c['state'] == 'active':
+            x['active'] += 1
+    return sorted(places.values(), key=lambda x: x['last'] or '', reverse=True)
 
 
 @bp.route('/api/m/guest/home')
@@ -740,7 +761,7 @@ def guest_home():
     if code:
         return _code_home(code if isinstance(code, list) else [code])
     pays = Payment.query.filter(Payment.status == 'paid', or_(Payment.phone == phone, Payment.gift_phone == phone)) \
-        .order_by(Payment.paid_at.desc()).limit(500).all()
+        .order_by(Payment.paid_at.desc()).limit(2000).all()
     tenant_ids = list(dict.fromkeys(p.tenant_id for p in pays))
     tenant_ids += [t for (t,) in db.session.query(Outage.tenant_id).join(OutageCredit).filter(OutageCredit.phone == phone).distinct()
                    if t not in tenant_ids]
@@ -752,7 +773,7 @@ def guest_home():
         mine = [p for p in pays if p.tenant_id == tid]
         spent = sum(_money(p.amount) for p in mine if p.phone == phone)
         b_codes = []
-        for v, pay, credits, gift in A._phone_codes(tid, phone, days=90):
+        for v, pay, credits, gift in A._phone_codes(tid, phone, days=3650)[:60]:       # running ones first
             item = A._guest_voucher_json(v)
             item.update(business=tenant.name, business_id=tid, site=_site_name(v.site_id),
                         made_up=sum(x.minutes or 0 for x in credits), gift=gift is not None,
@@ -766,7 +787,7 @@ def guest_home():
     rank = {'active': 0, 'unused': 1, 'expired': 2, 'disabled': 3}
     codes.sort(key=lambda c: (rank.get(c['state'], 9), -(c['seconds_left'] or 0)))
     return jsonify(phone=phone, code=None, spent=total_spent, data=total_data, purchases=len([p for p in pays if p.phone == phone]),
-                   businesses=businesses, codes=codes, history=_history_json(pays, phone))
+                   businesses=businesses, codes=codes, history=_history_json(pays, phone), places=_places_json(pays, codes, phone))
 
 
 def _code_home(codes):
@@ -796,7 +817,7 @@ def _code_home(codes):
                                  b['spent'], len(b['pays'])) for b in by_tenant.values()]
     return jsonify(phone=None, code=vs[0].code, spent=sum(b['spent'] for b in by_tenant.values()),
                    data=sum(x['down'] + x['up'] for x in items), purchases=len(pays_all), businesses=businesses, codes=items,
-                   history=_history_json(pays_all))
+                   history=_history_json(pays_all), places=_places_json(pays_all, items))
 
 
 

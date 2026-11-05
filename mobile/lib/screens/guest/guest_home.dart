@@ -8,6 +8,7 @@ import '../../core/strings.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
 import 'buy.dart';
+import 'history.dart';
 
 /// A Wi-Fi customer's own view: codes with time and data left, where they connect, what they spent.
 class GuestHome extends StatelessWidget {
@@ -141,22 +142,30 @@ class GuestHome extends StatelessWidget {
                     ),
                   ),
                 ),
-              SectionTitle(S.t('History')),
-              Card(
-                child: Column(children: [
-                  for (final h in d['history'] as List)
-                    ListTile(
-                      title: Text('${h['package']} · ${h['business']}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text([
-                        when(h['at'] as String?),
-                        if (h['site'] != null) h['site'],
-                        if (h['code'] != null) '#${h['code']}',
-                        if (h['for'] != null) S.t('For {phone}', {'phone': localPhone(h['for'] as String)}),
-                        if (h['from'] != null) S.t('From a friend'),
-                      ].join(' · ')),
-                      trailing: Text(money(h['amount'] as num, (h['currency'] as String?) ?? cur), style: const TextStyle(fontWeight: FontWeight.w700)),
+              if ((d['places'] as List? ?? []).isNotEmpty) ...[
+                SectionTitle(S.t('Your Wi-Fi places')),
+                for (final p in d['places'] as List)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: PlaceCard(
+                      p: p as Map,
+                      onTap: () => Navigator.push(context, MaterialPageRoute(
+                          builder: (_) => HistoryScreen(history: d['history'] as List, places: d['places'] as List, place: p))),
                     ),
-                ]),
+                  ),
+              ],
+              SectionTitle(S.t('History'),
+                  trailing: (d['history'] as List).length > 5
+                      ? TextButton(
+                          onPressed: () => Navigator.push(context, MaterialPageRoute(
+                              builder: (_) => HistoryScreen(history: d['history'] as List, places: d['places'] as List? ?? []))),
+                          child: Text(S.t('See all ({n})', {'n': (d['history'] as List).length})),
+                        )
+                      : null),
+              Card(
+                child: (d['history'] as List).isEmpty
+                    ? EmptyView(icon: Icons.receipt_long_outlined, text: S.t('None yet.'))
+                    : Column(children: [for (final h in (d['history'] as List).take(5)) PurchaseTile(h: h as Map)]),
               ),
               const PoweredBy(),
             ]),

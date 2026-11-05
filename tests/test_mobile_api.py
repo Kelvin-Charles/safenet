@@ -171,6 +171,23 @@ assert codes['50000002']['state'] == 'expired'
 assert home['codes'][0]['state'] == 'active'
 gift = next(h for h in home['history'] if h['code'] == '50000003')
 assert gift['from'] == '255700000009'
+# every SafeNet site they bought at, at any business, with what they spent there
+places = {(x['business'], x['site']): x for x in home['places']}
+assert set(places) == {('Kpstar', 'Hostel'), ('Kpstar', 'Main site'), ('Other Net', 'Main site')}, places
+assert places[('Kpstar', 'Hostel')]['spent'] == 1000.0 and places[('Kpstar', 'Hostel')]['active'] == 1
+assert places[('Kpstar', 'Main site')]['purchases'] == 1 and places[('Kpstar', 'Main site')]['spent'] == 2000.0   # the gift isn't theirs to pay
+assert places[('Other Net', 'Main site')]['spent'] == 500.0
+assert {h['site_id'] for h in home['history']} == {HOSTEL, MAIN, OTHER_SITE}
+# a long history: every purchase, not only the latest
+with app.app_context():
+    for i in range(70):
+        db.session.add(Payment(tenant_id=TID, site_id=HOSTEL, reference=f'H{i:04d}', package_name='Hour', validity_minutes=60, phone='255700000001',
+                               amount=Decimal(300), net_amount=Decimal(291), currency='TZS', provider='snippe', provider_account='platform',
+                               status='paid', paid_at=now - timedelta(days=200 + i)))
+    db.session.commit()
+home = J(g.get('/api/m/guest/home', headers=G))
+assert len(home['history']) == 74 and home['purchases'] == 73, (len(home['history']), home['purchases'])
+assert {(x['business'], x['site']): x for x in home['places']}[('Kpstar', 'Hostel')]['purchases'] == 71
 n = len(texts)
 answers = [g.post('/api/m/guest/send-code', json={'phone': '0700000001'}) for _ in range(3)]
 assert [J(a).get('already_sent') for a in answers] == [False, True, True], [a.text for a in answers]
