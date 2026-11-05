@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import socket
 import struct
 import subprocess
@@ -59,6 +60,9 @@ HOTSPOT_TERMS = os.environ.get(
 # Portal look and text; replaced by the tenant's settings from SafeNet in API_MODE
 branding = {'name': HOTSPOT_NAME, 'support': HOTSPOT_SUPPORT, 'terms': HOTSPOT_TERMS}
 LOGO_FILE = os.path.join(os.environ.get('STATE_DIRECTORY', '/var/lib/safenet-gateway'), 'logo')
+# The SafeNet Android app, kept here: guests who haven't paid can't reach the internet, only this box
+APK_FILE = os.path.join(os.environ.get('STATE_DIRECTORY', '/var/lib/safenet-gateway'), 'safenet.apk')
+APK_MAX = 200 * 1024 * 1024
 
 # Cloud SafeNet web app, for selling packages (optional)
 SAFENET_API_URL = os.environ.get('SAFENET_API_URL', '').rstrip('/')
@@ -236,6 +240,64 @@ def account(status, session, terminate_cause=None):
     safenet_api('POST', '/api/gateway/accounting', {'events': [event]}, timeout=15)
 
 
+_apk_fetching = threading.Lock()
+
+
+def _apk_link():
+    """The address of the app on this box for the login page; None until a copy is here."""
+    return '/app/android' if os.path.isfile(APK_FILE) else None
+
+
+def _download_apk(url):
+    tmp = APK_FILE + '.tmp'
+    try:
+        with urllib.request.urlopen(url, timeout=60) as r, open(tmp, 'wb') as f:
+            size = 0
+            while True:
+                chunk = r.read(1 << 20)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > APK_MAX:
+                    raise ValueError('too big')
+                f.write(chunk)
+        with open(tmp, 'rb') as f:
+            if f.read(4) != b'PK\x03\x04':
+                raise ValueError('not an Android package')
+        os.replace(tmp, APK_FILE)
+        with open(APK_FILE + '.url', 'w') as f:
+            f.write(url)
+        log.info('Android app updated (%d MB)', size // 1048576)
+    except Exception as e:                # tried again at the next refresh; guests keep the copy they had
+        log.warning('fetching the Android app failed: %s', e)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    finally:
+        _apk_fetching.release()
+
+
+def sync_android_app(url):
+    """Keep this box's copy the same as SafeNet's (url changes with each upload; None: no app offered)."""
+    try:
+        with open(APK_FILE + '.url') as f:
+            have = f.read()
+    except OSError:
+        have = None
+    if url == have or not (url or have):
+        return
+    if not url:
+        for path in (APK_FILE, APK_FILE + '.url'):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        return
+    if urlparse(url).scheme in ('http', 'https') and _apk_fetching.acquire(blocking=False):
+        threading.Thread(target=_download_apk, args=(url,), daemon=True).start()
+
+
 def refresh_branding():
     """Tenant's portal settings (and logo, cached on disk) from SafeNet."""
     if not API_MODE:
@@ -247,6 +309,7 @@ def refresh_branding():
         return
     portal = data.get('portal') or {}
     apply_antishare(data.get('block_tethering', True))
+    sync_android_app(data.get('android_app'))
     if data.get('tenant'):
         branding['tenant'] = data['tenant']       # for the link to the guest app
     branding['trial'] = data.get('trial')         # the business's "Try free" button (None: off)
@@ -722,7 +785,8 @@ def _theme():
 def login_page(dst='', error='', lang='en', tab=None):
     return ui.login_page(_theme(), lang, packages=portal_packages(), dst=dst, error=error, tab=tab,
                          buy_enabled=bool(SAFENET_API_URL), networks=portal_networks(), logo_base='/img/',
-                         trial=branding.get('trial') if SAFENET_API_URL else None, trial_action='/trial')
+                         trial=branding.get('trial') if SAFENET_API_URL else None, trial_action='/trial',
+                         android_app=_apk_link())
 
 
 def app_url(code):
@@ -811,6 +875,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self._logo()
         if url.path.startswith('/img/'):
             return self._network_logo(url.path[5:])
+        if url.path == '/app/android':
+            return self._android_app()
         lang = self._lang(query)
         if url.path == '/buy/wait':
             return self._buy_wait(query.get('ref', [''])[0], bool(query.get('again')), lang)
@@ -847,6 +913,23 @@ class PortalHandler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != 'HEAD':
             self.wfile.write(content)
+
+    def _android_app(self):
+        try:
+            f = open(APK_FILE, 'rb')
+        except OSError:
+            return self._send(404, '')
+        with f:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/vnd.android.package-archive')
+            self.send_header('Content-Disposition', 'attachment; filename="SafeNet.apk"')
+            self.send_header('Content-Length', str(os.fstat(f.fileno()).st_size))
+            self.end_headers()
+            if self.command != 'HEAD':
+                try:
+                    shutil.copyfileobj(f, self.wfile, 1 << 20)
+                except OSError:           # the phone left mid-download
+                    self.close_connection = True
 
     def _logo(self):
         try:

@@ -61,6 +61,11 @@ card = re.search(r'<a class="appcard android-app" href="([^"]+)" download hidden
 assert card and card.group(1).startswith('https://radius.example.tz/app/android?v='), h[-3000:]
 assert "/Android/i.test(navigator.userAgent)" in h
 assert 'Get the SafeNet app' in h
+# gateway boxes are told where to fetch their own copy
+with app.app_context():
+    db.session.add(appmod.Gateway(tenant_id=TID, name='box', key_prefix='sgw_k', key_hash=appmod._hash_key('sgw_k'))); db.session.commit()
+cfg = app.test_client().get('/api/gateway/config', headers={'X-SafeNet-Key': 'sgw_k'}).get_json()
+assert cfg['android_app'].startswith('https://radius.example.tz/app/android?v='), cfg
 # Ruijie pages carry it too
 with app.test_request_context('/'):
     pages = appmod._ruijie_portal_pages(db.session.get(appmod.Site, SID), db.session.get(Tenant, TID),

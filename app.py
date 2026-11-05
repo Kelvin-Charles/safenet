@@ -6376,7 +6376,7 @@ def api_gateway_config():
     t = g.api_tenant
     hotspot = _hotspot_settings(t)
     cfg = portal_config(t)
-    return jsonify(tenant=t.slug, hotspot_name=hotspot['name'], support=hotspot['support'],
+    return jsonify(tenant=t.slug, android_app=_android_app_link(), hotspot_name=hotspot['name'], support=hotspot['support'],
                    terms=hotspot['terms'], currency=hotspot['currency'], acct_interim_seconds=60,
                    block_tethering=t.block_tethering,
                    gateway=g.api_gateway.name if g.api_gateway else None,
