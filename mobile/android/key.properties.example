@@ -1,0 +1,6 @@
+# Copy to android/key.properties (it is gitignored) and fill in. Keep the .jks file and these
+# passwords safe and backed up: every Play Store update must be signed with the same key.
+storeFile=/Users/you/keys/safenet-upload.jks
+storePassword=
+keyAlias=upload
+keyPassword=
