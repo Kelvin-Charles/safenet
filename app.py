@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, abort, session, g, has_request_context, make_response, Response
+from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, abort, session, g, has_request_context, make_response, Response, send_file
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
@@ -2025,7 +2025,8 @@ def portal():
     else:
         if gateway:
             html_out = portal_ui.login_page(th, lang, external=gateway, buy_enabled=False, tab='voucher',
-                                            error=request.args.get('error', '')[:200], lang_url=lang_url)
+                                            error=request.args.get('error', '')[:200], lang_url=lang_url,
+                                            android_app=_android_app_link())
         else:
             html_out = portal_ui.instructions_page(th, lang, lang_url=lang_url)
     resp = make_response(html_out)
@@ -2244,7 +2245,7 @@ def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, exter
                                         action=base + '/login', buy_action=base + '/buy',
                                         buy_enabled=paylib.is_ready(_tenant_account(tenant)),
                                         lang_url=base, networks=payment_networks(tenant),
-                                        logo_base=url_for('static', filename='img/'))
+                                        logo_base=url_for('static', filename='img/'), android_app=_android_app_link())
     resp = make_response(html_out)
     resp.headers['Cache-Control'] = 'no-store'
     if wanted in portal_ui.LANGS:
@@ -3986,6 +3987,7 @@ def _ruijie_portal_pages(site, tenant, th):
     pages = {}
     for lang in portal_ui.LANGS:
         full = portal_ui.login_page(th, lang, packages=packages, buy_enabled=can_buy, networks=networks, logo_base='img/', lang_url='#',
+                                    android_app=_android_app_link(),
                                     trial=_guest_trial(tenant, site) and {**_guest_trial(tenant, site), 'every': 'day'})
         body = re.search(r'<body class="([^"]*)">(.*)<script>(.*?)</script>\s*</body>', full, re.S)
         card = lambda html: re.search(r'<div class="card">(.*?)</div>\s*<div class="foot">', html, re.S).group(1)
@@ -9076,6 +9078,76 @@ def _remember_fields(key, message):
         db.session.add(row)
     except Exception:
         log.exception('remembering %s failed', key)
+
+
+# ---------------------------------------------------------------------------
+# The SafeNet Android app, offered on the Wi-Fi login pages. The platform admin uploads the .apk
+# (/platform/app); it is kept outside the code (APP_FILES_DIR, a Docker volume) so deploys keep it.
+# ---------------------------------------------------------------------------
+APP_FILES_DIR = os.environ.get('APP_FILES_DIR') or os.path.join(app.instance_path, 'app_files')
+ANDROID_APK = 'safenet.apk'
+ANDROID_APK_MAX = 200 * 1024 * 1024
+
+
+def _android_apk_info():
+    """{'size', 'at', 'version'} of the uploaded Android app, or None."""
+    path = os.path.join(APP_FILES_DIR, ANDROID_APK)
+    if not os.path.isfile(path):
+        return None
+    meta = {}
+    try:
+        with open(path + '.json') as f:
+            meta = json.load(f)
+    except (OSError, ValueError):
+        pass
+    st = os.stat(path)
+    return {'size': st.st_size, 'at': datetime.utcfromtimestamp(st.st_mtime), 'version': meta.get('version') or ''}
+
+
+def _android_app_link():
+    """Download link for the login pages (absolute: Ruijie and router-hosted pages are not on our site)."""
+    info = _android_apk_info()
+    return _link('android_app', v=int(info['at'].timestamp())) if info else None
+
+
+@app.route('/app/android')
+def android_app():
+    info = _android_apk_info()
+    if info is None:
+        abort(404)
+    name = f"SafeNet-{info['version']}.apk" if info['version'] else 'SafeNet.apk'
+    resp = send_file(os.path.join(APP_FILES_DIR, ANDROID_APK), mimetype='application/vnd.android.package-archive',
+                     as_attachment=True, download_name=name, conditional=True, max_age=300)
+    return resp
+
+
+@app.route('/platform/app', methods=['GET', 'POST'])
+@login_required
+@superadmin_required
+def platform_app():
+    """Upload the Android app the Wi-Fi login pages offer."""
+    if request.method == 'POST':
+        f = request.files.get('apk')
+        version = re.sub(r'[^0-9A-Za-z.+_-]', '', request.form.get('version', ''))[:32]
+        if f is None or not f.filename.lower().endswith('.apk'):
+            flash('Choose the .apk file.', 'danger')
+            return redirect(url_for('platform_app'))
+        os.makedirs(APP_FILES_DIR, exist_ok=True)
+        tmp = os.path.join(APP_FILES_DIR, ANDROID_APK + '.part')
+        f.save(tmp)
+        with open(tmp, 'rb') as fh:
+            magic = fh.read(4)
+        size = os.path.getsize(tmp)
+        if magic != b'PK\x03\x04' or size > ANDROID_APK_MAX:
+            os.remove(tmp)
+            flash('That is not an Android app (.apk).', 'danger')
+            return redirect(url_for('platform_app'))
+        os.replace(tmp, os.path.join(APP_FILES_DIR, ANDROID_APK))
+        with open(os.path.join(APP_FILES_DIR, ANDROID_APK + '.json'), 'w') as fh:
+            json.dump({'version': version}, fh)
+        flash(f'Android app uploaded ({size / 1048576:.1f} MB). The Wi-Fi login pages offer it on Android phones now.', 'success')
+        return redirect(url_for('platform_app'))
+    return render_template('platform/app.html', info=_android_apk_info(), link=_android_app_link())
 
 
 @app.route('/platform/provider-fields')

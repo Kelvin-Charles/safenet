@@ -131,6 +131,7 @@ T = {
         'gift_code': "Your friend's code", 'gift_share': "If the SMS doesn't arrive, share this code with them yourself.",
         'gift_again': 'Back to packages',
         'app_cta': 'Get the Wi-Fi app', 'app_cta_lead': 'See your time and data, buy more, buy for a friend.',
+        'android_cta': 'Get the SafeNet app', 'android_lead': 'For Android: buy packages and see your time left, faster.',
     },
     'sw': {
         'wifi': 'Wi-Fi ya Wageni', 'switch': 'English', 'welcome': 'Karibu {name}',
@@ -174,6 +175,7 @@ T = {
         'gift_code': 'Namba ya vocha ya rafiki', 'gift_share': 'SMS isipofika, mtumie namba hii wewe mwenyewe.',
         'gift_again': 'Rudi kwenye vifurushi',
         'app_cta': 'Pata app ya Wi-Fi', 'app_cta_lead': 'Ona muda na data yako, nunua zaidi, nunulia rafiki.',
+        'android_cta': 'Pakua app ya SafeNet', 'android_lead': 'Kwa Android: nunua vifurushi na uone muda uliobaki, kwa haraka.',
     },
 }
 
@@ -426,6 +428,7 @@ document.querySelectorAll('form[data-busy]').forEach(function(f){{f.addEventList
   f.querySelectorAll('input,select,button.linkbtn').forEach(function(x){{x.setAttribute('readonly','');}});
 }});}});
 window.addEventListener('pageshow',function(ev){{if(ev.persisted)location.reload();}});
+if(/Android/i.test(navigator.userAgent))document.querySelectorAll('.android-app').forEach(function(a){{a.hidden=false;}});
 (function(){{
   var nets=document.querySelectorAll('.net');if(!nets.length)return;
   function price(){{var p=document.querySelector('.pkg input:checked');return p?parseFloat(p.dataset.price)||0:0;}}
@@ -464,8 +467,10 @@ def _terms_check(th, lang, field_id):
 # ---------------------------------------------------------------------------
 def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/login', buy_action='/buy',
                external=None, buy_enabled=True, preview=False, lang_url='/', networks=(), logo_base='/img/', simulate=False,
-               trial=None, trial_action='/trial'):
+               trial=None, trial_action='/trial', android_app=None):
     """Voucher and/or buy-package tabs.
+
+    android_app: download link of the SafeNet Android app; the card shows only on Android phones.
 
     external: {'action': url, 'next_field': name, 'next_value': value} to post the
     code as username/password to a MikroTik or Meraki login URL instead of /login.
@@ -606,7 +611,16 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
         body = f'<div class="panel only">{buy}</div>'
     else:
         body = f'<div class="panel only">{voucher}</div>'
-    return page(th, lang, free + body, lang_url=_qs(lang_url, dst=dst), preview=preview)
+    return page(th, lang, free + body + _android_card(lang, android_app), lang_url=_qs(lang_url, dst=dst), preview=preview)
+
+
+def _android_card(lang, url):
+    """'Get the SafeNet app' under the login forms: hidden, and shown by the page script on Android only."""
+    if not url:
+        return ''
+    return (f'<a class="appcard android-app" href="{e(url)}" download hidden>'
+            f'<span class="ic">{icon("phone", 22)}</span><span><b>{t(lang, "android_cta")}</b>'
+            f'<small>{t(lang, "android_lead")}</small></span>{icon("arrow", 18)}</a>')
 
 
 def status_page(th, lang, *, user, remaining, total=None, dst='', new_code=None, preview=False, base='', logout=True,

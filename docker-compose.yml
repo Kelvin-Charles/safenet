@@ -69,6 +69,7 @@ services:
       MERAKI_COA_PORT: ${MERAKI_COA_PORT:-3799}
       MERAKI_COA_SECRET: ${MERAKI_COA_SECRET:-JRIIT-fr33.}
       FLASK_APP: app.py
+      APP_FILES_DIR: /app/app_files
       FLASK_ENV: ${FLASK_ENV:-production}
       # Signs logins and emailed links: must be a long random value in .env
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
@@ -128,6 +129,7 @@ services:
         condition: service_healthy
     volumes:
       - radius_logs:/var/log/freeradius:ro
+      - app_files:/app/app_files            # the Android app offered on login pages (kept across deploys)
     command: >
       sh -c "
         echo 'Waiting for database...' &&
@@ -204,4 +206,6 @@ volumes:
   db_data:
     driver: local
   radius_logs:
+    driver: local
+  app_files:
     driver: local

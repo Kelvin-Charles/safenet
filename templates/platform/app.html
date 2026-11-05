@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Android app - {{ app_name }}{% endblock %}
+{% block page_title %}Platform: Android app{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header"><i class="bi bi-android2"></i> The SafeNet app on the Wi-Fi login pages</div>
+    <div class="card-body">
+        <p class="small text-muted">Every business's Wi-Fi login page shows <strong>Get the SafeNet app</strong> on Android phones (not on iPhones or computers) once an app is uploaded here. Phones download it from SafeNet's own address, which every gateway already lets through before paying.</p>
+        {% if info %}
+        <div class="alert alert-success py-2 small">
+            Now offered: <strong>{{ 'version ' ~ info.version if info.version else 'SafeNet.apk' }}</strong>
+            · {{ '%.1f'|format(info.size / 1048576) }} MB · uploaded {{ info.at.strftime('%Y-%m-%d %H:%M') }} UTC
+            · <a href="{{ link }}">download</a>
+        </div>
+        {% else %}
+        <div class="alert alert-light border py-2 small">No app uploaded yet, so the login pages don't show the button.</div>
+        {% endif %}
+        <form method="POST" enctype="multipart/form-data" class="row g-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-6"><label class="form-label small mb-1">App file (.apk, from <code>flutter build apk --release</code>)</label>
+                <input type="file" name="apk" accept=".apk,application/vnd.android.package-archive" class="form-control form-control-sm" required></div>
+            <div class="col-md-3"><label class="form-label small mb-1">Version (shown in the file name)</label>
+                <input name="version" class="form-control form-control-sm" placeholder="1.0.0"></div>
+            <div class="col-md-3 d-grid align-self-end"><button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-upload"></i> Upload</button></div>
+        </form>
+        <p class="small text-muted mt-2 mb-0">A new upload replaces the old one. Phones that installed an earlier one update by installing the new file over it, which works only when both are signed with the same key.</p>
+    </div>
+</div>
+{% endblock %}
