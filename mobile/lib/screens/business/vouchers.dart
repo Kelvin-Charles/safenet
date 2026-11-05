@@ -153,7 +153,7 @@ class _VouchersScreenState extends State<VouchersScreen> {
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Row(children: [
-              Text(v['code'] as String, style: Theme.of(c).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 2)),
+              Text((v['code'] as String?) ?? '•••• ••••', style: Theme.of(c).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 2)),
               const Spacer(),
               Pill(stateLabel(v['state'] as String?), color: stateColor(v['state'] as String?)),
             ]),
@@ -168,8 +168,16 @@ class _VouchersScreenState extends State<VouchersScreen> {
             if (v['expires'] != null) _row(c, S.t('Ends'), when(v['expires'] as String?)),
             if ((v['sites'] as List).isNotEmpty) _row(c, S.t('Works at'), (v['sites'] as List).join(', ')),
             _row(c, 'Batch', '${v['batch']}'),
+            if (v['code'] == null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(S.t('Being made on Reyee. The code shows here once Ruijie Cloud has it (usually within a minute).'),
+                    style: const TextStyle(color: kWarn)),
+              ),
+            if (v['reyee_why'] != null)
+              Padding(padding: const EdgeInsets.only(top: 8), child: Text('${v['reyee_why']}', style: const TextStyle(color: kBad))),
             const SizedBox(height: 16),
-            Row(children: [
+            if (v['code'] != null) Row(children: [
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () {
@@ -234,7 +242,7 @@ class _VouchersScreenState extends State<VouchersScreen> {
 }
 
 String _shareText(List vs) {
-  final lines = vs.map((v) => '${v['code']} — ${minutesLabel(v['minutes'] as int)}').join('\n');
+  final lines = vs.where((v) => v['code'] != null).map((v) => '${v['code']} — ${minutesLabel(v['minutes'] as int)}').join('\n');
   return S.lang == 'sw' ? 'Vocha za Wi-Fi:\n$lines' : 'Wi-Fi vouchers:\n$lines';
 }
 
@@ -253,13 +261,19 @@ void _showMade(BuildContext context, List made) {
             constraints: const BoxConstraints(maxHeight: 220),
             child: SingleChildScrollView(
               child: Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [
-                for (final v in made)
+                for (final v in made.where((v) => v['code'] != null))
                   Chip(label: Text(v['code'] as String, style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w700, letterSpacing: 1))),
               ]),
             ),
           ),
+          if (made.any((v) => v['code'] == null))
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(S.t('{n} are still being made on Reyee: they appear in the list in a minute.', {'n': made.where((v) => v['code'] == null).length}),
+                  textAlign: TextAlign.center, style: const TextStyle(color: kWarn)),
+            ),
           const SizedBox(height: 16),
-          FilledButton.icon(
+          if (made.any((v) => v['code'] != null)) FilledButton.icon(
             onPressed: () => SharePlus.instance.share(ShareParams(text: _shareText(made))),
             icon: const Icon(Icons.share_rounded),
             label: Text(S.t('Share codes')),
@@ -294,7 +308,7 @@ class _VoucherTile extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(v['code'] as String, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, letterSpacing: 1.2, fontFamily: 'monospace')),
+                  Text((v['code'] as String?) ?? '•••• ••••', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, letterSpacing: 1.2, fontFamily: 'monospace')),
                   const SizedBox(height: 2),
                   Text(
                     [
@@ -314,7 +328,9 @@ class _VoucherTile extends StatelessWidget {
                 if (v['reyee'] == 'pending' || v['reyee'] == 'sending' || v['reyee'] == 'catchup')
                   Padding(padding: const EdgeInsets.only(top: 4), child: Pill(S.t('Being sent to Reyee'), color: kWarn))
                 else if (v['reyee'] == 'ok')
-                  Padding(padding: const EdgeInsets.only(top: 4), child: Pill(S.t('On Reyee'), color: kAccent)),
+                  Padding(padding: const EdgeInsets.only(top: 4), child: Pill(S.t('On Reyee'), color: kAccent))
+                else if (v['reyee'] == 'failed')
+                  Padding(padding: const EdgeInsets.only(top: 4), child: Pill(S.t('Not on Reyee'), color: kBad)),
               ]),
             ]),
           ),

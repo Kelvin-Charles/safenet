@@ -384,7 +384,7 @@ def live_disconnect():
 
 # ---------------------------------------------------------------- business: vouchers
 def _voucher_json(v, phone=None):
-    return {'id': v.id, 'code': v.code, 'state': v.state, 'batch': v.batch, 'plan': v.plan.name if v.plan else None,
+    return {'id': v.id, 'code': v.code if v.code_final else None, 'state': v.state, 'reyee_why': v.ruijie_why, 'batch': v.batch, 'plan': v.plan.name if v.plan else None,
             'minutes': v.validity_minutes, 'validity': v.validity_label, 'price': _money(v.price) if v.price is not None else None,
             'devices': v.max_devices or 1, 'free': bool(v.is_free), 'created': _iso(v.created_at),
             'started': _iso(v.first_used_at), 'expires': _iso(v.expires_at), 'phone': phone,
@@ -451,8 +451,10 @@ def create_vouchers():
     made = A._create_vouchers(count, plan, minutes, price, batch, max_devices=devices, is_free=bool(d.get('free')),
                               site_id=A.site_for_new_things().id, sites=sites)
     db.session.commit()
-    A._ruijie_push_soon()
-    return jsonify(batch=batch, items=[_voucher_json(v) for v in made])
+    ids = [v.id for v in made]
+    A._ruijie_push_now(made)          # Reyee: made on Ruijie Cloud first, so the codes shown are the final ones
+    made = Voucher.query.filter(Voucher.id.in_(ids)).order_by(Voucher.id).all()
+    return jsonify(batch=batch, items=[_voucher_json(v) for v in made], waiting=sum(1 for v in made if not v.code_final))
 
 
 @bp.route('/api/m/vouchers/<int:vid>/toggle', methods=['POST'])

@@ -1622,10 +1622,10 @@ def generate_vouchers():
             flash(tr('Choose at least one site, or All sites.'), 'danger')
             return render_template('vouchers/generate.html', form=form, currency=current_tenant().currency,
                                    sites=tenant_sites(), picked=[])
-        _create_vouchers(form.count.data, plan, minutes, price, batch, max_devices=form.max_devices.data,
-                         is_free=form.is_free.data, site_id=site_for_new_things().id, sites=sites)
+        made = _create_vouchers(form.count.data, plan, minutes, price, batch, max_devices=form.max_devices.data,
+                                is_free=form.is_free.data, site_id=site_for_new_things().id, sites=sites)
         db.session.commit()
-        _ruijie_push_soon()
+        _ruijie_push_now(made)
 
         flash(tr('{n} vouchers created in batch "{batch}".', n=form.count.data, batch=batch), 'success')
         return redirect(url_for('vouchers', batch=batch))
@@ -3497,14 +3497,20 @@ def _rename_voucher(voucher, code):
     voucher.code = code
 
 
-def _ruijie_push_site(site):
-    """Copy this site's waiting codes to Ruijie Cloud. A code whose duration has no Ruijie package is marked failed."""
+def _ruijie_push_site(site, only=None, deadline=None):
+    """Copy this site's waiting codes to Ruijie Cloud (only: these voucher ids; deadline: stop by this time.time()).
+    A code whose duration has no Ruijie package is marked failed, with why."""
     cloud = _ruijie_cloud(site)
     missing = set()
-    for vid, state in db.session.query(Voucher.id, Voucher.ruijie_state).filter(
-            Voucher.site_id == site.id, Voucher.ruijie_state.in_(('pending', 'catchup'))).order_by(Voucher.id).limit(RUIJIE_BATCH).all():
+    waiting = db.session.query(Voucher.id, Voucher.ruijie_state).filter(Voucher.site_id == site.id, Voucher.ruijie_state.in_(('pending', 'catchup')))
+    if only is not None:
+        waiting = waiting.filter(Voucher.id.in_(list(only) or [0]))
+    for vid, state in waiting.order_by(Voucher.id).limit(RUIJIE_BATCH).all():
+        if deadline is not None and time.time() > deadline:
+            break
         # claim it (another web worker may be copying too)
-        if not Voucher.query.filter_by(id=vid, ruijie_state=state).update({'ruijie_state': 'sending'}, synchronize_session=False):
+        if not Voucher.query.filter_by(id=vid, ruijie_state=state).update({'ruijie_state': 'sending', 'ruijie_at': datetime.utcnow()},
+                                                                          synchronize_session=False):
             db.session.commit()
             continue
         db.session.commit()
@@ -3512,20 +3518,21 @@ def _ruijie_push_site(site):
         package = _ruijie_package(site, voucher.validity_minutes)
         if package is None:
             voucher.ruijie_state = 'failed'
+            voucher.ruijie_note = f'no-package:{voucher.validity_minutes}'
             missing.add(voucher.validity_minutes)
             db.session.commit()
             continue
         try:
             _ruijie_make_voucher(site, cloud, voucher, package, keep_code=state == 'catchup')
-            voucher.ruijie_state = 'ok'
+            voucher.ruijie_state, voucher.ruijie_note = 'ok', None
             db.session.commit()
         except ruijie.RuijieError as e:
             if 'exist' in str(e).lower():          # already made (a retry after a timeout)
-                voucher.ruijie_state = 'ok'
+                voucher.ruijie_state, voucher.ruijie_note = 'ok', None
                 db.session.commit()
             elif state == 'catchup' and 'invalid code' in str(e).lower():     # Ruijie only takes codes it makes
                 db.session.rollback()
-                Voucher.query.filter_by(id=vid).update({'ruijie_state': 'failed'})
+                Voucher.query.filter_by(id=vid).update({'ruijie_state': 'failed', 'ruijie_note': 'ruijie-codes'})
                 db.session.commit()
             else:
                 db.session.rollback()
@@ -3571,7 +3578,59 @@ def _ruijie_push_due():
         _ruijie_push_due_now()
 
 
+RUIJIE_STUCK_MINUTES = 10     # a code left 'sending' this long (its worker stopped mid-way) is sent again
+
+
+def _ruijie_requeue():
+    """Codes that can still reach Ruijie Cloud go again, keeping their code (it may be printed or given out already):
+    ones left half-sent by a worker that stopped, and ones that failed only because no Ruijie package lasted that long
+    and one does now. Commits; returns how many."""
+    stuck = Voucher.query.filter(Voucher.ruijie_state == 'sending', or_(Voucher.ruijie_at.is_(None),
+                                 Voucher.ruijie_at < datetime.utcnow() - timedelta(minutes=RUIJIE_STUCK_MINUTES))) \
+        .update({'ruijie_state': 'catchup'}, synchronize_session=False)
+    again = 0
+    for site in Site.query.filter(Site.ruijie_group_id.isnot(None)).all():
+        if not site.ruijie_ready:
+            continue
+        have = {p.get('minutes') for p in _ruijie_info(site).get('packages', [])}
+        for v in Voucher.query.filter(Voucher.site_id == site.id, Voucher.ruijie_state == 'failed', Voucher.status == 'unused',
+                                      Voucher.ruijie_note.like('no-package:%')).limit(500):
+            if v.validity_minutes in have:
+                v.ruijie_state, v.ruijie_note = 'catchup', None
+                again += 1
+    db.session.commit()
+    if stuck or again:
+        log.info('ruijie cloud: %s half-sent and %s package-less codes sent again', stuck, again)
+    return stuck + again
+
+
+def _ruijie_push_now(vouchers, seconds=15):
+    """Send just-made codes to Ruijie Cloud before the page shows them (a code Ruijie makes itself replaces SafeNet's,
+    so it must be final first); what doesn't make it in time goes on in the background."""
+    by_site = {}
+    for v in vouchers:
+        if v.ruijie_state == 'pending' and v.site_id:
+            by_site.setdefault(v.site_id, []).append(v.id)
+    deadline = time.time() + seconds
+    for sid, ids in by_site.items():
+        site = db.session.get(Site, sid)
+        if site is None or not site.ruijie_ready or _ruijie_paused(site.ruijie_appid):
+            continue
+        try:
+            with ruijie.lane('push'):
+                _ruijie_push_site(site, only=ids, deadline=deadline)
+        except Exception as e:
+            db.session.rollback()
+            log.warning('ruijie cloud: sending new codes for site %s now failed (sent later): %s', sid, e)
+    _ruijie_push_soon()
+
+
 def _ruijie_push_due_now():
+    try:
+        _ruijie_requeue()
+    except Exception:
+        db.session.rollback()
+        log.exception('ruijie requeue failed')
     try:
         _ruijie_catch_up()
     except Exception:

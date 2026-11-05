@@ -497,4 +497,8 @@ SW = {
     'Being sent to Reyee': 'Inatumwa Reyee',
     'Ruijie Cloud has no package that lasts this long, or refused the code. The Reyee login page will say Authentication failed.': 'Ruijie Cloud haina kifurushi cha muda huu, au imekataa namba. Ukurasa wa Reyee utasema Authentication failed.',
     'Not on Reyee': 'Haiko Reyee',
+    'Being made on Reyee': 'Inatengenezwa Reyee',
+    'Ruijie Cloud may give it its own code: it shows here once it is on Reyee (usually within a minute).': 'Ruijie Cloud inaweza kuipa namba yake: itaonekana hapa ikishafika Reyee (kwa kawaida ndani ya dakika moja).',
+    'No Ruijie package lasts {d}: create one in Ruijie Cloud, then press Read packages on Sites. It is sent again by itself.': 'Hakuna kifurushi cha Ruijie cha {d}: kitengeneze kwenye Ruijie Cloud, kisha bonyeza Soma vifurushi kwenye Maeneo. Itatumwa tena yenyewe.',
+    'Ruijie Cloud only takes codes it makes itself, and this code was given out already: make a new one.': 'Ruijie Cloud inapokea tu vocha inazotengeneza yenyewe, na vocha hii ilishatolewa: tengeneza mpya.',
 }

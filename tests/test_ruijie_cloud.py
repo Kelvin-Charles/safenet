@@ -56,6 +56,8 @@ class FakeCloud:
         made.append((group_id, code, package['user_group']))
 
     def generate_voucher(self, group_id, package, digits=8):
+        if down[0]:
+            raise ruijie.RuijieError('Ruijie Cloud could not be reached: timed out')
         code = f'7{len(made):07d}'
         made.append((group_id, code, package['user_group']))
         return code
@@ -123,15 +125,13 @@ assert f'/app/jriit?s={TOKEN}' in r and 'shh' not in r
 # saving again without the secret keeps it
 assert 'Ruijie Cloud connected' in html.unescape(post(action='save', cloud='https://cloud-as.ruijienetworks.com', appid='app1').text)
 
-# generated vouchers wait for Ruijie Cloud, then are made there in the package with the same duration
+# generated vouchers are made on Ruijie Cloud at once, in the package with the same duration
 r = c.get('/vouchers/generate')
 c.post('/vouchers/generate', data={'csrf_token': tok(r.text), 'count': 3, 'validity_value': 1, 'validity_unit': 'hours', 'max_devices': 1, 'plan_id': 0})
 with app.app_context():
-    codes = [v.code for v in Voucher.query.filter_by(ruijie_state='pending')]
-    assert len(codes) == 3
-    appmod._ruijie_push_due()
+    codes = [v.code for v in Voucher.query.filter_by(ruijie_state='ok')]
+    assert len(codes) == 3 and Voucher.query.filter_by(ruijie_state='pending').count() == 0
     assert made == [('9001', code, 'ug1') for code in sorted(codes, key=lambda x: Voucher.query.filter_by(code=x).one().id)]
-    assert Voucher.query.filter_by(ruijie_state='ok').count() == 3
 # Ruijie Cloud down: the codes wait and the site shows why; they go once it's back
 with app.app_context():
     v = appmod._create_vouchers(1, None, 1440, None, 'x', tenant=TID, site_id=SID)[0]; db.session.commit(); CODE = v.code
@@ -232,17 +232,59 @@ with app.app_context():
     assert _json.loads(db.session.get(Site, SID).ruijie_packages)['ruijie_codes'] is True        # remembered for the site
 paid = g.get(f'/app/jriit/api/pay/{b["reference"]}').get_json()
 assert paid['ready'] is True and paid['code'] == NEW and len(texts) == 1 and NEW in texts[0] and OLD not in texts[0]
-# generated vouchers get Ruijie's codes too; printing leaves out the ones not made yet
+# generated vouchers are made on Ruijie Cloud straight away, so the codes the page shows are Ruijie's (final) ones
 r = c.get('/vouchers/generate')
 c.post('/vouchers/generate', data={'csrf_token': tok(r.text), 'count': 2, 'validity_value': 1, 'validity_unit': 'hours', 'max_devices': 1, 'plan_id': 0, 'batch': 'reyee'})
-pr = html.unescape(c.get('/vouchers/print?batch=reyee').text)
-assert '2 codes are still being made on Ruijie Cloud' in pr
 with app.app_context():
-    appmod._ruijie_push_due()
     codes = sorted(v.code for v in Voucher.query.filter_by(batch='reyee'))
     assert all(c_.startswith('7') for c_ in codes) and all(Voucher.query.filter_by(code=c_).one().ruijie_state == 'ok' for c_ in codes)
+lst = html.unescape(c.get('/vouchers?batch=reyee').text)
+assert all(c_ in lst for c_ in codes) and '•••• ••••' not in lst
 pr = html.unescape(c.get('/vouchers/print?batch=reyee').text)
 assert 'still being made' not in pr and all(c_ in pr for c_ in codes)
+# Ruijie Cloud away while making them: the code isn't shown or printed (it may still change) until it is on Reyee
+down[0] = True
+r = c.get('/vouchers/generate')
+c.post('/vouchers/generate', data={'csrf_token': tok(r.text), 'count': 1, 'validity_value': 1, 'validity_unit': 'hours', 'max_devices': 1, 'plan_id': 0, 'batch': 'reyee-wait'})
+with app.app_context():
+    w = Voucher.query.filter_by(batch='reyee-wait').one(); WAIT_CODE = w.code
+    assert w.ruijie_state == 'pending' and not w.code_final, (w.ruijie_state, w.ruijie_note, w.code)
+lst = html.unescape(c.get('/vouchers?batch=reyee-wait').text)
+assert WAIT_CODE not in lst and '•••• ••••' in lst and 'Being made on Reyee' in lst
+assert '1 codes are still being made on Ruijie Cloud' in html.unescape(c.get('/vouchers/print?batch=reyee-wait').text)
+down[0] = False
+with app.app_context():
+    appmod._ruijie_push_due()
+    w = Voucher.query.filter_by(batch='reyee-wait').one(); assert w.ruijie_state == 'ok' and w.code_final
+assert w.code in html.unescape(c.get('/vouchers?batch=reyee-wait').text)
+# a code left half-sent (its worker stopped) is sent again, keeping its code
+with app.app_context():
+    s1 = appmod._create_vouchers(1, None, 60, None, 'stuck', tenant=TID, site_id=SID)[0]
+    s1.ruijie_state, s1.ruijie_at = 'sending', datetime.utcnow() - timedelta(minutes=30)
+    s2 = appmod._create_vouchers(1, None, 60, None, 'busy', tenant=TID, site_id=SID)[0]
+    s2.ruijie_state, s2.ruijie_at = 'sending', datetime.utcnow()                  # being sent right now: left alone
+    db.session.commit(); STUCK, BUSY = s1.code, s2.code
+    own_codes[0] = True
+    appmod._ruijie_push_due()
+    assert Voucher.query.filter_by(code=STUCK).one().ruijie_state == 'ok' and made[-1][1] == STUCK
+    assert Voucher.query.filter_by(code=BUSY).one().ruijie_state == 'sending'
+    own_codes[0] = False
+# a code that failed only because no Ruijie package lasted that long goes again, by itself, once one does
+with app.app_context():
+    odd = appmod._create_vouchers(1, None, 180, None, 'three-hours', tenant=TID, site_id=SID)[0]; db.session.commit(); ODD = odd.code
+    appmod._ruijie_push_due()
+    odd = Voucher.query.filter_by(code=ODD).one()
+    assert odd.ruijie_state == 'failed' and odd.ruijie_note == 'no-package:180' and 'No Ruijie package lasts' in odd.ruijie_why
+assert 'No Ruijie package lasts' in html.unescape(c.get('/vouchers?batch=three-hours').text)
+pkgs.append({'user_group': 'ug9', 'profile': 'pf9', 'minutes': 180, 'name': '3 Hours'})
+with app.app_context():
+    s_ = db.session.get(Site, SID); info = _json.loads(s_.ruijie_packages); info['packages'] = list(pkgs); s_.ruijie_packages = _json.dumps(info)
+    db.session.commit()
+    own_codes[0] = True
+    appmod._ruijie_push_due()
+    odd = Voucher.query.filter_by(code=ODD).one()
+    assert odd.ruijie_state == 'ok' and odd.code == ODD and odd.ruijie_note is None      # same code: it may be given out already
+    own_codes[0] = False
 # codes made before the site joined Ruijie Cloud are sent there too, keeping their (maybe printed) code
 with app.app_context():
     early = appmod._create_vouchers(2, None, 60, None, 'before-reyee', tenant=TID, site_id=SID)
@@ -270,7 +312,7 @@ c.post('/vouchers/generate', data={'csrf_token': tok(r.text), 'count': 2, 'valid
 c.post('/sites/switch', data={'csrf_token': tok(sw), 'site_id': ''})
 with app.app_context():
     made_here = Voucher.query.filter_by(batch='all-sites').all()
-    assert len(made_here) == 2 and all(v.site_id == SID and v.ruijie_state == 'pending' for v in made_here)
+    assert len(made_here) == 2 and all(v.site_id == SID and v.ruijie_state == 'ok' for v in made_here)       # sent at once
     # and ones made that way before this fix are moved and sent, keeping their code
     old = appmod._create_vouchers(1, None, 60, None, 'all-sites-old', tenant=TID, site_id=OTHER)[0]
     db.session.commit(); OLD_ALL = old.code

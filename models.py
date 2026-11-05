@@ -467,6 +467,8 @@ class Voucher(db.Model):
     max_devices = db.Column(db.Integer, nullable=False, default=1, server_default='1')   # devices online at once
     is_free = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())  # marketing free trial
     first_mac = db.Column(db.String(17))    # device that first used it (one free trial per phone)
+    ruijie_at = db.Column(db.DateTime)        # when it was last claimed for sending to Ruijie Cloud (a stuck 'sending' is retried)
+    ruijie_note = db.Column(db.String(120))   # why it isn't on Ruijie Cloud ('no-package:<minutes>', 'ruijie-codes', or Ruijie's error)
     ruijie_state = db.Column(db.String(8))   # Ruijie Cloud copy: pending, catchup (made before the site joined Ruijie: code kept), sending, ok, failed (None: not needed)
     disabled_reason = db.Column(db.String(120))   # why SafeNet disabled it by itself (e.g. shared through a hotspot)
     status = db.Column(db.String(16), nullable=False, default='unused')  # unused, active, disabled
@@ -480,6 +482,23 @@ class Voucher(db.Model):
     def works_at(self, site):
         """True if the code may be used at this site (no sites chosen: all of them)."""
         return site is None or not self.sites or any(s.id == site.id for s in self.sites)
+
+    @property
+    def code_final(self):
+        """False while it is being made on Ruijie Cloud, which may give it a code of its own: don't show or print it yet."""
+        return self.ruijie_state not in ('pending', 'sending')
+
+    @property
+    def ruijie_why(self):
+        """Why it isn't on Ruijie Cloud, in words."""
+        from i18n import tr
+        note = self.ruijie_note or ''
+        if note.startswith('no-package:'):
+            return tr('No Ruijie package lasts {d}: create one in Ruijie Cloud, then press Read packages on Sites. It is sent again by itself.',
+                      d=format_minutes(self.validity_minutes))
+        if note == 'ruijie-codes':
+            return tr('Ruijie Cloud only takes codes it makes itself, and this code was given out already: make a new one.')
+        return note or None
 
     @property
     def state(self):
