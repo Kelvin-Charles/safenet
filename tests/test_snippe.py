@@ -78,9 +78,9 @@ H = {'X-SafeNet-Key': 'sgw_m'}
 api = app.test_client()
 buy = lambda phone, network, pkg=PKG: api.post('/api/portal/purchase', headers=H, json={'package_id': pkg, 'phone': phone, 'network': network})
 
-def webhook(snippe_ref, key, event='payment.completed', ts=None, tamper=False):
+def webhook(snippe_ref, key, event='payment.completed', ts=None, tamper=False, extra=None):
     body = json.dumps({'id': 'evt_1', 'type': event, 'api_version': '2026-01-25', 'data': {'reference': snippe_ref,
-                       'amount': {'value': 1000, 'currency': 'TZS'}}}, separators=(',', ':'))
+                       'amount': {'value': 1000, 'currency': 'TZS'}, **(extra or {})}}, separators=(',', ':'))
     ts = str(int(ts or time.time()))
     sig = hmac.new(key.encode(), f'{ts}.{body}'.encode(), hashlib.sha256).hexdigest()
     if tamper:
@@ -132,6 +132,25 @@ assert webhook(SREF, 'whsec_platform').status_code == 200
 with app.app_context():
     p = Payment.query.filter_by(provider_id=SREF).one(); assert p.status == 'paid' and p.voucher and p.channel == 'mpesa'
 assert webhook(SREF, 'whsec_platform').status_code == 200             # repeated delivery: no second voucher
+# the payer's name from Snippe goes on the payment and the customer list; the names SafeNet itself sent don't
+from models import SmsContact
+assert webhook(SREF, 'whsec_platform', extra={'customer': {'firstname': 'Main site', 'lastname': 'Morombo'}}).status_code == 200
+with app.app_context():
+    assert Payment.query.filter_by(provider_id=SREF).one().payer_name is None
+    assert SmsContact.query.filter_by(tenant_id=TID, phone='255754000222').one().name is None
+assert webhook(SREF, 'whsec_platform', extra={'payer': {'name': 'ASHA JUMA'}, 'customer': {'firstname': 'Main site'}}).status_code == 200
+with app.app_context():
+    assert Payment.query.filter_by(provider_id=SREF).one().payer_name == 'ASHA JUMA'
+    assert SmsContact.query.filter_by(tenant_id=TID, phone='255754000222').one().name == 'ASHA JUMA'
+# a name the owner typed is kept
+with app.app_context():
+    c_ = SmsContact.query.filter_by(tenant_id=TID, phone='255754000222').one(); c_.name = 'Asha (hostel)'; db.session.commit()
+webhook(SREF, 'whsec_platform', extra={'payer': {'name': 'ASHA J'}})
+with app.app_context(): assert SmsContact.query.filter_by(tenant_id=TID, phone='255754000222').one().name == 'Asha (hostel)'
+# the platform admin can see which fields Snippe sends (names only, no values)
+fields = login('platform').get('/platform/provider-fields').get_json()
+assert 'payer' in json.dumps(fields) and 'ASHA' not in json.dumps(fields), fields
+assert login('owner').get('/platform/provider-fields').status_code == 404
 with app.app_context(): assert Voucher.query.filter_by(batch='online-payments').count() == 1
 # a webhook claiming "completed" when Snippe says otherwise grants nothing
 r = buy('0754000224', 'mpesa'); ref2 = r.get_json()['reference']

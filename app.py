@@ -5813,6 +5813,16 @@ def _real_payer_name(payment, name):
     return None if words(name) <= ours else name          # every word is from the names SafeNet sent
 
 
+def _name_customer(payment):
+    """The payer's name from the provider onto the business's customer record (a name the owner typed is kept)."""
+    if not payment.payer_name or payment.status != 'paid' or not payment.tenant_id:
+        return
+    phone = _normalize_tz_phone(payment.phone or '')
+    contact = SmsContact.query.filter_by(tenant_id=payment.tenant_id, phone=phone).first() if phone else None
+    if contact is not None and not contact.name:
+        contact.name = payment.payer_name
+
+
 def _note_customer(payment):
     """A paid purchase adds the payer to the business's customers (and the friend a code was bought for). Caller commits."""
     phone = _normalize_tz_phone(payment.phone or '')
@@ -5944,6 +5954,7 @@ def _refresh_payment(reference, force=False):
             payment.provider_status = result.get('provider_status') or payment.provider_status
             payment.channel = result.get('channel') or payment.channel
             payment.payer_name = _real_payer_name(payment, result.get('payer_name')) or payment.payer_name
+            _name_customer(payment)
             payment.message = (result.get('message') or '')[:255] or None
             if result['state'] == 'paid':
                 collected = result.get('amount')
@@ -8954,6 +8965,40 @@ def platform_snippe_keys():
     return redirect(url_for('platform_billing'))
 
 
+def _shape(value, depth=0):
+    """The field names of a provider's message, with no values (no names or numbers kept)."""
+    if isinstance(value, dict) and depth < 4:
+        return {k: _shape(v, depth + 1) for k, v in list(value.items())[:40]}
+    if isinstance(value, list):
+        return [_shape(value[0], depth + 1)] if value else []
+    return type(value).__name__
+
+
+def _remember_fields(key, message):
+    """Keep the latest message's field names (Platform: /platform/provider-fields), to see what a provider sends."""
+    try:
+        text = json.dumps(_shape(message), separators=(',', ':'))[:255]
+        row = db.session.get(PlatformSetting, key) or PlatformSetting(key=key)
+        row.value = text
+        db.session.add(row)
+    except Exception:
+        log.exception('remembering %s failed', key)
+
+
+@app.route('/platform/provider-fields')
+@login_required
+@superadmin_required
+def platform_provider_fields():
+    """What Snippe sends: the field names of its latest webhook (no values)."""
+    def read(text):
+        try:
+            return json.loads(text)
+        except (TypeError, ValueError):
+            return text                  # cut at 255 characters: shown as it is
+    rows = PlatformSetting.query.filter(PlatformSetting.key.like('%:webhook_fields')).all()
+    return jsonify({r.key: {'fields': read(r.value), 'at': _iso(r.updated_at)} for r in rows})
+
+
 @app.route('/webhooks/snippe', methods=['POST'])
 def snippe_webhook():
     """Snippe payment.completed / payment.failed / ... The signature is checked with the key of the
@@ -8982,6 +9027,14 @@ def snippe_webhook():
                                  account.creds.webhook_key):
         log.warning('snippe webhook for %s: bad or missing signature', ref)
         return jsonify(error='invalid signature'), 401
+    if payment is not None:                 # signed by Snippe: the payer's name, if the event carries one
+        data = event.get('data') or {}
+        name = _real_payer_name(payment, paylib.payer_name(data))
+        if name:
+            payment.payer_name = name
+            _name_customer(payment)
+        _remember_fields('snippe:webhook_fields', event)
+        db.session.commit()
     if by_ours:                             # signed by Snippe: now it's safe to tie the two together
         payment.provider_id = ref
         if payment.status == 'failed':

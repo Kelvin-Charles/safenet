@@ -143,14 +143,35 @@ def check(account, reference, provider_id=None):
             'payer_name': payer_name(record)}
 
 
+PAYER_KEYS = ('payer_name', 'customerName', 'customer_name', 'account_name', 'accountName', 'account_holder', 'account_holder_name',
+              'accountHolderName', 'holder_name', 'msisdn_name', 'subscriber_name', 'sender_name', 'full_name', 'fullName', 'name')
+
+
 def payer_name(record):
-    """The mobile-money account holder's name, if the provider's record has one (keys vary by provider)."""
-    def pick(d, *keys):
-        for k in keys:
-            v = d.get(k) if isinstance(d, dict) else None
+    """The mobile-money account holder's name, if the provider's record has one (keys vary by provider; also in a
+    webhook's data). The caller drops a name that is only what SafeNet itself sent as the customer."""
+    def pick(d):
+        if not isinstance(d, dict):
+            return None
+        for k in PAYER_KEYS:
+            v = d.get(k)
             if isinstance(v, str) and v.strip():
                 return v.strip()
+        first = d.get('firstname') or d.get('first_name') or d.get('firstName')
+        last = d.get('lastname') or d.get('last_name') or d.get('lastName')
+        if isinstance(first, str) or isinstance(last, str):
+            return ' '.join(x for x in (first, last) if isinstance(x, str) and x.strip()) or None
         return None
+    if not isinstance(record, dict):
+        return None
+    holders = [record]
+    for key in ('payer', 'sender', 'source', 'account', 'channel', 'payment_details', 'details', 'customer', 'metadata'):
+        holders.append(record.get(key))
+    for holder in holders:
+        name = pick(holder)
+        if name:
+            return name[:80]
+    return None
     for holder in (record, record.get('customer'), record.get('payer'), record.get('channel'), record.get('metadata')):
         name = pick(holder, 'payer_name', 'customerName', 'customer_name', 'account_name', 'accountName', 'name', 'full_name')
         if not name and isinstance(holder, dict) and (holder.get('firstname') or holder.get('lastname')):
