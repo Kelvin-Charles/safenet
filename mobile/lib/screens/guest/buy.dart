@@ -13,16 +13,17 @@ import '../../ui/widgets.dart';
 
 /// Buy a package inside the app: choose it, pay with mobile money (the PIN prompt comes to the phone), get the code.
 class BuyScreen extends StatefulWidget {
-  const BuyScreen({super.key, required this.businessId, required this.name});
+  const BuyScreen({super.key, required this.businessId, required this.name, this.siteId});
   final int businessId;
   final String name;
+  final int? siteId;
 
   @override
   State<BuyScreen> createState() => _BuyScreenState();
 }
 
 class _BuyScreenState extends State<BuyScreen> {
-  int? siteId;
+  late int? siteId = widget.siteId;
   int key = 0;
 
   @override
@@ -242,7 +243,10 @@ class _CheckoutState extends State<_Checkout> {
       if (!mounted) return;
       if (r['status'] == 'paid') {
         poll?.cancel();
-        if (r['token'] != null) await s.replaceToken(r['token'] as String);
+        if (r['token'] != null) {
+          // bought on a SafeNet Wi-Fi without signing in: now signed in with the new code
+          s.kind == Kind.guest ? await s.replaceToken(r['token'] as String) : await s.adoptGuestToken(r['token'] as String);
+        }
         HapticFeedback.mediumImpact();
         setState(() {
           result = r;

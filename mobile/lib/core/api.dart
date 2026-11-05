@@ -26,6 +26,9 @@ class Api {
 
   String? token;
   int? siteId;
+
+  /// "On this SafeNet Wi-Fi" pass from /api/m/here: lets the phone buy there without an account.
+  String? here;
   void Function()? onSignedOut;
   final http.Client _client = http.Client();
 
@@ -35,6 +38,7 @@ class Api {
         if (token != null) 'Authorization': 'Bearer $token',
         if (siteId != null) 'X-Site-Id': '$siteId',
         'Accept-Language': S.lang,
+        if (here != null) 'X-Here': here!,
       };
 
   Uri _uri(String path, [Map<String, dynamic>? query]) {

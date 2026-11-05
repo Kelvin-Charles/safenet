@@ -9,11 +9,33 @@ import 'ui/theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(ChangeNotifierProvider(create: (_) => Session()..load(), child: const SafeNetApp()));
+  runApp(ChangeNotifierProvider(create: (_) => Session()..load()..watchWifi(), child: const SafeNetApp()));
 }
 
-class SafeNetApp extends StatelessWidget {
+class SafeNetApp extends StatefulWidget {
   const SafeNetApp({super.key});
+
+  @override
+  State<SafeNetApp> createState() => _SafeNetAppState();
+}
+
+class _SafeNetAppState extends State<SafeNetApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) context.read<Session>().checkHere(force: true);   // maybe on another Wi-Fi now
+  }
 
   @override
   Widget build(BuildContext context) {

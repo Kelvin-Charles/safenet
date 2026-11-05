@@ -11,6 +11,7 @@ import '../core/strings.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 import '../ui/wifi_hero.dart';
+import 'guest/here_banner.dart';
 import 'register.dart';
 
 /// Sign in: a business (username + password, or register) or a Wi-Fi customer (phone number + SMS code, or voucher).
@@ -95,6 +96,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const Spacer(),
                   const SizedBox(height: 20),
+                  const Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: HereBanner()),
                   // the form card
                   Container(
                     width: double.infinity,

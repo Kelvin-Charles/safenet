@@ -902,6 +902,19 @@ class SubscriptionPayment(db.Model):
         return f'<SubscriptionPayment {self.reference} {self.status}>'
 
 
+class SiteAddress(db.Model):
+    """A public internet address a site was seen from (its login pages, access points, gateway box), so the mobile app
+    can tell which SafeNet Wi-Fi a phone is on: the app's request comes from the same address."""
+    __tablename__ = 'site_addresses'
+    __table_args__ = (db.UniqueConstraint('site_id', 'ip', name='uq_site_address'),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='CASCADE'), nullable=False, index=True)
+    ip = db.Column(db.String(45), nullable=False, index=True)
+    seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    hits = db.Column(db.Integer, nullable=False, default=1)
+
+
 class RuijieUsage(db.Model):
     """Requests SafeNet made to Ruijie Cloud with one App ID on one day (UTC); Ruijie allows 5,000 a day."""
     __tablename__ = 'ruijie_usage'

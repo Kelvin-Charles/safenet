@@ -98,4 +98,46 @@ assert done['status'] == 'paid' and done['token'], done
 V2 = {'Authorization': 'Bearer ' + done['token']}
 assert {x['code'] for x in J(c.get('/api/m/guest/home', headers=V2))['codes']} == {'31310002', done['code']}
 assert c.get(f'/api/m/guest/pay/{ref}', headers=V).status_code == 200            # same business: they may check it
+
+# ---- on a SafeNet Wi-Fi: the app knows which one (the site's internet address), and buying there needs no account
+from models import Site, SiteAddress
+from tenancy import tenant_sites
+SITE_IP, OTHER_IP = '41.59.10.20', '41.59.10.99'
+with app.app_context():
+    HOME = tenant_sites(TID)[0].id
+with app.test_request_context('/omada/x', environ_base={'REMOTE_ADDR': SITE_IP}):
+    appmod._site_seen(HOME)                              # a guest opened this site's login page
+with app.test_request_context('/', environ_base={'REMOTE_ADDR': '192.168.1.10'}):
+    appmod._site_seen(HOME)                              # private addresses are not kept
+with app.app_context():
+    assert [(a.site_id, a.ip) for a in SiteAddress.query.all()] == [(HOME, SITE_IP)]
+def at(ip):
+    client = app.test_client(); client.environ_base['REMOTE_ADDR'] = ip; return client
+h = J(at(SITE_IP).get('/api/m/here'))
+assert h['found'] and h['business']['id'] == TID and h['site']['id'] == HOME and h['can_buy'] and h['here'], h
+assert J(at(OTHER_IP).get('/api/m/here')) == {'found': False, 'ambiguous': False}
+HERE = {'X-Here': h['here']}
+anon = at(SITE_IP)
+assert anon.get(f'/api/m/guest/shop/{TID}').status_code == 401                 # neither signed in nor on the Wi-Fi
+shop = J(anon.get(f'/api/m/guest/shop/{TID}', headers=HERE)); assert shop['site_id'] == HOME and shop['phone'] is None
+assert anon.get(f'/api/m/guest/shop/{OID}', headers=HERE).status_code == 404    # only the business whose Wi-Fi it is
+assert anon.get(f'/api/m/guest/shop/{TID}', headers={'X-Here': 'forged'}).status_code == 401
+pay['status'] = 'PROCESSING'
+with app.app_context():
+    Payment.query.update({'created_at': now - timedelta(minutes=5)}); db.session.commit()
+r = anon.post('/api/m/guest/buy', headers=HERE, json={'business_id': TID, 'package_id': PKG, 'phone': '0780000077', 'network': 'airtel'})
+assert r.status_code == 200, r.text
+ref3 = J(r)['reference']
+pay['status'] = 'SUCCESS'
+with app.app_context(): Payment.query.filter_by(reference=ref3).update({'checked_at': None}); db.session.commit()
+done = J(anon.get(f'/api/m/guest/pay/{ref3}', headers=HERE))
+assert done['status'] == 'paid' and done['code'] and done['token'], done        # signed in with the code just bought
+mine = J(anon.get('/api/m/guest/home', headers={'Authorization': 'Bearer ' + done['token']}))
+assert [x['code'] for x in mine['codes']] == [done['code']]
+# an address two businesses were seen from (e.g. one ISP's shared address): no guess
+with app.app_context():
+    OSITE = tenant_sites(OID)[0].id
+with app.test_request_context('/', environ_base={'REMOTE_ADDR': SITE_IP}):
+    appmod._site_seen_cache.clear(); appmod._site_seen(OSITE)
+assert J(at(SITE_IP).get('/api/m/here')) == {'found': False, 'ambiguous': True}
 print('mobile buy ok')

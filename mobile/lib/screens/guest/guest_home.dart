@@ -8,6 +8,7 @@ import '../../core/strings.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
 import 'buy.dart';
+import 'here_banner.dart';
 import 'history.dart';
 
 /// A Wi-Fi customer's own view: codes with time and data left, where they connect, what they spent.
@@ -45,6 +46,7 @@ class GuestHome extends StatelessWidget {
             child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 32), children: [
               Text(d['phone'] != null ? localPhone(d['phone'] as String) : S.t('Code {code}', {'code': d['code']}), style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.outline)),
               const SizedBox(height: 10),
+              const HereBanner(),
               if (active.isEmpty)
                 Card(child: EmptyView(icon: Icons.wifi_off_rounded, text: S.t('No codes yet.')))
               else

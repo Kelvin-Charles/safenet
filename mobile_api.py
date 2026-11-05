@@ -1339,21 +1339,82 @@ def _shop_site(tenant, mine, wanted):
     return next((v.site_id for v in mine if v.site_id), None) or sites[0].id
 
 
+HERE_DAYS = 3                 # a site's address counts for this long after it was last seen
+HERE_MINUTES = 120            # the "you are here" pass lasts this long
+
+
+@bp.route('/api/m/here')
+def here():
+    """Which SafeNet Wi-Fi is this phone on? Its request comes from the site's internet address, which SafeNet saw on
+    that site's login pages, access points or gateway box. Also before the guest has paid (SafeNet is reachable then)."""
+    ip = A._client_ip()
+    since = datetime.utcnow() - timedelta(days=HERE_DAYS)
+    rows = A.SiteAddress.query.filter(A.SiteAddress.ip == ip, A.SiteAddress.seen_at >= since) \
+        .order_by(A.SiteAddress.seen_at.desc()).limit(20).all()
+    sites = [db.session.get(Site, r.site_id) for r in rows]
+    sites = [x for x in sites if x is not None]
+    tenants = {x.tenant_id for x in sites}
+    if len(tenants) != 1:             # none, or an address several businesses share (one ISP's shared address): don't guess
+        return jsonify(found=False, ambiguous=len(tenants) > 1)
+    site = sites[0]
+    tenant = db.session.get(Tenant, site.tenant_id)
+    if tenant is None or A.tenant_blocked(tenant):
+        return jsonify(found=False, ambiguous=False)
+    hs = A._hotspot_settings(tenant)
+    packages = A._guest_packages(tenant, site.id)
+    return jsonify(found=True, business={'id': tenant.id, 'name': hs.get('name') or tenant.name, 'support': hs.get('support')},
+                   site={'id': site.id, 'name': site.name}, reyee=bool(site.ruijie_ready),
+                   can_buy=A.paylib.is_ready(A._tenant_account(tenant)) and bool(packages),
+                   cheapest=min((float(p['price']) for p in packages), default=None), currency=tenant.currency or 'TZS',
+                   here=A._tokens('mobile-here').dumps({'t': tenant.id, 's': site.id}))
+
+
+def _here_pass():
+    """The "you are on this SafeNet Wi-Fi" pass the app got from /api/m/here: {'t': business, 's': site}, or None."""
+    raw = request.headers.get('X-Here') or ''
+    if not raw:
+        return None
+    try:
+        data = A._tokens('mobile-here').loads(raw, max_age=HERE_MINUTES * 60)
+    except (BadSignature, SignatureExpired):
+        return None
+    return data if isinstance(data, dict) and data.get('t') else None
+
+
 def _who_codes():
-    phone, code = _guest_who()
-    return phone, (code if isinstance(code, list) else [code] if code else [])
+    """(phone, codes, here) of who is buying: a signed-in customer, and/or someone on a SafeNet Wi-Fi right now."""
+    phone, codes = None, []
+    here = _here_pass()
+    if _bearer():
+        try:
+            phone, code = _guest_who()
+            codes = code if isinstance(code, list) else [code] if code else []
+        except Exception:
+            if here is None:
+                raise
+    elif here is None:
+        abort(401)
+    return phone, codes, here
+
+
+def _allowed(phone, codes, here):
+    ids = _guest_tenants(phone, codes) if (phone or codes) else set()
+    if here:
+        ids.add(here['t'])
+    return ids
 
 
 @bp.route('/api/m/guest/shop/<int:tid>')
 def guest_shop(tid):
-    phone, codes = _who_codes()
-    if tid not in _guest_tenants(phone, codes):
+    phone, codes, here = _who_codes()
+    if tid not in _allowed(phone, codes, here):
         abort(404)
     tenant = db.session.get(Tenant, tid)
     if tenant is None or A.tenant_blocked(tenant):
         abort(404)
     mine = _guest_codes(phone, codes, tenant)
-    site_id = _shop_site(tenant, mine, request.args.get('site_id', type=int))
+    wanted = request.args.get('site_id', type=int) or (here['s'] if here and here['t'] == tid else None)
+    site_id = _shop_site(tenant, mine, wanted)
     packages = A._guest_packages(tenant, site_id)
     payer = phone or next((p.phone for p in Payment.query.filter(Payment.voucher_id.in_([v.id for v in mine] or [0]), Payment.status == 'paid')), None)
     networks = [{**n, 'logo': f"{A.Config.PUBLIC_URL}/static/img/{A.portal_ui.NETWORKS[n['id']]['logo']}",
@@ -1368,10 +1429,10 @@ def guest_shop(tid):
 @bp.route('/api/m/guest/buy', methods=['POST'])
 def guest_buy():
     """Buy a package from the app (the PIN prompt goes to the phone given), for this customer or a friend."""
-    phone, codes = _who_codes()
+    phone, codes, here = _who_codes()
     d = request.get_json(silent=True) or {}
     tid = d.get('business_id')
-    if tid not in _guest_tenants(phone, codes):
+    if tid not in _allowed(phone, codes, here):
         abort(404)
     tenant = db.session.get(Tenant, tid)
     if tenant is None or A.tenant_blocked(tenant):
@@ -1380,7 +1441,7 @@ def guest_buy():
     if A._rate_limited('appbuy', ip_key, 6, 10):
         return _err(tr('Too many payment requests. Please wait a few minutes.'), 429)
     mine = _guest_codes(phone, codes, tenant)
-    site_id = _shop_site(tenant, mine, d.get('site_id'))
+    site_id = _shop_site(tenant, mine, d.get('site_id') or (here['s'] if here and here['t'] == tid else None))
     package = A._site_packages(Package.query.filter_by(id=d.get('package_id'), tenant_id=tenant.id, is_active=True, show_on_portal=True),
                                site_id).first()
     if package is None:
@@ -1402,9 +1463,9 @@ def guest_buy():
 @bp.route('/api/m/guest/pay/<reference>')
 def guest_pay(reference):
     """Is the payment through? Then its code (and, signed in with codes, a token that holds the new one too)."""
-    phone, codes = _who_codes()
+    phone, codes, here = _who_codes()
     payment = Payment.query.filter_by(reference=reference[:20], nas_identifier='mobile-app').first()
-    if payment is None or payment.tenant_id not in _guest_tenants(phone, codes):
+    if payment is None or payment.tenant_id not in _allowed(phone, codes, here):
         abort(404)
     payment = A._refresh_payment(payment.reference)
     out = {'status': payment.status, 'message': payment.message or '', 'gift_phone': payment.gift_phone or '',

@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -157,6 +160,50 @@ class Session extends ChangeNotifier {
       } catch (_) {}
     }
     notifyListeners();
+  }
+
+  // ---------------------------------------------------------------- which SafeNet Wi-Fi is this phone on?
+  /// {found, business, site, can_buy, ...} when the phone is on a SafeNet business's Wi-Fi, else null.
+  Map<String, dynamic>? here;
+  StreamSubscription? _net;
+  DateTime? _hereAt;
+
+  /// Watch the network: check again when the phone joins another one.
+  void watchWifi() {
+    _net ??= Connectivity().onConnectivityChanged.listen((_) => checkHere(force: true));
+    checkHere(force: true);
+  }
+
+  Future<void> checkHere({bool force = false}) async {
+    if (!force && _hereAt != null && DateTime.now().difference(_hereAt!) < const Duration(minutes: 2)) return;
+    _hereAt = DateTime.now();
+    Map<String, dynamic>? found;
+    try {
+      final nets = await Connectivity().checkConnectivity();
+      if (nets.contains(ConnectivityResult.wifi)) {        // on mobile data the address is the network's, not a site's
+        final r = await api.get('/api/m/here');
+        if (r['found'] == true) found = r;
+      }
+    } catch (_) {}
+    final changed = (found?['site']?['id']) != (here?['site']?['id']);
+    here = found;
+    api.here = found?['here'] as String?;
+    if (changed) notifyListeners();
+  }
+
+  /// Bought on a SafeNet Wi-Fi without signing in: signed in with the code just bought.
+  Future<void> adoptGuestToken(String token) async {
+    api.token = token;
+    kind = Kind.guest;
+    await _store.write(key: 'token', value: token);
+    await _store.write(key: 'kind', value: 'guest');
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _net?.cancel();
+    super.dispose();
   }
 
   Future<void> signOut() async {

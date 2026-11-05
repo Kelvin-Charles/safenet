@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import voucher_sites, Outage, OutageCredit, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
+from models import SiteAddress, voucher_sites, Outage, OutageCredit, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -245,6 +245,35 @@ def _client_ip():
         behind_proxy = False
     forwarded = [p.strip() for p in (request.headers.get('X-Forwarded-For') or '').split(',') if p.strip()]
     return (forwarded[-1] if behind_proxy and forwarded else remote)[:64]
+
+
+_site_seen_cache = {}       # (site, ip) -> when this worker last wrote it
+
+
+def _site_seen(site_id):
+    """Remember the public address this request came from as one of the site's (see SiteAddress). Cheap: once per
+    10 minutes per site and address per worker; never fails the request."""
+    if not site_id:
+        return
+    ip = _client_ip()
+    try:
+        if not ipaddress.ip_address(ip).is_global:
+            return
+    except ValueError:
+        return
+    now = time.time()
+    if now - _site_seen_cache.get((site_id, ip), 0) < 600:
+        return
+    _site_seen_cache[(site_id, ip)] = now
+    try:
+        with db.engine.begin() as conn:
+            done = conn.execute(text('UPDATE site_addresses SET seen_at = :t, hits = hits + 1 WHERE site_id = :s AND ip = :i'),
+                                {'t': datetime.utcnow(), 's': site_id, 'i': ip}).rowcount
+            if not done:
+                conn.execute(text('INSERT INTO site_addresses (site_id, ip, seen_at, hits) VALUES (:s, :i, :t, 1)'),
+                             {'t': datetime.utcnow(), 's': site_id, 'i': ip})
+    except Exception:
+        log.warning('remembering the address of site %s failed', site_id, exc_info=True)
 
 
 def _rate_limited(kind, key, limit, minutes):
@@ -2193,6 +2222,7 @@ def _omada_page(site, tenant, **kw):
 
 def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, external=None, **extra):
     """SafeNet's guest login/status/waiting page for a site, with its forms posting under `base`."""
+    _site_seen(site.id if site is not None else None)
     cfg = portal_config(tenant)
     if cfg.get('logo_version'):
         cfg['logo_url'] = url_for('portal_logo', slug=tenant.slug, v=cfg['logo_version'])
@@ -3161,6 +3191,7 @@ def wifidog(token, rest):
     parts = [p for p in rest.lower().split('/') if p]
     log.info('wifidog %s /%s %s', token[:6], rest, {k: v for k, v in request.args.items() if k != 'token'})
     site, tenant = _wifidog_site(token)
+    _site_seen(site.id if site is not None else None)
     if 'ping' in parts:
         if site is not None:
             site.wifidog_seen_at = datetime.utcnow()
@@ -4537,6 +4568,7 @@ def _guest_app_site(tenant, data, mine):
     token = str(data.get('site') or '')[:24]
     site = Site.query.filter_by(tenant_id=tenant.id, portal_token=token).first() if token else None
     if site is not None:
+        _site_seen(site.id)
         return site.id
     return next((v.site_id for v in mine if v.site_id), None) or tenant_sites(tenant.id)[0].id
 
@@ -6059,6 +6091,8 @@ def portal_api(fn):
             return jsonify(error='This network is suspended.'), 403
         g.api_tenant = tenant
         g.api_gateway = gw
+        if gw is not None and gw.site_id:
+            _site_seen(gw.site_id)
         return fn(*args, **kwargs)
     return wrapper
 
