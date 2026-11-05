@@ -623,6 +623,7 @@ def edit_package(pid):
 
 # ---------------------------------------------------------------- Wi-Fi customers (guests)
 OTP_MINUTES = 10
+DEVICE_DAYS = 730          # a phone that signed in with an SMS code is remembered this long
 
 
 def _otp_key(phone, otp):
@@ -647,15 +648,21 @@ def guest_send_code():
     ip_key, phone_key = f'ip:{A._client_ip()}', f'to:{phone}'
     if A._rate_limited('motpsend', ip_key, 10, 60) or A._rate_limited('motpsend', phone_key, 3, 60):
         return _err(tr('Too many codes asked for. Please wait an hour, or sign in with your voucher code.'), 429)
-    A._rate_hit('motpsend', ip_key, phone_key)
     if not _has_bought(phone):
         return _err(tr("This number hasn't bought Wi-Fi with SafeNet yet. Sign in with your voucher code."), 404)
+    since = datetime.utcnow() - timedelta(minutes=OTP_MINUTES)
+    last = RateEvent.query.filter(RateEvent.kind == 'motp', RateEvent.key.like(f'{phone}:%'), RateEvent.created_at >= since) \
+        .order_by(RateEvent.created_at.desc()).first()
+    if last is not None:            # a code already went out and still works: no second SMS (each one costs)
+        left = int(OTP_MINUTES * 60 - (datetime.utcnow() - last.created_at).total_seconds())
+        return jsonify(ok=True, phone=phone, minutes=OTP_MINUTES, already_sent=True, seconds_left=max(left, 0))
+    A._rate_hit('motpsend', ip_key, phone_key)
     otp = f'{A.secrets.randbelow(900000) + 100000}'
     db.session.add(RateEvent(kind='motp', key=_otp_key(phone, otp)))
     db.session.commit()
     A.send_sms_async(phone, f'SafeNet: {otp} ' + ('ni namba yako ya kuingia. Inaisha baada ya dakika 10.' if request.headers.get('Accept-Language', '').startswith('sw')
                                                   else 'is your sign-in code. It expires in 10 minutes.'))
-    return jsonify(ok=True, phone=phone, minutes=OTP_MINUTES)
+    return jsonify(ok=True, phone=phone, minutes=OTP_MINUTES, already_sent=False, seconds_left=OTP_MINUTES * 60)
 
 
 @bp.route('/api/m/guest/login', methods=['POST'])
@@ -669,6 +676,16 @@ def guest_login():
     phone = A._normalize_tz_phone(str(d.get('phone') or ''))
     otp = re.sub(r'\D', '', str(d.get('otp') or ''))[:6]
     code = re.sub(r'\s+', '', str(d.get('code') or ''))[:32]
+    if phone and d.get('devices') is not None and not otp:
+        # a phone that proved this number before (with an SMS code) signs in again without a new SMS
+        for raw in list(d.get('devices') or [])[:10]:
+            try:
+                dev = A._tokens('mobile-device').loads(str(raw), max_age=DEVICE_DAYS * 86400)
+            except (BadSignature, SignatureExpired):
+                continue
+            if isinstance(dev, dict) and dev.get('g') == phone:
+                return jsonify(token=A._tokens('mobile-guest').dumps({'g': phone}), phone=phone, device=str(raw))
+        return jsonify(error=tr('This phone needs a code by SMS the first time.'), need_code=True), 401
     if phone and otp:
         if A._rate_limited('motpbad', f'to:{phone}', 5, 15):
             return _err(tr('Too many wrong attempts. Please wait 15 minutes.'), 429)
@@ -678,14 +695,15 @@ def guest_login():
             A._rate_hit('motpbad', f'to:{phone}')
             A._rate_hit('mguest', ip_key)
             return _err(tr("That code isn't right or has expired. Check the SMS, or ask for a new code."), 401)
-        db.session.delete(row)          # each code works once
-        db.session.commit()
-        return jsonify(token=A._tokens('mobile-guest').dumps({'g': phone}), phone=phone)
+        RateEvent.query.filter(RateEvent.kind == 'motp', RateEvent.key.like(f'{phone}:%')).delete(synchronize_session=False)
+        db.session.commit()             # each code works once
+        device = A._tokens('mobile-device').dumps({'g': phone, 'd': A.secrets.token_hex(8)})
+        return jsonify(token=A._tokens('mobile-guest').dumps({'g': phone}), phone=phone, device=device)
     voucher = Voucher.query.filter_by(code=code).first() if code else None
     if voucher is None:
         A._rate_hit('mguest', ip_key)
         return _err(tr("That code isn't valid. Check it and try again."), 401)
-    return jsonify(token=A._tokens('mobile-guest').dumps({'v': voucher.code}), code=voucher.code)
+    return jsonify(token=A._tokens('mobile-guest').dumps({'v': [voucher.code]}), code=voucher.code)
 
 
 def _guest_who():
@@ -720,7 +738,7 @@ def _history_json(pays, phone=None):
 def guest_home():
     phone, code = _guest_who()
     if code:
-        return _code_home(code)
+        return _code_home(code if isinstance(code, list) else [code])
     pays = Payment.query.filter(Payment.status == 'paid', or_(Payment.phone == phone, Payment.gift_phone == phone)) \
         .order_by(Payment.paid_at.desc()).limit(500).all()
     tenant_ids = list(dict.fromkeys(p.tenant_id for p in pays))
@@ -751,20 +769,35 @@ def guest_home():
                    businesses=businesses, codes=codes, history=_history_json(pays, phone))
 
 
-def _code_home(code):
-    """Signed in with a voucher code alone: that code, where it works, what was paid for it."""
-    v = Voucher.query.filter_by(code=code).first()
-    if v is None:
+def _code_home(codes):
+    """Signed in with voucher codes: those codes, where they work, what was paid for them."""
+    vs = Voucher.query.filter(Voucher.code.in_([str(c)[:32] for c in codes[:20]])).all()
+    if not vs:
         abort(401)
-    tenant = db.session.get(Tenant, v.tenant_id)
-    pays = Payment.query.filter_by(voucher_id=v.id, status='paid').all()
-    item = A._guest_voucher_json(v)
-    credits = OutageCredit.query.filter_by(voucher_id=v.id).all()
-    item.update(business=tenant.name, business_id=tenant.id, site=_site_name(v.site_id), made_up=sum(x.minutes or 0 for x in credits),
-                gift=OutageCredit.query.filter_by(gift_voucher_id=v.id).first() is not None, bought_for_friend=False)
-    spent = sum(_money(p.amount) for p in pays) or (_money(v.price) if v.price is not None and v.first_used_at else 0.0)
-    return jsonify(phone=None, code=v.code, spent=spent, data=item['down'] + item['up'], purchases=len(pays),
-                   businesses=[_business_json(tenant, pays, [item], spent, len(pays))], codes=[item], history=_history_json(pays))
+    by_tenant, items, pays_all = {}, [], []
+    for v in vs:
+        tenant = db.session.get(Tenant, v.tenant_id)
+        pays = Payment.query.filter_by(voucher_id=v.id, status='paid').all()
+        item = A._guest_voucher_json(v)
+        credits = OutageCredit.query.filter_by(voucher_id=v.id).all()
+        item.update(business=tenant.name, business_id=tenant.id, site=_site_name(v.site_id), made_up=sum(x.minutes or 0 for x in credits),
+                    gift=OutageCredit.query.filter_by(gift_voucher_id=v.id).first() is not None, bought_for_friend=False)
+        spent = sum(_money(p.amount) for p in pays) or (_money(v.price) if v.price is not None and v.first_used_at else 0.0)
+        b = by_tenant.setdefault(tenant.id, {'tenant': tenant, 'pays': [], 'codes': [], 'spent': 0.0})
+        b['pays'] += pays
+        b['codes'].append(item)
+        b['spent'] += spent
+        items.append(item)
+        pays_all += pays
+    rank = {'active': 0, 'unused': 1, 'expired': 2, 'disabled': 3}
+    items.sort(key=lambda c: (rank.get(c['state'], 9), -(c['seconds_left'] or 0)))
+    pays_all.sort(key=lambda p: p.paid_at or datetime.min, reverse=True)
+    businesses = [_business_json(b['tenant'], sorted(b['pays'], key=lambda p: p.paid_at or datetime.min, reverse=True), b['codes'],
+                                 b['spent'], len(b['pays'])) for b in by_tenant.values()]
+    return jsonify(phone=None, code=vs[0].code, spent=sum(b['spent'] for b in by_tenant.values()),
+                   data=sum(x['down'] + x['up'] for x in items), purchases=len(pays_all), businesses=businesses, codes=items,
+                   history=_history_json(pays_all))
+
 
 
 # ================================================================ business: manage (packages, offers, SMS, plans, team, settings, sites)
@@ -1259,3 +1292,108 @@ def site_save(sid=None):
         db.session.add(site)
     db.session.commit()
     return jsonify(ok=True, id=site.id)
+
+
+
+# ---------------------------------------------------------------- guests: buy a package in the app
+def _guest_tenants(phone, codes):
+    """The businesses a signed-in customer may buy from: the ones they bought from (or hold codes of)."""
+    if phone:
+        ids = {t for (t,) in db.session.query(Payment.tenant_id).filter(Payment.status == 'paid', or_(Payment.phone == phone, Payment.gift_phone == phone)).distinct()}
+        ids |= {t for (t,) in db.session.query(Outage.tenant_id).join(OutageCredit).filter(OutageCredit.phone == phone).distinct()}
+        return ids
+    return {t for (t,) in db.session.query(Voucher.tenant_id).filter(Voucher.code.in_([str(c)[:32] for c in codes[:20]])).distinct()}
+
+
+def _guest_codes(phone, codes, tenant):
+    if phone:
+        return [v for v, *_ in A._phone_codes(tenant.id, phone, days=90)]
+    return Voucher.query.filter(Voucher.tenant_id == tenant.id, Voucher.code.in_([str(c)[:32] for c in codes[:20]])).all()
+
+
+def _shop_site(tenant, mine, wanted):
+    sites = A.tenant_sites(tenant.id)
+    if wanted and any(x.id == wanted for x in sites):
+        return wanted
+    return next((v.site_id for v in mine if v.site_id), None) or sites[0].id
+
+
+def _who_codes():
+    phone, code = _guest_who()
+    return phone, (code if isinstance(code, list) else [code] if code else [])
+
+
+@bp.route('/api/m/guest/shop/<int:tid>')
+def guest_shop(tid):
+    phone, codes = _who_codes()
+    if tid not in _guest_tenants(phone, codes):
+        abort(404)
+    tenant = db.session.get(Tenant, tid)
+    if tenant is None or A.tenant_blocked(tenant):
+        abort(404)
+    mine = _guest_codes(phone, codes, tenant)
+    site_id = _shop_site(tenant, mine, request.args.get('site_id', type=int))
+    packages = A._guest_packages(tenant, site_id)
+    payer = phone or next((p.phone for p in Payment.query.filter(Payment.voucher_id.in_([v.id for v in mine] or [0]), Payment.status == 'paid')), None)
+    networks = [{**n, 'logo': f"{A.Config.PUBLIC_URL}/static/img/{A.portal_ui.NETWORKS[n['id']]['logo']}",
+                 'prefixes': list(A.portal_ui.NETWORKS[n['id']]['prefixes'])} for n in A.payment_networks(tenant)]
+    hs = A._hotspot_settings(tenant)
+    return jsonify(business={'id': tenant.id, 'name': tenant.name, 'support': hs.get('support')}, site_id=site_id,
+                   sites=[{'id': x.id, 'name': x.name} for x in A.tenant_sites(tenant.id)], packages=packages, networks=networks,
+                   can_buy=A.paylib.is_ready(A._tenant_account(tenant)) and bool(packages), can_gift=A._sms_on(tenant),
+                   phone=payer, reyee=bool(db.session.get(Site, site_id).ruijie_ready))
+
+
+@bp.route('/api/m/guest/buy', methods=['POST'])
+def guest_buy():
+    """Buy a package from the app (the PIN prompt goes to the phone given), for this customer or a friend."""
+    phone, codes = _who_codes()
+    d = request.get_json(silent=True) or {}
+    tid = d.get('business_id')
+    if tid not in _guest_tenants(phone, codes):
+        abort(404)
+    tenant = db.session.get(Tenant, tid)
+    if tenant is None or A.tenant_blocked(tenant):
+        abort(404)
+    ip_key = f'ip:{A._client_ip()}'
+    if A._rate_limited('appbuy', ip_key, 6, 10):
+        return _err(tr('Too many payment requests. Please wait a few minutes.'), 429)
+    mine = _guest_codes(phone, codes, tenant)
+    site_id = _shop_site(tenant, mine, d.get('site_id'))
+    package = A._site_packages(Package.query.filter_by(id=d.get('package_id'), tenant_id=tenant.id, is_active=True, show_on_portal=True),
+                               site_id).first()
+    if package is None:
+        return _err(tr('Choose a package.'), 400)
+    gift = str(d.get('gift_phone') or '') if d.get('gift') else None
+    mac = None
+    if not gift:      # for this customer: the last device that used one of their codes reconnects by itself
+        last = RadAcct.query.filter(RadAcct.username.in_([v.code for v in mine])).order_by(RadAcct.acctstarttime.desc()).first() if mine else None
+        mac = last.callingstationid if last else None
+    A._rate_hit('appbuy', ip_key)
+    payment, error, status = A._start_purchase(tenant, site_id, package, str(d.get('phone') or ''), str(d.get('network') or '')[:16] or None,
+                                               mac=mac, nas='mobile-app', gift_phone=gift)
+    if error:
+        return _err(error, status)
+    return jsonify(reference=payment.reference, amount=_money(payment.charged), currency=payment.currency, phone=payment.phone,
+                   package=payment.package_name, gift_phone=payment.gift_phone or '')
+
+
+@bp.route('/api/m/guest/pay/<reference>')
+def guest_pay(reference):
+    """Is the payment through? Then its code (and, signed in with codes, a token that holds the new one too)."""
+    phone, codes = _who_codes()
+    payment = Payment.query.filter_by(reference=reference[:20], nas_identifier='mobile-app').first()
+    if payment is None or payment.tenant_id not in _guest_tenants(phone, codes):
+        abort(404)
+    payment = A._refresh_payment(payment.reference)
+    out = {'status': payment.status, 'message': payment.message or '', 'gift_phone': payment.gift_phone or '',
+           'package': payment.package_name, 'amount': _money(payment.charged), 'currency': payment.currency}
+    if payment.status == 'paid' and payment.voucher:
+        v = payment.voucher
+        out.update(code=v.code if not payment.gift_phone else None, minutes=v.validity_minutes,
+                   reyee=v.ruijie_state is not None, ready=v.ruijie_state not in ('pending', 'sending', 'catchup'))
+        if not out['ready']:
+            A._ruijie_push_soon()
+        if not phone and not payment.gift_phone and v.code not in codes:
+            out['token'] = A._tokens('mobile-guest').dumps({'v': (codes + [v.code])[-20:]})
+    return jsonify(out)

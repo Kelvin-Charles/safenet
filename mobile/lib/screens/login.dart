@@ -329,7 +329,7 @@ class _CustomerFormState extends State<_CustomerForm> {
   final phone = TextEditingController();
   final otp = TextEditingController();
   final code = TextEditingController();
-  bool sent = false, busy = false;
+  bool sent = false, busy = false, already = false;
   String? error;
   int wait = 0;
   Timer? timer;
@@ -360,17 +360,22 @@ class _CustomerFormState extends State<_CustomerForm> {
     }
   }
 
-  Future<void> sendCode() async {
+  /// Continue with the phone number: signed in at once if this phone proved the number before; else one SMS code
+  /// (asking again while it still works sends no new SMS).
+  Future<void> sendCode({bool resend = false}) async {
     if (phone.text.trim().length < 9) {
       setState(() => error = S.t('Enter your phone number, e.g. 0712 345 678.'));
       return;
     }
     await run(() async {
-      await context.read<Session>().sendCode(phone.text.trim());
+      final s = context.read<Session>();
+      if (!resend && await s.signInRemembered(phone.text.trim())) return;
+      final r = await s.sendCode(phone.text.trim());
       if (!mounted) return;
       setState(() {
         sent = true;
-        wait = 60;
+        already = r['already_sent'] == true;
+        wait = (r['seconds_left'] as num?)?.toInt() ?? 600;
       });
       timer?.cancel();
       timer = Timer.periodic(const Duration(seconds: 1), (t) {
@@ -459,18 +464,21 @@ class _CustomerFormState extends State<_CustomerForm> {
           const SizedBox(height: 4),
           Row(children: [
             Expanded(
-              child: Text(S.t('We sent a code to {phone}.', {'phone': phone.text.trim()}),
+              child: Text(
+                  already
+                      ? S.t('We already sent a code to {phone}. Use that one; it works for {m} more minutes.', {'phone': phone.text.trim(), 'm': (wait / 60).ceil()})
+                      : S.t('We sent a code to {phone}.', {'phone': phone.text.trim()}),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(color: c.outline)),
             ),
             TextButton(
-              onPressed: wait > 0 || busy ? null : sendCode,
-              child: Text(wait > 0 ? S.t('Resend in {s}s', {'s': wait}) : S.t('Resend')),
+              onPressed: wait > 0 || busy ? null : () => sendCode(resend: true),
+              child: Text(wait > 0 ? S.t('New code in {t}', {'t': '${wait ~/ 60}:${(wait % 60).toString().padLeft(2, '0')}'}) : S.t('Send a new code')),
             ),
           ]),
         ] else
           Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Text(S.t('We will text you a 6-digit code. Use the number you pay for Wi-Fi with.'),
+            child: Text(S.t('The first time on this phone we text you a 6-digit code. After that, just your number.'),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(color: c.outline)),
           ),
         _ErrorText(error),
@@ -478,8 +486,8 @@ class _CustomerFormState extends State<_CustomerForm> {
         _busyButton(
           busy: busy,
           onPressed: sent ? verify : sendCode,
-          label: sent ? S.t('Sign in') : S.t('Send code'),
-          icon: sent ? Icons.arrow_forward_rounded : Icons.sms_outlined,
+          label: sent ? S.t('Sign in') : S.t('Continue'),
+          icon: Icons.arrow_forward_rounded,
         ),
       ] else ...[
         TextField(

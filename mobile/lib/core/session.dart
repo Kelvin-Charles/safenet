@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -70,12 +72,45 @@ class Session extends ChangeNotifier {
 
   Future<Map<String, dynamic>> sendCode(String phone) => api.post('/api/m/guest/send-code', {'phone': phone});
 
+  /// Phones that proved their number with an SMS code before: signing in again needs no new SMS.
+  Future<List<String>> _devices() async {
+    try {
+      return List<String>.from(jsonDecode(await _store.read(key: 'devices') ?? '[]') as List);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Sign in with a number this phone already proved. False if it needs an SMS code (the first time).
+  Future<bool> signInRemembered(String phone) async {
+    final devices = await _devices();
+    if (devices.isEmpty) return false;
+    try {
+      await _guest({'phone': phone, 'devices': devices});
+      return true;
+    } on ApiError catch (e) {
+      if (e.data['need_code'] == true) return false;
+      rethrow;
+    }
+  }
+
   Future<void> signInPhone(String phone, String otp) => _guest({'phone': phone, 'otp': otp});
+
+  /// A new sign-in token (signed in with codes: a code bought in the app joins it).
+  Future<void> replaceToken(String token) async {
+    api.token = token;
+    await _store.write(key: 'token', value: token);
+  }
 
   Future<void> signInVoucher(String code) => _guest({'code': code});
 
   Future<void> _guest(Map<String, dynamic> body) async {
     final r = await api.post('/api/m/guest/login', body);
+    final device = r['device'] as String?;
+    if (device != null) {
+      final devices = (await _devices()).where((d) => d != device).toList()..insert(0, device);
+      await _store.write(key: 'devices', value: jsonEncode(devices.take(5).toList()));
+    }
     api.token = r['token'] as String;
     guestPhone = r['phone'] as String?;
     kind = Kind.guest;

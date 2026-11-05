@@ -171,9 +171,10 @@ assert codes['50000002']['state'] == 'expired'
 assert home['codes'][0]['state'] == 'active'
 gift = next(h for h in home['history'] if h['code'] == '50000003')
 assert gift['from'] == '255700000009'
-for _ in range(3):
-    g.post('/api/m/guest/send-code', json={'phone': '0700000001'})
-assert g.post('/api/m/guest/send-code', json={'phone': '0700000001'}).status_code == 429       # 3 an hour per number
+n = len(texts)
+answers = [g.post('/api/m/guest/send-code', json={'phone': '0700000001'}) for _ in range(3)]
+assert [J(a).get('already_sent') for a in answers] == [False, True, True], [a.text for a in answers]
+assert len(texts) == n + 1                                               # the used code is gone: one new SMS, then reused
 for _ in range(12):
     g.post('/api/m/guest/login', json={'code': '1'})
 assert g.post('/api/m/guest/login', json={'code': '50000001'}).status_code == 429

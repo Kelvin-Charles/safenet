@@ -7,6 +7,7 @@ import '../../core/session.dart';
 import '../../core/strings.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
+import 'buy.dart';
 
 /// A Wi-Fi customer's own view: codes with time and data left, where they connect, what they spent.
 class GuestHome extends StatelessWidget {
@@ -47,6 +48,39 @@ class GuestHome extends StatelessWidget {
                 Card(child: EmptyView(icon: Icons.wifi_off_rounded, text: S.t('No codes yet.')))
               else
                 for (final c in active) _CodeCard(c: c as Map),
+              if ((d['businesses'] as List).isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.shopping_bag_rounded),
+                    label: Text(S.t('Buy a package')),
+                    onPressed: () async {
+                      final list = (d['businesses'] as List).cast<Map>();
+                      final b = list.length == 1
+                          ? list.first
+                          : await showModalBottomSheet<Map>(
+                              context: context,
+                              builder: (c) => SafeArea(
+                                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                                  Text(S.t('Where?'), style: Theme.of(c).textTheme.titleMedium),
+                                  const SizedBox(height: 8),
+                                  for (final x in list)
+                                    ListTile(
+                                      leading: const CircleAvatar(backgroundColor: kNavy, child: Icon(Icons.wifi_rounded, color: Colors.white, size: 20)),
+                                      title: Text('${x['name']}'),
+                                      subtitle: (x['sites'] as List).isNotEmpty ? Text((x['sites'] as List).join(' · ')) : null,
+                                      onTap: () => Navigator.pop(c, x),
+                                    ),
+                                ]),
+                              ),
+                            );
+                      if (b == null || !context.mounted) return;
+                      final bought = await Navigator.push<bool>(
+                          context, MaterialPageRoute(builder: (_) => BuyScreen(businessId: b['id'] as int, name: b['name'] as String)));
+                      if (bought == true) reload();
+                    },
+                  ),
+                ),
               const SizedBox(height: 4),
               Row(children: [
                 Expanded(child: StatTile(icon: Icons.payments_outlined, label: S.t('Total spent'), value: money(d['spent'] as num, cur), color: kGood)),
@@ -84,7 +118,11 @@ class GuestHome extends StatelessWidget {
                           Expanded(
                             child: FilledButton.icon(
                               style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
-                              onPressed: () => launchUrl(Uri.parse(b['buy_url'] as String), mode: LaunchMode.externalApplication),
+                              onPressed: () async {
+                                final bought = await Navigator.push<bool>(context,
+                                    MaterialPageRoute(builder: (_) => BuyScreen(businessId: b['id'] as int, name: b['name'] as String)));
+                                if (bought == true) reload();
+                              },
                               icon: const Icon(Icons.shopping_cart_outlined, size: 18),
                               label: Text(S.t('Buy more')),
                             ),
