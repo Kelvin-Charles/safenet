@@ -11,6 +11,7 @@ import '../../core/strings.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
 import 'shell.dart';
+import '../../ui/kit.dart';
 
 class VouchersScreen extends StatefulWidget {
   const VouchersScreen({super.key});
@@ -71,7 +72,7 @@ class _VouchersScreenState extends State<VouchersScreen> {
   }
 
   Future<void> make() async {
-    final made = await showModalBottomSheet<List>(context: context, isScrollControlled: true, builder: (_) => const _MakeSheet());
+    final made = await showSnSheet<List>(context: context, isScrollControlled: true, builder: (_) => const _MakeSheet());
     if (made != null && mounted) {
       load(reset: true);
       _showMade(context, made);
@@ -83,14 +84,14 @@ class _VouchersScreenState extends State<VouchersScreen> {
     final s = context.watch<Session>();
     final filters = [('', S.t('All')), ('unused', S.t('Unused')), ('active', S.t('Active')), ('expired', S.t('Expired')), ('disabled', S.t('Disabled'))];
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('Vouchers')), actions: const [SiteButton()]),
+      appBar: SnAppBar(title: Text(S.t('Vouchers')), actions: const [SiteButton()]),
       floatingActionButton: s.can('change')
-          ? FloatingActionButton.extended(onPressed: make, icon: const Icon(Icons.add_rounded), label: Text(S.t('Make vouchers')))
+          ? SnFab(onPressed: make, icon: const Icon(Icons.add_rounded), label: Text(S.t('Make vouchers')))
           : null,
       body: Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-          child: TextField(
+          child: SnField(
             keyboardType: TextInputType.number,
             decoration: InputDecoration(hintText: S.t('Search code'), prefixIcon: const Icon(Icons.search_rounded), isDense: true),
             onChanged: (v) {
@@ -108,7 +109,7 @@ class _VouchersScreenState extends State<VouchersScreen> {
             for (final f in filters)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: ChoiceChip(
+                child: SnChip(
                   label: Text(stats != null && stats![f.$1] != null ? '${f.$2} · ${stats![f.$1]}' : f.$2),
                   selected: state == f.$1,
                   onSelected: (_) {
@@ -131,7 +132,7 @@ class _VouchersScreenState extends State<VouchersScreen> {
                           padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
                           itemCount: items.length + (loading ? 1 : 0),
                           itemBuilder: (c, i) => i >= items.length
-                              ? const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator()))
+                              ? const Padding(padding: EdgeInsets.all(16), child: Center(child: SnSpinner()))
                               : _VoucherTile(
                                   v: items[i],
                                   currency: s.currency,
@@ -146,7 +147,7 @@ class _VouchersScreenState extends State<VouchersScreen> {
 
   Future<void> _details(Map<String, dynamic> v) async {
     final s = context.read<Session>();
-    final changed = await showModalBottomSheet<String>(
+    final changed = await showSnSheet<String>(
       context: context,
       builder: (c) => SafeArea(
         child: Padding(
@@ -179,7 +180,7 @@ class _VouchersScreenState extends State<VouchersScreen> {
             const SizedBox(height: 16),
             if (v['code'] != null) Row(children: [
               Expanded(
-                child: OutlinedButton.icon(
+                child: SnButton.icon(variant: SnVariant.secondary,
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: v['code'] as String));
                     toast(c, S.t('Copied'));
@@ -190,7 +191,7 @@ class _VouchersScreenState extends State<VouchersScreen> {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: OutlinedButton.icon(
+                child: SnButton.icon(variant: SnVariant.secondary,
                   onPressed: () => SharePlus.instance.share(ShareParams(text: _shareText([v]))),
                   icon: const Icon(Icons.share_rounded),
                   label: Text(S.t('Share')),
@@ -201,15 +202,14 @@ class _VouchersScreenState extends State<VouchersScreen> {
               const SizedBox(height: 8),
               Row(children: [
                 Expanded(
-                  child: TextButton.icon(
+                  child: SnButton.icon(variant: SnVariant.ghost, size: SnSize.small,
                     onPressed: () => Navigator.pop(c, 'toggle'),
                     icon: Icon(v['state'] == 'disabled' ? Icons.play_circle_outline : Icons.block_rounded),
                     label: Text(v['state'] == 'disabled' ? S.t('Enable') : S.t('Disable')),
                   ),
                 ),
                 Expanded(
-                  child: TextButton.icon(
-                    style: TextButton.styleFrom(foregroundColor: kBad),
+                  child: SnButton.icon(variant: SnVariant.danger, size: SnSize.small,
                     onPressed: () => Navigator.pop(c, 'delete'),
                     icon: const Icon(Icons.delete_outline_rounded),
                     label: Text(S.t('Delete')),
@@ -247,7 +247,7 @@ String _shareText(List vs) {
 }
 
 void _showMade(BuildContext context, List made) {
-  showModalBottomSheet(
+  showSnSheet(
     context: context,
     builder: (c) => SafeArea(
       child: Padding(
@@ -262,7 +262,7 @@ void _showMade(BuildContext context, List made) {
             child: SingleChildScrollView(
               child: Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [
                 for (final v in made.where((v) => v['code'] != null))
-                  Chip(label: Text(v['code'] as String, style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w700, letterSpacing: 1))),
+                  SnTag(label: Text(v['code'] as String, style: const TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w800, letterSpacing: 1.5))),
               ]),
             ),
           ),
@@ -273,7 +273,7 @@ void _showMade(BuildContext context, List made) {
                   textAlign: TextAlign.center, style: const TextStyle(color: kWarn)),
             ),
           const SizedBox(height: 16),
-          if (made.any((v) => v['code'] != null)) FilledButton.icon(
+          if (made.any((v) => v['code'] != null)) SnButton.icon(
             onPressed: () => SharePlus.instance.share(ShareParams(text: _shareText(made))),
             icon: const Icon(Icons.share_rounded),
             label: Text(S.t('Share codes')),
@@ -297,7 +297,7 @@ class _VoucherTile extends StatelessWidget {
     final left = st == 'active' && expires != null ? expires.difference(DateTime.now()) : null;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Card(
+      child: SnCard(
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
@@ -400,7 +400,7 @@ class _MakeSheetState extends State<_MakeSheet> {
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SafeArea(
         child: o == null
-            ? const SizedBox(height: 240, child: Center(child: CircularProgressIndicator()))
+            ? const SizedBox(height: 240, child: Center(child: SnSpinner()))
             : SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -410,19 +410,19 @@ class _MakeSheetState extends State<_MakeSheet> {
                   const SizedBox(height: 8),
                   Wrap(spacing: 8, runSpacing: 8, children: [
                     for (final p in o['packages'] as List)
-                      ChoiceChip(
+                      SnChip(
                         label: Text('${p['name']} · ${compactMoney(p['price'] as num)}'),
                         selected: packageId == p['id'],
                         onSelected: (_) => setState(() => packageId = p['id'] as int),
                       ),
-                    ChoiceChip(label: Text(S.t('Custom')), selected: packageId == null, onSelected: (_) => setState(() => packageId = null)),
+                    SnChip(label: Text(S.t('Custom')), selected: packageId == null, onSelected: (_) => setState(() => packageId = null)),
                   ]),
                   if (packageId == null) ...[
                     const SizedBox(height: 16),
                     Row(children: [
                       Expanded(child: _Stepper(label: S.t('Lasts'), value: lasts, min: 1, max: 365, onChanged: (v) => setState(() => lasts = v))),
                       const SizedBox(width: 8),
-                      SegmentedButton<String>(
+                      SnSegmented<String>(
                         segments: [ButtonSegment(value: 'hours', label: Text(S.t('hours'))), ButtonSegment(value: 'days', label: Text(S.t('days')))],
                         selected: {unit},
                         showSelectedIcon: false,
@@ -435,23 +435,23 @@ class _MakeSheetState extends State<_MakeSheet> {
                   const SizedBox(height: 16),
                   _Stepper(label: S.t('How many'), value: count, min: 1, max: 500, step: count >= 20 ? 10 : 1, onChanged: (v) => setState(() => count = v)),
                   const SizedBox(height: 12),
-                  SwitchListTile(contentPadding: EdgeInsets.zero, title: Text(S.t('Free (no price)')), value: free, onChanged: (v) => setState(() => free = v)),
+                  SnSwitchTile(contentPadding: EdgeInsets.zero, title: Text(S.t('Free (no price)')), value: free, onChanged: (v) => setState(() => free = v)),
                   if (!free)
-                    TextField(
+                    SnField(
                       controller: price,
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(labelText: '${S.t('Price')} (${s.currency})', hintText: packageId != null ? S.t('Package') : null),
                     ),
                   const SizedBox(height: 12),
-                  TextField(controller: batch, decoration: InputDecoration(labelText: S.t('Batch name (optional)'))),
+                  SnField(controller: batch, decoration: InputDecoration(labelText: S.t('Batch name (optional)'))),
                   if ((o['sites'] as List).length > 1) ...[
                     const SizedBox(height: 16),
                     Text(S.t('Works at'), style: Theme.of(context).textTheme.labelLarge),
                     const SizedBox(height: 8),
                     Wrap(spacing: 8, runSpacing: 8, children: [
-                      FilterChip(label: Text(S.t('All sites')), selected: sites.isEmpty, onSelected: (_) => setState(sites.clear)),
+                      SnChip(label: Text(S.t('All sites')), selected: sites.isEmpty, onSelected: (_) => setState(sites.clear)),
                       for (final site in o['sites'] as List)
-                        FilterChip(
+                        SnChip(
                           label: Text(site['name'] as String),
                           selected: sites.contains(site['id']),
                           onSelected: (on) => setState(() => on ? sites.add(site['id'] as int) : sites.remove(site['id'])),
@@ -459,9 +459,9 @@ class _MakeSheetState extends State<_MakeSheet> {
                     ]),
                   ],
                   const SizedBox(height: 20),
-                  FilledButton(
+                  SnButton(
                     onPressed: busy ? null : submit,
-                    child: busy ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)) : Text('${S.t('Make')} $count'),
+                    child: busy ? const SizedBox(width: 22, height: 22, child: SnSpinner(strokeWidth: 2.5)) : Text('${S.t('Make')} $count'),
                   ),
                 ]),
               ),
@@ -486,9 +486,9 @@ class _Stepper extends StatelessWidget {
         ),
         child: Row(children: [
           Expanded(child: Text(label)),
-          IconButton(onPressed: value > min ? () => onChanged((value - step).clamp(min, max)) : null, icon: const Icon(Icons.remove_circle_outline)),
+          SnIconButton(onPressed: value > min ? () => onChanged((value - step).clamp(min, max)) : null, icon: const Icon(Icons.remove_circle_outline)),
           SizedBox(width: 40, child: Text('$value', textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16))),
-          IconButton(onPressed: value < max ? () => onChanged((value + step).clamp(min, max)) : null, icon: const Icon(Icons.add_circle_outline)),
+          SnIconButton(onPressed: value < max ? () => onChanged((value + step).clamp(min, max)) : null, icon: const Icon(Icons.add_circle_outline)),
         ]),
       );
 }

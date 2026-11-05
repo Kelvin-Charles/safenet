@@ -10,6 +10,7 @@ import '../../ui/widgets.dart';
 import 'buy.dart';
 import 'here_banner.dart';
 import 'history.dart';
+import '../../ui/kit.dart';
 
 /// A Wi-Fi customer's own view: codes with time and data left, where they connect, what they spent.
 class GuestHome extends StatelessWidget {
@@ -19,8 +20,8 @@ class GuestHome extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watch<Session>();
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('My Wi-Fi')), actions: [
-        PopupMenuButton<String>(
+      appBar: SnAppBar(title: Text(S.t('My Wi-Fi')), actions: [
+        SnMenuButton<String>(
           onSelected: (v) async {
             if (v == 'lang') {
               s.setLanguage(S.lang == 'sw' ? 'en' : 'sw');
@@ -48,27 +49,27 @@ class GuestHome extends StatelessWidget {
               const SizedBox(height: 10),
               const HereBanner(),
               if (active.isEmpty)
-                Card(child: EmptyView(icon: Icons.wifi_off_rounded, text: S.t('No codes yet.')))
+                SnCard(child: EmptyView(icon: Icons.wifi_off_rounded, text: S.t('No codes yet.')))
               else
                 for (final c in active) _CodeCard(c: c as Map),
               if ((d['businesses'] as List).isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 14),
-                  child: FilledButton.icon(
+                  child: SnButton.icon(
                     icon: const Icon(Icons.shopping_bag_rounded),
                     label: Text(S.t('Buy a package')),
                     onPressed: () async {
                       final list = (d['businesses'] as List).cast<Map>();
                       final b = list.length == 1
                           ? list.first
-                          : await showModalBottomSheet<Map>(
+                          : await showSnSheet<Map>(
                               context: context,
                               builder: (c) => SafeArea(
                                 child: Column(mainAxisSize: MainAxisSize.min, children: [
-                                  Text(S.t('Where?'), style: Theme.of(c).textTheme.titleMedium),
+                                  Text(S.t('Where?'),),
                                   const SizedBox(height: 8),
                                   for (final x in list)
-                                    ListTile(
+                                    SnTile(
                                       leading: const CircleAvatar(backgroundColor: kNavy, child: Icon(Icons.wifi_rounded, color: Colors.white, size: 20)),
                                       title: Text('${x['name']}'),
                                       subtitle: (x['sites'] as List).isNotEmpty ? Text((x['sites'] as List).join(' · ')) : null,
@@ -94,7 +95,7 @@ class GuestHome extends StatelessWidget {
               for (final b in d['businesses'] as List)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Card(
+                  child: SnCard(
                     child: Padding(
                       padding: const EdgeInsets.all(14),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -119,8 +120,7 @@ class GuestHome extends StatelessWidget {
                         const SizedBox(height: 10),
                         Row(children: [
                           Expanded(
-                            child: FilledButton.icon(
-                              style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+                            child: SnButton.icon(
                               onPressed: () async {
                                 final bought = await Navigator.push<bool>(context,
                                     MaterialPageRoute(builder: (_) => BuyScreen(businessId: b['id'] as int, name: b['name'] as String)));
@@ -132,8 +132,7 @@ class GuestHome extends StatelessWidget {
                           ),
                           if (b['support'] != null) ...[
                             const SizedBox(width: 8),
-                            OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+                            SnButton.icon(variant: SnVariant.secondary,
                               onPressed: () => launchUrl(Uri.parse('tel:${b['support']}')),
                               icon: const Icon(Icons.support_agent_rounded, size: 18),
                               label: Text(S.t('Support')),
@@ -158,13 +157,13 @@ class GuestHome extends StatelessWidget {
               ],
               SectionTitle(S.t('History'),
                   trailing: (d['history'] as List).length > 5
-                      ? TextButton(
+                      ? SnButton(variant: SnVariant.ghost, size: SnSize.small,
                           onPressed: () => Navigator.push(context, MaterialPageRoute(
                               builder: (_) => HistoryScreen(history: d['history'] as List, places: d['places'] as List? ?? []))),
                           child: Text(S.t('See all ({n})', {'n': (d['history'] as List).length})),
                         )
                       : null),
-              Card(
+              SnCard(
                 child: (d['history'] as List).isEmpty
                     ? EmptyView(icon: Icons.receipt_long_outlined, text: S.t('None yet.'))
                     : Column(children: [for (final h in (d['history'] as List).take(5)) PurchaseTile(h: h as Map)]),
@@ -215,13 +214,7 @@ class _CodeCard extends StatelessWidget {
             height: 92,
             child: Stack(alignment: Alignment.center, children: [
               SizedBox.expand(
-                child: CircularProgressIndicator(
-                  value: frac.toDouble(),
-                  strokeWidth: 8,
-                  strokeCap: StrokeCap.round,
-                  backgroundColor: Colors.white12,
-                  color: frac < 0.15 ? kWarn : const Color(0xFF6EE7A8),
-                ),
+                child: SnRing(value: frac.toDouble(), strokeWidth: 8, track: Colors.white12, color: frac < 0.15 ? kWarn : const Color(0xFF6EE7A8)),
               ),
               Padding(
                 padding: const EdgeInsets.all(12),

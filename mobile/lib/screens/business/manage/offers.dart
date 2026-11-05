@@ -9,6 +9,7 @@ import '../../../ui/form_bits.dart';
 import '../../../ui/theme.dart';
 import '../../../ui/widgets.dart';
 import 'sms.dart';
+import '../../../ui/kit.dart';
 
 class OffersScreen extends StatefulWidget {
   const OffersScreen({super.key});
@@ -32,8 +33,8 @@ class _OffersScreenState extends State<OffersScreen> {
       reloadKey: key,
       load: () => s.api.get('/api/m/offers'),
       builder: (context, d, reload) => Scaffold(
-        appBar: AppBar(title: Text(S.t('Offers'))),
-        floatingActionButton: FloatingActionButton.extended(onPressed: () => open(d), icon: const Icon(Icons.add_rounded), label: Text(S.t('New offer'))),
+        appBar: SnAppBar(title: Text(S.t('Offers'))),
+        floatingActionButton: SnFab(onPressed: () => open(d), icon: const Icon(Icons.add_rounded), label: Text(S.t('New offer'))),
         body: RefreshIndicator(
           onRefresh: reload,
           child: (d['items'] as List).isEmpty
@@ -42,7 +43,7 @@ class _OffersScreenState extends State<OffersScreen> {
                   for (final o in d['items'] as List)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
-                      child: Card(
+                      child: SnCard(
                         clipBehavior: Clip.antiAlias,
                         child: InkWell(
                           onTap: () => open(d, o as Map),
@@ -56,7 +57,7 @@ class _OffersScreenState extends State<OffersScreen> {
                                 const Icon(Icons.local_offer_rounded, color: kGold, size: 20),
                                 const SizedBox(width: 8),
                                 Expanded(child: Text('${o['name']}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
-                                Switch(
+                                SnSwitch(
                                   value: o['active'] as bool,
                                   onChanged: (_) async {
                                     if (await attempt(context, () => s.api.post('/api/m/offers/${o['id']}/toggle')) != null) reload();
@@ -76,7 +77,7 @@ class _OffersScreenState extends State<OffersScreen> {
                                 if (o['ends'] != null) Text(' · ${S.t('Ends')} ${_fmt(o['ends'] as String)}', style: Theme.of(context).textTheme.bodySmall),
                                 const Spacer(),
                                 if (o['live'] == true && s.can('sms'))
-                                  TextButton.icon(
+                                  SnButton.icon(variant: SnVariant.ghost, size: SnSize.small,
                                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SmsScreen(offerId: o['id'] as int))),
                                     icon: const Icon(Icons.sms_outlined, size: 18),
                                     label: Text(S.t('Tell customers')),
@@ -151,7 +152,7 @@ class _OfferFormState extends State<OfferForm> {
     final pk = (d['packages'] as List).cast<Map>().where((p) => p['id'] == packageId).firstOrNull;
     final cur = d['currency'] as String;
     return Scaffold(
-      appBar: AppBar(title: Text(o == null ? S.t('New offer') : S.t('Edit offer'))),
+      appBar: SnAppBar(title: Text(o == null ? S.t('New offer') : S.t('Edit offer'))),
       bottomNavigationBar: SaveBar(busy: busy, onSave: save, onDelete: o != null ? delete : null),
       body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
         // what the guest sees
@@ -185,7 +186,7 @@ class _OfferFormState extends State<OfferForm> {
           ]),
         ),
         FieldGroup(title: S.t('Offer'), children: [
-          TextField(
+          SnField(
             controller: name,
             onChanged: (_) => setState(() {}),
             textCapitalization: TextCapitalization.sentences,
@@ -204,26 +205,29 @@ class _OfferFormState extends State<OfferForm> {
             const SizedBox(width: 12),
             Expanded(child: Text('${S.t('Discount')}: $discount%')),
           ]),
-          Slider(value: discount.toDouble(), max: 90, divisions: 18, label: '$discount%', onChanged: (v) => setState(() => discount = v.round())),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            for (final p in const [0, 5, 10, 15, 20, 25, 30, 40, 50])
+              SnChip(label: Text(p == 0 ? S.t('None') : '-$p%'), selected: discount == p, onSelected: (_) => setState(() => discount = p)),
+          ]),
         ]),
         FieldGroup(title: S.t('When'), children: [
-          ListTile(
+          SnTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.play_circle_outline),
             title: Text(S.t('Starts')),
             subtitle: Text(starts == null ? S.t('Now') : DateFormat('d MMM yyyy, HH:mm').format(starts!)),
-            trailing: starts != null ? IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => starts = null)) : null,
+            trailing: starts != null ? SnIconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => starts = null)) : null,
             onTap: () async {
               final v = await pick(starts);
               setState(() => starts = v);
             },
           ),
-          ListTile(
+          SnTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.stop_circle_outlined),
             title: Text(S.t('Ends')),
             subtitle: Text(ends == null ? S.t('Until I switch it off') : DateFormat('d MMM yyyy, HH:mm').format(ends!)),
-            trailing: ends != null ? IconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => ends = null)) : null,
+            trailing: ends != null ? SnIconButton(icon: const Icon(Icons.close), onPressed: () => setState(() => ends = null)) : null,
             onTap: () async {
               final v = await pick(ends);
               setState(() => ends = v);

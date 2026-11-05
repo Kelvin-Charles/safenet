@@ -5,6 +5,7 @@ import '../../core/format.dart';
 import '../../core/session.dart';
 import '../../core/strings.dart';
 import 'buy.dart';
+import '../../ui/kit.dart';
 
 /// "You're on <site> Wi-Fi": shown when the phone is on any SafeNet business's Wi-Fi, with Buy right there.
 class HereBanner extends StatelessWidget {
@@ -50,13 +51,9 @@ class HereBanner extends StatelessWidget {
                   ]),
                 ),
                 if (h['can_buy'] == true)
-                  FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: const Color(0xFF0B7A3B),
-                      minimumSize: const Size(0, 40),
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                    ),
+                  SnButton(
+                    variant: SnVariant.light,
+                    size: SnSize.small,
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -67,7 +64,7 @@ class HereBanner extends StatelessWidget {
                         ),
                       ),
                     ),
-                    child: Text(S.t('Buy'), style: const TextStyle(fontWeight: FontWeight.w800)),
+                    child: Text(S.t('Buy'),),
                   ),
               ]),
             ),

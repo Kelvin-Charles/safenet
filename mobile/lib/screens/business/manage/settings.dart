@@ -6,6 +6,7 @@ import '../../../core/strings.dart';
 import '../../../ui/form_bits.dart';
 import '../../../ui/widgets.dart';
 import '../web_page.dart';
+import '../../../ui/kit.dart';
 
 /// Business settings: names, support phone, guest terms, hotspot sharing, and the owner's alerts.
 class SettingsScreen extends StatefulWidget {
@@ -67,16 +68,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final x = d;
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('Settings'))),
+      appBar: SnAppBar(title: Text(S.t('Settings'))),
       bottomNavigationBar: x == null ? null : SaveBar(busy: busy, onSave: save),
       body: x == null
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: SnSpinner())
           : ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
               FieldGroup(title: S.t('Business'), children: [
-                TextField(controller: name, decoration: InputDecoration(labelText: S.t('Business name'), prefixIcon: const Icon(Icons.storefront_outlined))),
-                TextField(controller: hotspot, decoration: InputDecoration(labelText: S.t('Wi-Fi name shown to guests'), helperText: S.t('Empty: the business name.'), prefixIcon: const Icon(Icons.wifi_rounded))),
-                TextField(controller: support, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: S.t('Support phone / WhatsApp'), prefixIcon: const Icon(Icons.support_agent_rounded))),
-                ListTile(
+                SnField(controller: name, decoration: InputDecoration(labelText: S.t('Business name'), prefixIcon: const Icon(Icons.storefront_outlined))),
+                SnField(controller: hotspot, decoration: InputDecoration(labelText: S.t('Wi-Fi name shown to guests'), helperText: S.t('Empty: the business name.'), prefixIcon: const Icon(Icons.wifi_rounded))),
+                SnField(controller: support, keyboardType: TextInputType.phone, decoration: InputDecoration(labelText: S.t('Support phone / WhatsApp'), prefixIcon: const Icon(Icons.support_agent_rounded))),
+                SnTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.phone_outlined),
                   title: Text(S.t('Business phone')),
@@ -88,11 +89,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               FieldGroup(title: S.t('Guests'), children: [
                 SwitchRow(title: S.t('Block hotspot sharing'), subtitle: S.t("Guests can't share their internet through their own phone's hotspot."),
                     value: tether, onChanged: (v) => setState(() => tether = v)),
-                TextField(controller: terms, maxLines: 4, minLines: 2, decoration: InputDecoration(labelText: S.t('Terms of use for guests'), alignLabelWithHint: true)),
+                SnField(controller: terms, maxLines: 4, minLines: 2, decoration: InputDecoration(labelText: S.t('Terms of use for guests'), alignLabelWithHint: true)),
               ]),
               if (x['owner'] == true)
                 FieldGroup(title: S.t('Alerts to you'), children: [
-                  TextField(controller: alertPhone, keyboardType: TextInputType.phone,
+                  SnField(controller: alertPhone, keyboardType: TextInputType.phone,
                       decoration: InputDecoration(labelText: S.t('Phone for alerts'), helperText: S.t('Empty: the business phone.'), prefixIcon: const Icon(Icons.notifications_active_outlined))),
                   SwitchRow(title: S.t('SMS for every sale'), subtitle: S.t('TZS {p} per SMS, from your balance.', {'p': x['sms_price']}), value: saleSms, onChanged: (v) => setState(() => saleSms = v)),
                   SwitchRow(title: S.t('Daily summary by SMS'), value: dailySms, onChanged: (v) => setState(() => dailySms = v)),
@@ -104,7 +105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   (Icons.card_giftcard_rounded, S.t('Free trial for guests'), '/settings/free-trial'),
                   (Icons.palette_outlined, S.t('Login page design'), '/portal'),
                 ])
-                  ListTile(
+                  SnTile(
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(e.$1),
                     title: Text(e.$2),

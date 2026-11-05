@@ -9,6 +9,7 @@ import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
 import 'more.dart';
 import 'shell.dart';
+import '../../ui/kit.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key, required this.onTab});
@@ -18,7 +19,7 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watch<Session>();
     return Scaffold(
-      appBar: AppBar(
+      appBar: SnAppBar(
         title: Text((s.me?['tenant']?['name'] as String?) ?? 'SafeNet'),
         actions: const [SiteButton()],
       ),
@@ -36,7 +37,7 @@ class HomeScreen extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               mainAxisSpacing: 12,
               crossAxisSpacing: 12,
-              childAspectRatio: 1.45,
+              childAspectRatio: 1.32,
               children: [
                 StatTile(icon: Icons.sensors_rounded, label: S.t('Online now'), value: '${d['online']}', color: kGood, onTap: () => onTab(1)),
                 StatTile(icon: Icons.swap_vert_rounded, label: S.t('Data today'),
@@ -50,9 +51,9 @@ class HomeScreen extends StatelessWidget {
             if ((d['pending_payments'] as int? ?? 0) > 0)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
-                child: Card(
+                child: SnCard(
                   color: kWarn.withValues(alpha: 0.12),
-                  child: ListTile(
+                  child: SnTile(
                     leading: const Icon(Icons.hourglass_top_rounded, color: kWarn),
                     title: Text(S.t('{n} payments still pending', {'n': d['pending_payments']})),
                     trailing: const Icon(Icons.chevron_right),
@@ -61,13 +62,13 @@ class HomeScreen extends StatelessWidget {
                 ),
               ),
             SectionTitle(S.t('Last 7 days'), trailing: Text(money(_sum(d['week']), s.currency), style: const TextStyle(fontWeight: FontWeight.w600))),
-            Card(child: Padding(padding: const EdgeInsets.fromLTRB(8, 20, 16, 8), child: SizedBox(height: 180, child: _WeekChart(week: d['week'] as List)))),
+            SnCard(child: Padding(padding: const EdgeInsets.fromLTRB(8, 20, 16, 8), child: SizedBox(height: 180, child: _WeekChart(week: d['week'] as List)))),
             if ((d['sites'] as List).length > 1) ...[
               SectionTitle(S.t('Sites this month')),
-              Card(
+              SnCard(
                 child: Column(children: [
                   for (final site in d['sites'] as List)
-                    ListTile(
+                    SnTile(
                       dense: true,
                       leading: const Icon(Icons.place_outlined),
                       title: Text(site['name'] as String),
@@ -78,15 +79,15 @@ class HomeScreen extends StatelessWidget {
               ),
             ],
             SectionTitle(S.t('Recent sales'),
-                trailing: TextButton(
+                trailing: SnButton(variant: SnVariant.ghost, size: SnSize.small,
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PaymentsScreen())),
                     child: Text(S.t('Payments')))),
-            Card(
+            SnCard(
               child: (d['recent'] as List).isEmpty
                   ? EmptyView(icon: Icons.receipt_long_outlined, text: S.t('No sales yet.'))
                   : Column(children: [
                       for (final p in d['recent'] as List)
-                        ListTile(
+                        SnTile(
                           leading: CircleAvatar(backgroundColor: kGood.withValues(alpha: 0.12), child: const Icon(Icons.south_west_rounded, color: kGood, size: 20)),
                           title: Text('${p['package']}', maxLines: 1, overflow: TextOverflow.ellipsis),
                           subtitle: Text('${localPhone(p['phone'] as String?)} · ${ago(p['at'] as String?)}${p['site'] != null ? ' · ${p['site']}' : ''}',

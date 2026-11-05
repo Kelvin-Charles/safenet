@@ -7,6 +7,7 @@ import '../../../core/strings.dart';
 import '../../../ui/form_bits.dart';
 import '../../../ui/theme.dart';
 import '../../../ui/widgets.dart';
+import '../../../ui/kit.dart';
 
 class PackagesScreen extends StatefulWidget {
   const PackagesScreen({super.key});
@@ -27,8 +28,8 @@ class _PackagesScreenState extends State<PackagesScreen> {
   Widget build(BuildContext context) {
     final s = context.watch<Session>();
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('Packages'))),
-      floatingActionButton: FloatingActionButton.extended(onPressed: open, icon: const Icon(Icons.add_rounded), label: Text(S.t('New package'))),
+      appBar: SnAppBar(title: Text(S.t('Packages'))),
+      floatingActionButton: SnFab(onPressed: open, icon: const Icon(Icons.add_rounded), label: Text(S.t('New package'))),
       body: Loader<Map<String, dynamic>>(
         reloadKey: key,
         load: () => s.api.get('/api/m/packages'),
@@ -40,7 +41,7 @@ class _PackagesScreenState extends State<PackagesScreen> {
                   for (final p in d['items'] as List)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
-                      child: Card(
+                      child: SnCard(
                         clipBehavior: Clip.antiAlias,
                         child: InkWell(
                           onTap: () => open(p['id'] as int),
@@ -111,7 +112,7 @@ class _MiniSwitch extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(children: [
-        Transform.scale(scale: 0.8, child: Switch(value: value, onChanged: onChanged)),
+        Transform.scale(scale: 0.8, child: SnSwitch(value: value, onChanged: onChanged)),
         Flexible(child: Text(label, style: Theme.of(context).textTheme.bodySmall, overflow: TextOverflow.ellipsis)),
       ]);
 }
@@ -180,27 +181,27 @@ class _PackageFormState extends State<PackageForm> {
   Widget build(BuildContext context) {
     final f = form;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.id == null ? S.t('New package') : S.t('Edit package'))),
+      appBar: SnAppBar(title: Text(widget.id == null ? S.t('New package') : S.t('Edit package'))),
       bottomNavigationBar: f == null ? null : SaveBar(busy: busy, onSave: save, onDelete: widget.id != null ? delete : null),
       body: f == null
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: SnSpinner())
           : ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
               FieldGroup(title: S.t('What guests buy'), children: [
-                TextField(controller: name, textCapitalization: TextCapitalization.sentences,
+                SnField(controller: name, textCapitalization: TextCapitalization.sentences,
                     decoration: InputDecoration(labelText: S.t('Name'), hintText: S.t('e.g. 1 Day'), prefixIcon: const Icon(Icons.label_outline))),
-                TextField(controller: price, keyboardType: TextInputType.number,
+                SnField(controller: price, keyboardType: TextInputType.number,
                     decoration: InputDecoration(labelText: '${S.t('Price')} (${f['currency']})', prefixIcon: const Icon(Icons.payments_outlined))),
                 DurationField(label: S.t('Lasts'), minutes: minutes, onChanged: (v) => minutes = v),
-                TextField(controller: description, decoration: InputDecoration(labelText: '${S.t('Description')} (${S.t('optional')})')),
+                SnField(controller: description, decoration: InputDecoration(labelText: '${S.t('Description')} (${S.t('optional')})')),
               ]),
               FieldGroup(title: S.t('Limits'), children: [
                 Row(children: [
                   const Icon(Icons.devices_other_rounded),
                   const SizedBox(width: 12),
                   Expanded(child: Text(S.t('Devices at once'))),
-                  IconButton(onPressed: devices > 1 ? () => setState(() => devices--) : null, icon: const Icon(Icons.remove_circle_outline)),
+                  SnIconButton(onPressed: devices > 1 ? () => setState(() => devices--) : null, icon: const Icon(Icons.remove_circle_outline)),
                   Text('$devices', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                  IconButton(onPressed: devices < 20 ? () => setState(() => devices++) : null, icon: const Icon(Icons.add_circle_outline)),
+                  SnIconButton(onPressed: devices < 20 ? () => setState(() => devices++) : null, icon: const Icon(Icons.add_circle_outline)),
                 ]),
                 PickField(label: S.t('Speed'), icon: Icons.speed_rounded, items: f['plans'] as List, value: planId, none: S.t('No speed limit'),
                     onChanged: (v) => setState(() => planId = v)),

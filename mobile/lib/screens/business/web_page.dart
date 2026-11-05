@@ -6,6 +6,7 @@ import '../../core/api.dart';
 import '../../core/session.dart';
 import '../../core/strings.dart';
 import '../../ui/widgets.dart';
+import '../../ui/kit.dart';
 
 /// Opens a dashboard page inside the app, already signed in (a one-time link from the server).
 Future<void> openWeb(BuildContext context, String title, String path) async {
@@ -61,12 +62,12 @@ class _WebPageState extends State<WebPage> {
           }
         },
         child: Scaffold(
-          appBar: AppBar(
+          appBar: SnAppBar(
             title: Text(widget.title),
-            leading: IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
-            actions: [IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: web.reload, tooltip: S.t('Try again'))],
+            leading: SnIconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
+            actions: [SnIconButton(icon: const Icon(Icons.refresh_rounded), onPressed: web.reload, tooltip: S.t('Try again'))],
             bottom: progress < 100
-                ? PreferredSize(preferredSize: const Size.fromHeight(3), child: LinearProgressIndicator(value: progress / 100, minHeight: 3))
+                ? PreferredSize(preferredSize: const Size.fromHeight(3), child: SnProgressBar(value: progress / 100, minHeight: 3))
                 : null,
           ),
           body: WebViewWidget(controller: web),

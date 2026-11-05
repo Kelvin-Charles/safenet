@@ -8,6 +8,7 @@ import '../../../core/session.dart';
 import '../../../core/strings.dart';
 import '../../../ui/theme.dart';
 import '../../../ui/widgets.dart';
+import '../../../ui/kit.dart';
 
 /// SMS to customers: pick who (site, recent buyers, tag, time left, quiet ones, or customers ticked on Customers),
 /// write or pick an offer message, see the exact SMS and the cost, untick anyone, send.
@@ -89,13 +90,13 @@ class _SmsScreenState extends State<SmsScreen> {
     if (!mounted) return;
     setState(() => sending = false);
     if (r != null) {
-      await showDialog(
+      await showSnDialog(
         context: context,
-        builder: (c) => AlertDialog(
+        builder: (c) => SnDialog(
           icon: const Icon(Icons.send_rounded, color: kGood, size: 40),
           title: Text(S.t('Sending to {n} customers', {'n': r['sent']})),
           content: Text(S.t('It takes a few minutes. Only SMS that go out are charged.')),
-          actions: [FilledButton(style: FilledButton.styleFrom(minimumSize: const Size(88, 44)), onPressed: () => Navigator.pop(c), child: const Text('OK'))],
+          actions: [SnButton( onPressed: () => Navigator.pop(c), child: const Text('OK'))],
         ),
       );
       if (mounted) Navigator.pop(context);
@@ -107,8 +108,8 @@ class _SmsScreenState extends State<SmsScreen> {
     final x = d;
     final t = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('SMS to customers')), actions: [
-        IconButton(
+      appBar: SnAppBar(title: Text(S.t('SMS to customers')), actions: [
+        SnIconButton(
           icon: const Icon(Icons.history_rounded),
           tooltip: S.t('History'),
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const _History())),
@@ -131,24 +132,23 @@ class _SmsScreenState extends State<SmsScreen> {
                             style: t.textTheme.labelSmall?.copyWith(color: (x['cost'] as num) > (x['balance'] as num) ? kBad : kGood)),
                     ]),
                   ),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(minimumSize: const Size(130, 52)),
+                  SnButton.icon(
                     onPressed: sending || busy || (x['count'] as int) == 0 || text.text.trim().isEmpty || x['ready'] != true ? null : send,
-                    icon: sending ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.send_rounded),
+                    icon: sending ? const SizedBox(width: 18, height: 18, child: SnSpinner(strokeWidth: 2)) : const Icon(Icons.send_rounded),
                     label: Text(S.t('Send')),
                   ),
                 ]),
               ),
             ),
       body: x == null
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: SnSpinner())
           : ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
               if (x['ready'] != true)
-                Card(color: kWarn.withValues(alpha: 0.12), child: ListTile(leading: const Icon(Icons.warning_amber_rounded, color: kWarn), title: Text(S.t('SMS is not available right now. Contact SafeNet.')))),
+                SnCard(color: kWarn.withValues(alpha: 0.12), child: SnTile(leading: const Icon(Icons.warning_amber_rounded, color: kWarn), title: Text(S.t('SMS is not available right now. Contact SafeNet.')))),
               // who
-              SectionTitle(S.t('Who gets it'), trailing: busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : null),
+              SectionTitle(S.t('Who gets it'), trailing: busy ? const SizedBox(width: 16, height: 16, child: SnSpinner(strokeWidth: 2)) : null),
               if (widget.ids != null)
-                Card(child: ListTile(leading: const Icon(Icons.checklist_rounded), title: Text(S.t('The {n} customers you picked', {'n': widget.ids!.length}))))
+                SnCard(child: SnTile(leading: const Icon(Icons.checklist_rounded), title: Text(S.t('The {n} customers you picked', {'n': widget.ids!.length}))))
               else
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   if ((x['sites'] as List).length > 1)
@@ -195,8 +195,8 @@ class _SmsScreenState extends State<SmsScreen> {
                     ),
                 ]),
               const SizedBox(height: 10),
-              Card(
-                child: ListTile(
+              SnCard(
+                child: SnTile(
                   leading: CircleAvatar(backgroundColor: kAccent.withValues(alpha: 0.12), child: const Icon(Icons.people_alt_rounded, color: kAccent)),
                   title: Text(S.t('{n} customers', {'n': x['count']}), style: const TextStyle(fontWeight: FontWeight.w700)),
                   subtitle: Text([
@@ -216,7 +216,7 @@ class _SmsScreenState extends State<SmsScreen> {
                     for (final o in x['offers'] as List)
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
-                        child: ActionChip(
+                        child: SnChip(
                           avatar: const Icon(Icons.local_offer_rounded, size: 16, color: kGold),
                           label: Text('${o['name']}'),
                           onPressed: () {
@@ -229,7 +229,7 @@ class _SmsScreenState extends State<SmsScreen> {
                   ]),
                 ),
               const SizedBox(height: 8),
-              TextField(
+              SnField(
                 controller: text,
                 maxLines: 5,
                 minLines: 3,
@@ -274,10 +274,10 @@ class _SmsScreenState extends State<SmsScreen> {
               padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
               child: Row(children: [
                 Expanded(child: Text(S.t('{n} of {total} ticked', {'n': picked.length, 'total': all.length}), style: Theme.of(c).textTheme.titleMedium)),
-                TextButton(
+                SnButton(variant: SnVariant.ghost, size: SnSize.small,
                     onPressed: () => set(() => picked.length == all.length ? picked.clear() : picked.addAll(all.map((p) => p['phone'] as String))),
                     child: Text(picked.length == all.length ? S.t('None') : S.t('All'))),
-                FilledButton(style: FilledButton.styleFrom(minimumSize: const Size(80, 40)), onPressed: () => Navigator.pop(c, picked), child: Text(S.t('Done'))),
+                SnButton( onPressed: () => Navigator.pop(c, picked), child: Text(S.t('Done'))),
               ]),
             ),
             Expanded(
@@ -286,7 +286,7 @@ class _SmsScreenState extends State<SmsScreen> {
                 itemCount: all.length,
                 itemBuilder: (c, i) {
                   final p = all[i];
-                  return CheckboxListTile(
+                  return SnCheckTile(
                     value: picked.contains(p['phone']),
                     onChanged: (v) => set(() => v == true ? picked.add(p['phone'] as String) : picked.remove(p['phone'])),
                     title: Text((p['name'] as String?) ?? localPhone(p['phone'] as String)),
@@ -320,20 +320,18 @@ class _Menu<T> extends StatelessWidget {
   final VoidCallback after;
 
   @override
-  Widget build(BuildContext context) => PopupMenuButton<T>(
+  Widget build(BuildContext context) => SnMenuButton<T>(
         onSelected: (v) {
           onPick(v);
           after();
         },
         itemBuilder: (_) => [for (final e in items.entries) PopupMenuItem<T>(value: e.key, child: Text(e.value))],
-        child: Chip(
-          avatar: Icon(icon, size: 16, color: active ? Theme.of(context).colorScheme.onPrimary : null),
-          label: Text(label),
-          backgroundColor: active ? Theme.of(context).colorScheme.primary : null,
-          labelStyle: TextStyle(color: active ? Theme.of(context).colorScheme.onPrimary : null, fontWeight: FontWeight.w600),
-          deleteIcon: const Icon(Icons.expand_more_rounded, size: 18),
-          onDeleted: () {},
-          deleteIconColor: active ? Theme.of(context).colorScheme.onPrimary : null,
+        child: IgnorePointer(
+          child: SnChip(
+            selected: active,
+            avatar: Icon(icon),
+            label: Row(mainAxisSize: MainAxisSize.min, children: [Text(label), const SizedBox(width: 2), const Icon(Icons.expand_more_rounded, size: 18)]),
+          ),
         ),
       );
 }
@@ -345,7 +343,7 @@ class _History extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watch<Session>();
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('Messages sent'))),
+      appBar: SnAppBar(title: Text(S.t('Messages sent'))),
       body: Loader<Map<String, dynamic>>(
         load: () => s.api.get('/api/m/sms/history'),
         builder: (context, d, reload) => RefreshIndicator(
@@ -356,7 +354,7 @@ class _History extends StatelessWidget {
                   for (final c in d['items'] as List)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
-                      child: Card(
+                      child: SnCard(
                         child: Padding(
                           padding: const EdgeInsets.all(14),
                           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -366,7 +364,7 @@ class _History extends StatelessWidget {
                               const SizedBox(width: 8),
                               Text(when(c['at'] as String?), style: Theme.of(context).textTheme.bodySmall),
                               const Spacer(),
-                              if (c['status'] == 'sending') const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                              if (c['status'] == 'sending') const SizedBox(width: 14, height: 14, child: SnSpinner(strokeWidth: 2)),
                             ]),
                             const SizedBox(height: 8),
                             Text('${c['text']}', maxLines: 3, overflow: TextOverflow.ellipsis),

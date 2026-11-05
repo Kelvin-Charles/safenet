@@ -10,6 +10,7 @@ import '../../core/strings.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
 import 'shell.dart';
+import '../../ui/kit.dart';
 
 /// Who is online now, refreshed every 15 seconds while the tab is open.
 class LiveScreen extends StatefulWidget {
@@ -77,9 +78,9 @@ class _LiveScreenState extends State<LiveScreen> {
     final s = context.watch<Session>();
     final d = data;
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('Live')), actions: const [SiteButton()]),
+      appBar: SnAppBar(title: Text(S.t('Live')), actions: const [SiteButton()]),
       body: d == null
-          ? (error != null ? ErrorView(message: error!, onRetry: load) : const Center(child: CircularProgressIndicator()))
+          ? (error != null ? ErrorView(message: error!, onRetry: load) : const Center(child: SnSpinner()))
           : RefreshIndicator(
               onRefresh: load,
               child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
@@ -96,15 +97,15 @@ class _LiveScreenState extends State<LiveScreen> {
                 ),
                 SectionTitle('${S.t('Online now')} (${(d['online'] as List).length})'),
                 if ((d['online'] as List).isEmpty)
-                  Card(child: EmptyView(icon: Icons.wifi_off_rounded, text: S.t('Nobody is online right now.')))
+                  SnCard(child: EmptyView(icon: Icons.wifi_off_rounded, text: S.t('Nobody is online right now.')))
                 else
                   for (final o in d['online'] as List) _OnlineCard(o: o as Map, onDisconnect: s.can('change') && (o['user'] as String? ?? '').isNotEmpty ? () => disconnect(o) : null),
                 if ((d['events'] as List).isNotEmpty) ...[
                   SectionTitle(S.t('Activity')),
-                  Card(
+                  SnCard(
                     child: Column(children: [
                       for (final e in (d['events'] as List).take(15))
-                        ListTile(
+                        SnTile(
                           dense: true,
                           leading: Icon(_eventIcon(e['type'] as String?), size: 20, color: _eventColor(e['type'] as String?)),
                           title: Text('${e['text']}', maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -142,12 +143,12 @@ class _Mini extends StatelessWidget {
   final bool pulse;
 
   @override
-  Widget build(BuildContext context) => Card(
+  Widget build(BuildContext context) => SnCard(
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              if (pulse) Container(width: 8, height: 8, margin: const EdgeInsets.only(right: 6), decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+              if (pulse) Container(width: 8, height: 8, margin: const EdgeInsets.only(right: 6), decoration: BoxDecoration(color: color,)),
               Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.labelSmall)),
             ]),
             const SizedBox(height: 6),
@@ -169,7 +170,7 @@ class _OnlineCard extends StatelessWidget {
     final title = (o['user'] as String?)?.isNotEmpty == true ? o['user'] as String : (o['mac'] as String? ?? '');
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Card(
+      child: SnCard(
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -187,7 +188,7 @@ class _OnlineCard extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodySmall),
                 ]),
               ),
-              if (onDisconnect != null) IconButton(onPressed: onDisconnect, icon: const Icon(Icons.power_settings_new_rounded, color: kBad), tooltip: S.t('Disconnect')),
+              if (onDisconnect != null) SnIconButton(onPressed: onDisconnect, icon: const Icon(Icons.power_settings_new_rounded, color: kBad), tooltip: S.t('Disconnect')),
             ]),
             const SizedBox(height: 10),
             Wrap(spacing: 14, runSpacing: 6, children: [

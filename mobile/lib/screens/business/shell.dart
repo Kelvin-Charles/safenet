@@ -8,6 +8,7 @@ import 'home.dart';
 import 'live.dart';
 import 'more.dart';
 import 'vouchers.dart';
+import '../../ui/kit.dart';
 
 class BusinessShell extends StatefulWidget {
   const BusinessShell({super.key});
@@ -36,7 +37,7 @@ class _BusinessShellState extends State<BusinessShell> {
         for (var i = 0; i < tabs.length; i++)
           TickerMode(enabled: i == tab, child: KeyedSubtree(key: ValueKey('${tabs[i].$3}-${s.api.siteId}'), child: tabs[i].$4)),
       ]),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: SnBottomNav(
         selectedIndex: tab,
         onDestinationSelected: (i) => setState(() => tab = i),
         destinations: [for (final t in tabs) NavigationDestination(icon: Icon(t.$1), selectedIcon: Icon(t.$2), label: t.$3)],
@@ -55,16 +56,16 @@ class SiteButton extends StatelessWidget {
     if (s.sites.length < 2 || s.me?['fixed_site'] != null) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      child: ActionChip(
+      child: SnChip(
         avatar: const Icon(Icons.place_outlined, size: 18),
         label: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 120), child: Text(s.siteName, overflow: TextOverflow.ellipsis)),
-        onPressed: () => showModalBottomSheet(
+        onPressed: () => showSnSheet(
           context: context,
           builder: (c) => SafeArea(
             child: ListView(shrinkWrap: true, children: [
               Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 8), child: Text(S.t('Site'), style: Theme.of(c).textTheme.titleMedium)),
               for (final site in [<String, dynamic>{'id': null, 'name': S.t('All sites')}, ...s.sites])
-                ListTile(
+                SnTile(
                   leading: Icon(site['id'] == null ? Icons.public : Icons.place_outlined),
                   title: Text(site['name'] as String),
                   trailing: s.api.siteId == site['id'] ? const Icon(Icons.check_circle, color: Colors.green) : null,

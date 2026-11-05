@@ -13,6 +13,7 @@ import '../ui/widgets.dart';
 import '../ui/wifi_hero.dart';
 import 'guest/here_banner.dart';
 import 'register.dart';
+import '../ui/kit.dart';
 
 /// Sign in: a business (username + password, or register) or a Wi-Fi customer (phone number + SMS code, or voucher).
 class LoginScreen extends StatefulWidget {
@@ -67,10 +68,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(width: 10),
                       Text('SafeNet', style: t.textTheme.titleLarge?.copyWith(color: Colors.white, fontWeight: FontWeight.w800, letterSpacing: 0.3)),
                       const Spacer(),
-                      TextButton.icon(
+                      SnButton.icon(variant: SnVariant.ghost, size: SnSize.small,
                         onPressed: () => s.setLanguage(S.lang == 'sw' ? 'en' : 'sw'),
                         icon: const Icon(Icons.translate_rounded, size: 18, color: Colors.white70),
-                        label: Text(S.lang == 'sw' ? 'English' : 'Kiswahili', style: const TextStyle(color: Colors.white70)),
+                        label: Text(S.lang == 'sw' ? 'English' : 'Kiswahili',),
                       ),
                     ]),
                   ),
@@ -203,10 +204,10 @@ class _ErrorText extends StatelessWidget {
         );
 }
 
-Widget _busyButton({required bool busy, required VoidCallback? onPressed, required String label, IconData? icon}) => FilledButton(
+Widget _busyButton({required bool busy, required VoidCallback? onPressed, required String label, IconData? icon}) => SnButton(
       onPressed: busy ? null : onPressed,
       child: busy
-          ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
+          ? const SizedBox(width: 22, height: 22, child: SnSpinner(strokeWidth: 2.5))
           : Row(mainAxisSize: MainAxisSize.min, children: [Text(label), if (icon != null) ...[const SizedBox(width: 8), Icon(icon, size: 20)]]),
     );
 
@@ -246,24 +247,24 @@ class _BusinessFormState extends State<_BusinessForm> {
   }
 
   void _unverified(String email) {
-    showDialog(
+    showSnDialog(
       context: context,
-      builder: (c) => AlertDialog(
+      builder: (c) => SnDialog(
         icon: const Icon(Icons.mark_email_unread_outlined, size: 40),
         title: Text(S.t('Confirm your email')),
         content: Text(S.t('Open the link we sent to {email}, then sign in.', {'email': email})),
         actions: [
-          TextButton(
+          SnButton(variant: SnVariant.ghost, size: SnSize.small,
             onPressed: () async {
               await context.read<Session>().resendEmail(email).catchError((_) {});
               if (c.mounted) Navigator.pop(c);
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.t('We sent a new link.')), behavior: SnackBarBehavior.floating));
+                toast(context, S.t('We sent a new link.'));
               }
             },
             child: Text(S.t('Send the link again')),
           ),
-          FilledButton(style: FilledButton.styleFrom(minimumSize: const Size(88, 44)), onPressed: () => Navigator.pop(c), child: const Text('OK')),
+          SnButton( onPressed: () => Navigator.pop(c), child: const Text('OK')),
         ],
       ),
     );
@@ -272,7 +273,7 @@ class _BusinessFormState extends State<_BusinessForm> {
   @override
   Widget build(BuildContext context) => AutofillGroup(
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          TextField(
+          SnField(
             controller: user,
             autofillHints: const [AutofillHints.username, AutofillHints.email],
             keyboardType: TextInputType.emailAddress,
@@ -281,7 +282,7 @@ class _BusinessFormState extends State<_BusinessForm> {
             decoration: InputDecoration(labelText: S.t('Username or email'), prefixIcon: const Icon(Icons.person_outline_rounded)),
           ),
           const SizedBox(height: 12),
-          TextField(
+          SnField(
             controller: pass,
             autofillHints: const [AutofillHints.password],
             obscureText: hide,
@@ -289,13 +290,13 @@ class _BusinessFormState extends State<_BusinessForm> {
             decoration: InputDecoration(
               labelText: S.t('Password'),
               prefixIcon: const Icon(Icons.lock_outline_rounded),
-              suffixIcon: IconButton(
+              suffixIcon: SnIconButton(
                   icon: Icon(hide ? Icons.visibility_outlined : Icons.visibility_off_outlined), onPressed: () => setState(() => hide = !hide)),
             ),
           ),
           Align(
             alignment: Alignment.centerRight,
-            child: TextButton(
+            child: SnButton(variant: SnVariant.ghost, size: SnSize.small,
               onPressed: () => launchUrl(Uri.parse((widget.config['forgot_url'] as String?) ?? '$kServer/forgot'), mode: LaunchMode.externalApplication),
               child: Text(S.t('Forgot password?')),
             ),
@@ -307,9 +308,9 @@ class _BusinessFormState extends State<_BusinessForm> {
             const SizedBox(height: 14),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               Text(S.t('New to SafeNet?'), style: TextStyle(color: Theme.of(context).colorScheme.outline)),
-              TextButton(
+              SnButton(variant: SnVariant.ghost, size: SnSize.small,
                 onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RegisterScreen(trialDays: widget.config['trial_days'] as int?))),
-                child: Text(S.t('Register your business'), style: const TextStyle(fontWeight: FontWeight.w700)),
+                child: Text(S.t('Register your business'),),
               ),
             ]),
           ],
@@ -412,7 +413,7 @@ class _CustomerFormState extends State<_CustomerForm> {
           for (final m in [(true, Icons.phone_iphone_rounded, S.t('Phone number')), (false, Icons.confirmation_number_outlined, S.t('Voucher code'))])
             Padding(
               padding: const EdgeInsets.only(right: 8),
-              child: ChoiceChip(
+              child: SnChip(
                 avatar: Icon(m.$2, size: 18),
                 label: Text(m.$3),
                 selected: byPhone == m.$1,
@@ -426,7 +427,7 @@ class _CustomerFormState extends State<_CustomerForm> {
         ]),
       const SizedBox(height: 16),
       if (byPhone) ...[
-        TextField(
+        SnField(
           controller: phone,
           enabled: !sent,
           keyboardType: TextInputType.phone,
@@ -438,7 +439,7 @@ class _CustomerFormState extends State<_CustomerForm> {
             hintText: '0712 345 678',
             prefixIcon: const Icon(Icons.phone_outlined),
             suffixIcon: sent
-                ? TextButton(
+                ? SnButton(variant: SnVariant.ghost, size: SnSize.small,
                     onPressed: () => setState(() {
                       sent = false;
                       otp.clear();
@@ -450,7 +451,7 @@ class _CustomerFormState extends State<_CustomerForm> {
         ),
         if (sent) ...[
           const SizedBox(height: 12),
-          TextField(
+          SnField(
             controller: otp,
             autofocus: true,
             keyboardType: TextInputType.number,
@@ -472,7 +473,7 @@ class _CustomerFormState extends State<_CustomerForm> {
                       : S.t('We sent a code to {phone}.', {'phone': phone.text.trim()}),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(color: c.outline)),
             ),
-            TextButton(
+            SnButton(variant: SnVariant.ghost, size: SnSize.small,
               onPressed: wait > 0 || busy ? null : () => sendCode(resend: true),
               child: Text(wait > 0 ? S.t('New code in {t}', {'t': '${wait ~/ 60}:${(wait % 60).toString().padLeft(2, '0')}'}) : S.t('Send a new code')),
             ),
@@ -492,7 +493,7 @@ class _CustomerFormState extends State<_CustomerForm> {
           icon: Icons.arrow_forward_rounded,
         ),
       ] else ...[
-        TextField(
+        SnField(
           controller: code,
           keyboardType: TextInputType.number,
           textAlign: TextAlign.center,

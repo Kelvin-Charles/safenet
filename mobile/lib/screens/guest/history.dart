@@ -5,6 +5,7 @@ import '../../core/format.dart';
 import '../../core/strings.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
+import '../../ui/kit.dart';
 
 /// A purchase row: package, business and site, when, code, amount.
 class PurchaseTile extends StatelessWidget {
@@ -13,7 +14,7 @@ class PurchaseTile extends StatelessWidget {
   final bool showPlace;
 
   @override
-  Widget build(BuildContext context) => ListTile(
+  Widget build(BuildContext context) => SnTile(
         leading: CircleAvatar(
           backgroundColor: (h['from'] != null ? Colors.pink : kGood).withValues(alpha: 0.12),
           child: Icon(h['from'] != null ? Icons.card_giftcard_rounded : Icons.wifi_rounded, color: h['from'] != null ? Colors.pink : kGood, size: 20),
@@ -40,7 +41,7 @@ class PlaceCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Card(
+  Widget build(BuildContext context) => SnCard(
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
@@ -103,7 +104,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       months.putIfAbsent(d == null ? '—' : DateFormat('MMMM yyyy').format(d), () => []).add(h);
     }
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('History'))),
+      appBar: SnAppBar(title: Text(S.t('History'))),
       body: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
         if (widget.places.length > 1)
           SizedBox(
@@ -111,12 +112,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
             child: ListView(scrollDirection: Axis.horizontal, children: [
               Padding(
                 padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(label: Text(S.t('All places')), selected: place == null, onSelected: (_) => setState(() => place = null)),
+                child: SnChip(label: Text(S.t('All places')), selected: place == null, onSelected: (_) => setState(() => place = null)),
               ),
               for (final p in widget.places.cast<Map>())
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
+                  child: SnChip(
                     avatar: const Icon(Icons.place_outlined, size: 16),
                     label: Text('${p['site'] ?? p['business']}'),
                     selected: place != null && _at(place!, p),
@@ -150,7 +151,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
           SectionTitle(m.key,
               trailing: Text(money(m.value.where((h) => h['from'] == null).fold<num>(0, (a, h) => a + (h['amount'] as num)), cur),
                   style: Theme.of(context).textTheme.labelLarge)),
-          Card(child: Column(children: [for (final h in m.value) PurchaseTile(h: h, showPlace: place == null)])),
+          SnCard(child: Column(children: [for (final h in m.value) PurchaseTile(h: h, showPlace: place == null)])),
         ],
       ]),
     );

@@ -7,6 +7,7 @@ import '../../../core/strings.dart';
 import '../../../ui/form_bits.dart';
 import '../../../ui/theme.dart';
 import '../../../ui/widgets.dart';
+import '../../../ui/kit.dart';
 
 class TeamScreen extends StatefulWidget {
   const TeamScreen({super.key});
@@ -27,8 +28,8 @@ class _TeamScreenState extends State<TeamScreen> {
       reloadKey: key,
       load: () => s.api.get('/api/m/team'),
       builder: (context, d, reload) => Scaffold(
-        appBar: AppBar(title: Text(S.t('Team'))),
-        floatingActionButton: FloatingActionButton.extended(
+        appBar: SnAppBar(title: Text(S.t('Team'))),
+        floatingActionButton: SnFab(
           onPressed: () async {
             final added = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => _AddMember(data: d)));
             if (added == true) setState(() => key++);
@@ -42,8 +43,8 @@ class _TeamScreenState extends State<TeamScreen> {
             for (final m in d['items'] as List)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: Card(
-                  child: ListTile(
+                child: SnCard(
+                  child: SnTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                     leading: CircleAvatar(
                       backgroundColor: roleColor(m['role'] as String).withValues(alpha: 0.14),
@@ -57,7 +58,7 @@ class _TeamScreenState extends State<TeamScreen> {
                     ]),
                     subtitle: Text([m['role_label'], if (m['site'] != null) m['site'], if (m['last_login'] != null) ago(m['last_login'] as String?)].join(' · ')),
                     trailing: m['manageable'] == true
-                        ? PopupMenuButton<String>(
+                        ? SnMenuButton<String>(
                             onSelected: (v) async {
                               if (v == 'toggle') {
                                 if (await attempt(context, () => s.api.post('/api/m/team/${m['id']}/toggle')) != null) reload();
@@ -117,7 +118,7 @@ class _AddMemberState extends State<_AddMember> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(S.t('Add someone'))),
+        appBar: SnAppBar(title: Text(S.t('Add someone'))),
         bottomNavigationBar: SaveBar(busy: busy, onSave: save, label: S.t('Add')),
         body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
           FieldGroup(title: S.t('Role'), children: [
@@ -148,9 +149,9 @@ class _AddMemberState extends State<_AddMember> {
                   none: S.t('The whole business'), onChanged: (v) => setState(() => siteId = v)),
           ]),
           FieldGroup(title: S.t('Account'), children: [
-            TextField(controller: username, autocorrect: false, decoration: InputDecoration(labelText: S.t('Username'), prefixIcon: const Icon(Icons.alternate_email_rounded))),
-            TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: InputDecoration(labelText: S.t('Email'), prefixIcon: const Icon(Icons.mail_outline_rounded))),
-            TextField(controller: password, decoration: InputDecoration(labelText: S.t('Temporary password'), helperText: S.t('Give it to them; they can change it later.'), prefixIcon: const Icon(Icons.key_outlined))),
+            SnField(controller: username, autocorrect: false, decoration: InputDecoration(labelText: S.t('Username'), prefixIcon: const Icon(Icons.alternate_email_rounded))),
+            SnField(controller: email, keyboardType: TextInputType.emailAddress, decoration: InputDecoration(labelText: S.t('Email'), prefixIcon: const Icon(Icons.mail_outline_rounded))),
+            SnField(controller: password, decoration: InputDecoration(labelText: S.t('Temporary password'), helperText: S.t('Give it to them; they can change it later.'), prefixIcon: const Icon(Icons.key_outlined))),
           ]),
         ]),
       );

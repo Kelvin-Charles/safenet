@@ -16,6 +16,7 @@ import 'manage/sites.dart';
 import 'manage/sms.dart';
 import 'manage/team.dart';
 import 'web_page.dart';
+import '../../ui/kit.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -59,10 +60,10 @@ class MoreScreen extends StatelessWidget {
       ]),
     ];
     return Scaffold(
-      appBar: AppBar(
+      appBar: SnAppBar(
         title: Text(S.t('More')),
         actions: [
-          IconButton(
+          SnIconButton(
             icon: const Icon(Icons.logout_rounded),
             tooltip: S.t('Sign out'),
             onPressed: () async {
@@ -110,14 +111,14 @@ class MoreScreen extends StatelessWidget {
                         child: Text('${tenant['guest_app']}'.replaceFirst('https://', ''),
                             maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13)),
                       ),
-                      IconButton(
+                      SnIconButton(
                         icon: const Icon(Icons.copy_rounded, color: Colors.white, size: 18),
                         onPressed: () {
                           Clipboard.setData(ClipboardData(text: '${tenant['guest_app']}'));
                           toast(context, S.t('Copied'));
                         },
                       ),
-                      IconButton(
+                      SnIconButton(
                         icon: const Icon(Icons.share_rounded, color: Colors.white, size: 18),
                         onPressed: () => SharePlus.instance.share(ShareParams(text: '${tenant['guest_app']}')),
                       ),
@@ -145,10 +146,10 @@ class MoreScreen extends StatelessWidget {
                 ),
               ],
             SectionTitle(S.t('Language')),
-            Card(
+            SnCard(
               child: Padding(
                 padding: const EdgeInsets.all(8),
-                child: SegmentedButton<String>(
+                child: SnSegmented<String>(
                   segments: const [
                     ButtonSegment(value: 'sw', label: Text('Kiswahili'), icon: Text('🇹🇿')),
                     ButtonSegment(value: 'en', label: Text('English'), icon: Text('🇬🇧')),
@@ -173,7 +174,7 @@ class _Tile extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => Card(
+  Widget build(BuildContext context) => SnCard(
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
@@ -213,7 +214,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   Widget build(BuildContext context) {
     final s = context.watch<Session>();
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('Payments'))),
+      appBar: SnAppBar(title: Text(S.t('Payments'))),
       body: Column(children: [
         SizedBox(
           height: 48,
@@ -221,7 +222,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             for (final f in ['', 'paid', 'pending', 'failed'])
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: ChoiceChip(label: Text(f.isEmpty ? S.t('All') : S.t(f)), selected: status == f, onSelected: (_) => setState(() => status = f)),
+                child: SnChip(label: Text(f.isEmpty ? S.t('All') : S.t(f)), selected: status == f, onSelected: (_) => setState(() => status = f)),
               ),
           ]),
         ),
@@ -237,8 +238,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                       for (final p in d['items'] as List)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
-                          child: Card(
-                            child: ListTile(
+                          child: SnCard(
+                            child: SnTile(
                               title: Text('${p['package']}', style: const TextStyle(fontWeight: FontWeight.w600)),
                               subtitle: Text([
                                 localPhone(p['phone'] as String?),
@@ -272,7 +273,7 @@ class EarningsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watch<Session>();
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('Earnings & withdrawals'))),
+      appBar: SnAppBar(title: Text(S.t('Earnings & withdrawals'))),
       body: Loader<Map<String, dynamic>>(
         load: () => s.api.get('/api/m/earnings'),
         builder: (context, d, reload) {
@@ -293,8 +294,7 @@ class EarningsScreen extends StatelessWidget {
                     Text(money(d['balance'] as num, cur), style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w800)),
                     if (s.can('withdraw')) ...[
                       const SizedBox(height: 14),
-                      FilledButton.tonalIcon(
-                        style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+                      SnButton.icon(variant: SnVariant.light, size: SnSize.medium,
                         onPressed: () => openWeb(context, S.t('Withdraw'), '/earnings'),
                         icon: const Icon(Icons.call_made_rounded),
                         label: Text(S.t('Withdraw')),
@@ -309,7 +309,7 @@ class EarningsScreen extends StatelessWidget {
                 physics: const NeverScrollableScrollPhysics(),
                 mainAxisSpacing: 12,
                 crossAxisSpacing: 12,
-                childAspectRatio: 1.5,
+                childAspectRatio: 1.35,
                 children: [
                   StatTile(icon: Icons.trending_up_rounded, label: S.t('Earned'), value: money(d['earned'] as num, cur), color: kGood),
                   StatTile(icon: Icons.call_made_rounded, label: S.t('Withdrawn'), value: money(d['withdrawn'] as num, cur), color: kAccent),
@@ -318,12 +318,12 @@ class EarningsScreen extends StatelessWidget {
                 ],
               ),
               SectionTitle(S.t('Withdrawals')),
-              Card(
+              SnCard(
                 child: (d['withdrawals'] as List).isEmpty
                     ? EmptyView(icon: Icons.account_balance_outlined, text: S.t('None yet.'))
                     : Column(children: [
                         for (final w in d['withdrawals'] as List)
-                          ListTile(
+                          SnTile(
                             title: Text(money(w['amount'] as num, cur), style: const TextStyle(fontWeight: FontWeight.w700)),
                             subtitle: Text([when(w['created'] as String?), if (w['phone'] != null) localPhone(w['phone'] as String)].join(' · ')),
                             trailing: Pill('${w['status']}', color: w['status'] == 'paid' ? kGood : (w['status'] == 'failed' ? kBad : kWarn)),

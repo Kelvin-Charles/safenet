@@ -10,6 +10,7 @@ import '../../core/session.dart';
 import '../../core/strings.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
+import '../../ui/kit.dart';
 
 /// Buy a package inside the app: choose it, pay with mobile money (the PIN prompt comes to the phone), get the code.
 class BuyScreen extends StatefulWidget {
@@ -30,7 +31,7 @@ class _BuyScreenState extends State<BuyScreen> {
   Widget build(BuildContext context) {
     final s = context.watch<Session>();
     return Scaffold(
-      appBar: AppBar(title: Text(widget.name)),
+      appBar: SnAppBar(title: Text(widget.name)),
       body: Loader<Map<String, dynamic>>(
         reloadKey: '$siteId-$key',
         load: () => s.api.get('/api/m/guest/shop/${widget.businessId}', {'site_id': siteId}),
@@ -50,7 +51,7 @@ class _BuyScreenState extends State<BuyScreen> {
                     for (final x in d['sites'] as List)
                       Padding(
                         padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
+                        child: SnChip(
                           avatar: const Icon(Icons.place_outlined, size: 16),
                           label: Text('${x['name']}'),
                           selected: d['site_id'] == x['id'],
@@ -62,7 +63,7 @@ class _BuyScreenState extends State<BuyScreen> {
               ],
               const SizedBox(height: 16),
               if (d['can_buy'] != true)
-                Card(child: EmptyView(icon: Icons.storefront_outlined, text: S.t("Buying isn't available here right now. Ask {name}.", {'name': widget.name})))
+                SnCard(child: EmptyView(icon: Icons.storefront_outlined, text: S.t("Buying isn't available here right now. Ask {name}.", {'name': widget.name})))
               else
                 for (final p in packages)
                   Padding(
@@ -70,7 +71,7 @@ class _BuyScreenState extends State<BuyScreen> {
                     child: _PackageCard(
                       p: p as Map,
                       onTap: () async {
-                        final bought = await showModalBottomSheet<bool>(
+                        final bought = await showSnSheet<bool>(
                           context: context,
                           isScrollControlled: true,
                           isDismissible: false,
@@ -99,12 +100,9 @@ class _PackageCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final offer = (p['offer'] as String? ?? '').isNotEmpty;
     final mins = p['validity_minutes'] as int;
-    return Card(
+    return SnCard(
+      borderColor: offer ? kGold : null,
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: offer ? const BorderSide(color: kGold, width: 2) : BorderSide.none,
-      ),
       child: InkWell(
         onTap: onTap,
         child: Padding(
@@ -291,10 +289,10 @@ class _CheckoutState extends State<_Checkout> {
                       ]),
                     ),
                     Text(price, style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
-                    IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
+                    SnIconButton(icon: const Icon(Icons.close_rounded), onPressed: () => Navigator.pop(context)),
                   ]),
                   const SizedBox(height: 18),
-                  TextField(
+                  SnField(
                     controller: phone,
                     keyboardType: TextInputType.phone,
                     onChanged: (_) => _guessNetwork(),
@@ -306,7 +304,7 @@ class _CheckoutState extends State<_Checkout> {
                     const SizedBox(height: 8),
                     Wrap(spacing: 8, runSpacing: 8, children: [
                       for (final n in networks)
-                        ChoiceChip(
+                        SnChip(
                           showCheckmark: false,
                           avatar: ClipRRect(
                             borderRadius: BorderRadius.circular(4),
@@ -321,7 +319,7 @@ class _CheckoutState extends State<_Checkout> {
                   ],
                   if (widget.shop['can_gift'] == true) ...[
                     const SizedBox(height: 8),
-                    SwitchListTile(
+                    SnSwitchTile(
                       contentPadding: EdgeInsets.zero,
                       secondary: const Icon(Icons.card_giftcard_rounded, color: Colors.pink),
                       title: Text(S.t('For a friend')),
@@ -330,7 +328,7 @@ class _CheckoutState extends State<_Checkout> {
                       onChanged: (v) => setState(() => gift = v),
                     ),
                     if (gift)
-                      TextField(
+                      SnField(
                         controller: friend,
                         keyboardType: TextInputType.phone,
                         decoration: InputDecoration(labelText: S.t("Friend's number"), prefixIcon: const Icon(Icons.person_outline_rounded)),
@@ -338,9 +336,9 @@ class _CheckoutState extends State<_Checkout> {
                   ],
                   if (error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(error!, style: const TextStyle(color: kBad))),
                   const SizedBox(height: 18),
-                  FilledButton.icon(
+                  SnButton.icon(
                     onPressed: busy ? null : pay,
-                    icon: busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.5)) : const Icon(Icons.lock_rounded, size: 18),
+                    icon: busy ? const SizedBox(width: 20, height: 20, child: SnSpinner(strokeWidth: 2.5)) : const Icon(Icons.lock_rounded, size: 18),
                     label: Text('${S.t('Pay')} $price'),
                   ),
                   const SizedBox(height: 8),
@@ -359,9 +357,9 @@ class _CheckoutState extends State<_Checkout> {
                   Text(S.t('A payment prompt for {amount} was sent to {phone}. Keep this screen open.', {'amount': price, 'phone': phone.text.trim()}),
                       textAlign: TextAlign.center, style: TextStyle(color: t.colorScheme.outline)),
                   const SizedBox(height: 20),
-                  const LinearProgressIndicator(minHeight: 4, borderRadius: BorderRadius.all(Radius.circular(4))),
+                  const SnProgressBar(minHeight: 4,),
                   const SizedBox(height: 12),
-                  TextButton(onPressed: () => Navigator.pop(context, false), child: Text(S.t('Close (the code also comes by SMS)'))),
+                  SnButton(variant: SnVariant.ghost, size: SnSize.small, onPressed: () => Navigator.pop(context, false), child: Text(S.t('Close (the code also comes by SMS)'))),
                 ]),
               ),
             _Step.paid => Padding(
@@ -407,7 +405,7 @@ class _CheckoutState extends State<_Checkout> {
                   ] else
                     Text(S.t('Your friend gets the code by SMS on {phone}.', {'phone': friend.text.trim()}), textAlign: TextAlign.center),
                   const SizedBox(height: 20),
-                  FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(S.t('Done'))),
+                  SnButton(onPressed: () => Navigator.pop(context, true), child: Text(S.t('Done'))),
                 ]),
               ),
             _Step.failed => Padding(
@@ -420,8 +418,8 @@ class _CheckoutState extends State<_Checkout> {
                   const SizedBox(height: 8),
                   Text('${result?['message'] ?? ''}', textAlign: TextAlign.center, style: TextStyle(color: t.colorScheme.outline)),
                   const SizedBox(height: 20),
-                  FilledButton(onPressed: () => setState(() => step = _Step.form), child: Text(S.t('Try again'))),
-                  TextButton(onPressed: () => Navigator.pop(context, false), child: Text(S.t('Cancel'))),
+                  SnButton(onPressed: () => setState(() => step = _Step.form), child: Text(S.t('Try again'))),
+                  SnButton(variant: SnVariant.ghost, size: SnSize.small, onPressed: () => Navigator.pop(context, false), child: Text(S.t('Cancel'))),
                 ]),
               ),
           },

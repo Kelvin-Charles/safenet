@@ -7,6 +7,7 @@ import '../../../core/strings.dart';
 import '../../../ui/theme.dart';
 import '../../../ui/widgets.dart';
 import '../web_page.dart';
+import '../../../ui/kit.dart';
 
 /// Sites (money and who is online at each) and the health of every device.
 class SitesScreen extends StatefulWidget {
@@ -21,14 +22,14 @@ class _SitesScreenState extends State<SitesScreen> {
 
   Future<void> rename(Map? site) async {
     final c = TextEditingController(text: site?['name'] as String? ?? '');
-    final name = await showDialog<String>(
+    final name = await showSnDialog<String>(
       context: context,
-      builder: (d) => AlertDialog(
+      builder: (d) => SnDialog(
         title: Text(site == null ? S.t('New site') : S.t('Rename site')),
-        content: TextField(controller: c, autofocus: true, textCapitalization: TextCapitalization.words, decoration: InputDecoration(labelText: S.t('Name'))),
+        content: SnField(controller: c, autofocus: true, textCapitalization: TextCapitalization.words, decoration: InputDecoration(labelText: S.t('Name'))),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(d), child: Text(S.t('Cancel'))),
-          FilledButton(style: FilledButton.styleFrom(minimumSize: const Size(88, 44)), onPressed: () => Navigator.pop(d, c.text), child: Text(S.t('Save'))),
+          SnButton(variant: SnVariant.ghost, size: SnSize.small, onPressed: () => Navigator.pop(d), child: Text(S.t('Cancel'))),
+          SnButton( onPressed: () => Navigator.pop(d, c.text), child: Text(S.t('Save'))),
         ],
       ),
     );
@@ -47,11 +48,11 @@ class _SitesScreenState extends State<SitesScreen> {
   Widget build(BuildContext context) {
     final s = context.watch<Session>();
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('Sites & devices')), actions: [
-        IconButton(icon: const Icon(Icons.open_in_new_rounded), tooltip: S.t('Set up equipment'), onPressed: () => openWeb(context, S.t('Sites & Wi-Fi'), '/sites')),
+      appBar: SnAppBar(title: Text(S.t('Sites & devices')), actions: [
+        SnIconButton(icon: const Icon(Icons.open_in_new_rounded), tooltip: S.t('Set up equipment'), onPressed: () => openWeb(context, S.t('Sites & Wi-Fi'), '/sites')),
       ]),
       floatingActionButton: s.can('packages')
-          ? FloatingActionButton.extended(onPressed: () => rename(null), icon: const Icon(Icons.add_location_alt_outlined), label: Text(S.t('New site')))
+          ? SnFab(onPressed: () => rename(null), icon: const Icon(Icons.add_location_alt_outlined), label: Text(S.t('New site')))
           : null,
       body: Loader<Map<String, dynamic>>(
         reloadKey: key,
@@ -65,7 +66,7 @@ class _SitesScreenState extends State<SitesScreen> {
               for (final site in d['sites'] as List)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: Card(
+                  child: SnCard(
                     child: Padding(
                       padding: const EdgeInsets.all(14),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -82,7 +83,7 @@ class _SitesScreenState extends State<SitesScreen> {
                               if (site['kind'] != null) Text('${site['kind']}', style: Theme.of(context).textTheme.bodySmall),
                             ]),
                           ),
-                          if (s.can('packages')) IconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => rename(site as Map)),
+                          if (s.can('packages')) SnIconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => rename(site as Map)),
                         ]),
                         const SizedBox(height: 12),
                         Row(children: [
@@ -93,7 +94,7 @@ class _SitesScreenState extends State<SitesScreen> {
                         const SizedBox(height: 4),
                         Align(
                           alignment: Alignment.centerRight,
-                          child: TextButton(
+                          child: SnButton(variant: SnVariant.ghost, size: SnSize.small,
                             onPressed: () => s.pickSite(site['id'] as int).then((_) {
                               if (context.mounted) Navigator.pop(context);
                             }),
@@ -106,12 +107,12 @@ class _SitesScreenState extends State<SitesScreen> {
                 ),
               SectionTitle('${S.t('Devices')} (${devices.length})'),
               if (devices.isEmpty)
-                Card(child: EmptyView(icon: Icons.router_outlined, text: S.t('No devices connected yet. Tap ↗ above to set up your Wi-Fi equipment.')))
+                SnCard(child: EmptyView(icon: Icons.router_outlined, text: S.t('No devices connected yet. Tap ↗ above to set up your Wi-Fi equipment.')))
               else
-                Card(
+                SnCard(
                   child: Column(children: [
                     for (final x in devices)
-                      ListTile(
+                      SnTile(
                         leading: Stack(children: [
                           const Icon(Icons.router_rounded, size: 30),
                           Positioned(
@@ -122,7 +123,6 @@ class _SitesScreenState extends State<SitesScreen> {
                               height: 11,
                               decoration: BoxDecoration(
                                 color: x['state'] == 'online' ? kGood : x['state'] == 'degraded' ? kWarn : kBad,
-                                shape: BoxShape.circle,
                                 border: Border.all(color: Theme.of(context).cardTheme.color ?? Colors.white, width: 2),
                               ),
                             ),

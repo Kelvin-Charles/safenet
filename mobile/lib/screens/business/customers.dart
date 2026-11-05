@@ -11,6 +11,7 @@ import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
 import 'shell.dart';
 import 'manage/sms.dart';
+import '../../ui/kit.dart';
 
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
@@ -77,9 +78,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
   Widget build(BuildContext context) {
     final s = context.watch<Session>();
     return Scaffold(
-      appBar: AppBar(title: Text('${S.t('Customers')}${total > 0 ? ' · $total' : ''}'), actions: [
+      appBar: SnAppBar(title: Text('${S.t('Customers')}${total > 0 ? ' · $total' : ''}'), actions: [
         if (s.can('sms'))
-          IconButton(
+          SnIconButton(
             tooltip: S.t('Send SMS'),
             icon: const Icon(Icons.sms_outlined),
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SmsScreen(
@@ -90,7 +91,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
       body: Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-          child: TextField(
+          child: SnField(
             decoration: InputDecoration(hintText: S.t('Phone, name or tag'), prefixIcon: const Icon(Icons.search_rounded), isDense: true),
             onChanged: (v) {
               debounce?.cancel();
@@ -107,7 +108,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
             for (final f in [('', S.t('All')), ('active', S.t('Has time left')), ('idle', S.t('No time left'))])
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: ChoiceChip(label: Text(f.$2), selected: state == f.$1, onSelected: (_) {
+                child: SnChip(label: Text(f.$2), selected: state == f.$1, onSelected: (_) {
                   state = f.$1;
                   load(reset: true);
                 }),
@@ -115,7 +116,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
             for (final t in tags)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: FilterChip(label: Text('#$t'), selected: tag == t, onSelected: (on) {
+                child: SnChip(label: Text('#$t'), selected: tag == t, onSelected: (on) {
                   tag = on ? t as String : '';
                   load(reset: true);
                 }),
@@ -134,12 +135,12 @@ class _CustomersScreenState extends State<CustomersScreen> {
                           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                           itemCount: items.length + (loading ? 1 : 0),
                           itemBuilder: (c, i) {
-                            if (i >= items.length) return const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator()));
+                            if (i >= items.length) return const Padding(padding: EdgeInsets.all(16), child: Center(child: SnSpinner()));
                             final x = items[i];
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 8),
-                              child: Card(
-                                child: ListTile(
+                              child: SnCard(
+                                child: SnTile(
                                   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                                   leading: CircleAvatar(
                                     backgroundColor: (x['active'] == true ? kGood : Colors.grey).withValues(alpha: 0.14),
@@ -194,12 +195,12 @@ class CustomerScreen extends StatelessWidget {
       builder: (context, d, reload) {
         final c = d['customer'] as Map;
         return Scaffold(
-          appBar: AppBar(title: Text((c['name'] as String?) ?? localPhone(c['phone'] as String)), actions: [
-            IconButton(icon: const Icon(Icons.call_outlined), tooltip: S.t('Call'), onPressed: () => launchUrl(Uri.parse('tel:+${c['phone']}'))),
-            IconButton(
+          appBar: SnAppBar(title: Text((c['name'] as String?) ?? localPhone(c['phone'] as String)), actions: [
+            SnIconButton(icon: const Icon(Icons.call_outlined), tooltip: S.t('Call'), onPressed: () => launchUrl(Uri.parse('tel:+${c['phone']}'))),
+            SnIconButton(
               icon: const Icon(Icons.edit_outlined),
               onPressed: () async {
-                final saved = await showModalBottomSheet<bool>(context: context, isScrollControlled: true, builder: (_) => _EditSheet(c: c));
+                final saved = await showSnSheet<bool>(context: context, isScrollControlled: true, builder: (_) => _EditSheet(c: c));
                 if (saved == true) reload();
               },
             ),
@@ -213,30 +214,30 @@ class CustomerScreen extends StatelessWidget {
                 Expanded(child: StatTile(icon: Icons.shopping_bag_outlined, label: S.t('Purchases'), value: '${c['purchases']}', color: kAccent)),
               ]),
               const SizedBox(height: 12),
-              Card(
+              SnCard(
                 child: Column(children: [
-                  ListTile(leading: const Icon(Icons.phone_outlined), title: Text(localPhone(c['phone'] as String))),
+                  SnTile(leading: const Icon(Icons.phone_outlined), title: Text(localPhone(c['phone'] as String))),
                   if (c['last_paid'] != null)
-                    ListTile(
+                    SnTile(
                       leading: const Icon(Icons.history_rounded),
                       title: Text(S.t('Last purchase')),
                       subtitle: Text([when(c['last_paid'] as String?), c['last_package'], c['last_site']].whereType<String>().join(' · ')),
                     ),
                   if ((c['tags'] as List).isNotEmpty)
-                    ListTile(
+                    SnTile(
                       leading: const Icon(Icons.sell_outlined),
                       title: Wrap(spacing: 6, runSpacing: 6, children: [for (final t in c['tags'] as List) Pill('#$t', color: kAccent)]),
                     ),
-                  if (c['note'] != null) ListTile(leading: const Icon(Icons.sticky_note_2_outlined), title: Text(c['note'] as String)),
-                  if (c['stopped'] == true) ListTile(leading: const Icon(Icons.notifications_off_outlined, color: kBad), title: Text(S.t('Asked to stop offers'))),
+                  if (c['note'] != null) SnTile(leading: const Icon(Icons.sticky_note_2_outlined), title: Text(c['note'] as String)),
+                  if (c['stopped'] == true) SnTile(leading: const Icon(Icons.notifications_off_outlined, color: kBad), title: Text(S.t('Asked to stop offers'))),
                 ]),
               ),
               SectionTitle(S.t('Codes')),
               for (final v in d['codes'] as List)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: Card(
-                    child: ListTile(
+                  child: SnCard(
+                    child: SnTile(
                       title: Text('${v['code']} · ${v['package']}', style: const TextStyle(fontWeight: FontWeight.w600)),
                       subtitle: Text([
                         if (v['state'] == 'active') '${S.t('Time left')} ${secondsLeft(v['seconds_left'] as int)}',
@@ -273,13 +274,13 @@ class _EditSheetState extends State<_EditSheet> {
   Widget build(BuildContext context) => Padding(
         padding: EdgeInsets.fromLTRB(20, 0, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          TextField(controller: name, decoration: InputDecoration(labelText: S.t('Name')), textCapitalization: TextCapitalization.words),
+          SnField(controller: name, decoration: InputDecoration(labelText: S.t('Name')), textCapitalization: TextCapitalization.words),
           const SizedBox(height: 12),
-          TextField(controller: tags, decoration: InputDecoration(labelText: S.t('Tags, separated by commas'))),
+          SnField(controller: tags, decoration: InputDecoration(labelText: S.t('Tags, separated by commas'))),
           const SizedBox(height: 12),
-          TextField(controller: note, decoration: InputDecoration(labelText: S.t('Note')), maxLines: 2),
+          SnField(controller: note, decoration: InputDecoration(labelText: S.t('Note')), maxLines: 2),
           const SizedBox(height: 16),
-          FilledButton(
+          SnButton(
             onPressed: () async {
               final r = await attempt(context,
                   () => context.read<Session>().api.post('/api/m/customers/${widget.c['id']}', {'name': name.text, 'tags': tags.text, 'note': note.text}));

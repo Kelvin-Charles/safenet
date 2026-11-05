@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/strings.dart';
 import 'theme.dart';
+import '../ui/kit.dart';
 
 /// A labelled group of fields in a rounded card.
 class FieldGroup extends StatelessWidget {
@@ -19,7 +20,7 @@ class FieldGroup extends StatelessWidget {
               child: Text(title!.toUpperCase(),
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(letterSpacing: 1, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.outline)),
             ),
-          Card(
+          SnCard(
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: _spaced(children)),
@@ -42,7 +43,7 @@ class SwitchRow extends StatelessWidget {
   final ValueChanged<bool>? onChanged;
 
   @override
-  Widget build(BuildContext context) => SwitchListTile(
+  Widget build(BuildContext context) => SnSwitchTile(
         contentPadding: EdgeInsets.zero,
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: subtitle != null ? Text(subtitle!, style: Theme.of(context).textTheme.bodySmall) : null,
@@ -62,15 +63,11 @@ class PickField extends StatelessWidget {
   final IconData? icon;
 
   @override
-  Widget build(BuildContext context) => DropdownButtonFormField<int?>(
-        initialValue: items.any((x) => x['id'] == value) ? value : null,
-        isExpanded: true,
-        decoration: InputDecoration(labelText: label, prefixIcon: icon != null ? Icon(icon) : null),
-        borderRadius: BorderRadius.circular(14),
-        items: [
-          if (none != null) DropdownMenuItem<int?>(value: null, child: Text(none!)),
-          for (final x in items) DropdownMenuItem<int?>(value: x['id'] as int, child: Text('${x['name']}', overflow: TextOverflow.ellipsis)),
-        ],
+  Widget build(BuildContext context) => SnSelect<int?>(
+        label: label,
+        icon: icon,
+        value: items.any((x) => x['id'] == value) ? value : null,
+        items: {if (none != null) null: none!, for (final x in items) x['id'] as int: '${x['name']}'},
         onChanged: onChanged,
       );
 }
@@ -106,9 +103,9 @@ class _DurationFieldState extends State<DurationField> {
   }
 
   @override
-  Widget build(BuildContext context) => Row(children: [
+  Widget build(BuildContext context) => Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
         Expanded(
-          child: TextField(
+          child: SnField(
             controller: value,
             keyboardType: TextInputType.number,
             decoration: InputDecoration(labelText: widget.label, prefixIcon: const Icon(Icons.timer_outlined)),
@@ -116,19 +113,17 @@ class _DurationFieldState extends State<DurationField> {
           ),
         ),
         const SizedBox(width: 8),
-        DropdownButton<String>(
-          value: unit,
-          borderRadius: BorderRadius.circular(14),
-          underline: const SizedBox.shrink(),
-          items: [
-            DropdownMenuItem(value: 'minutes', child: Text(S.lang == 'sw' ? 'dakika' : 'minutes')),
-            DropdownMenuItem(value: 'hours', child: Text(S.t('hours'))),
-            DropdownMenuItem(value: 'days', child: Text(S.t('days'))),
-          ],
-          onChanged: (v) {
-            setState(() => unit = v!);
-            _emit();
-          },
+        SizedBox(
+          width: 130,
+          child: SnSelect<String>(
+            label: ' ',
+            value: unit,
+            items: {'minutes': S.lang == 'sw' ? 'dakika' : 'minutes', 'hours': S.t('hours'), 'days': S.t('days')},
+            onChanged: (v) {
+              setState(() => unit = v);
+              _emit();
+            },
+          ),
         ),
       ]);
 }
@@ -152,17 +147,16 @@ class SaveBar extends StatelessWidget {
           ),
           child: Row(children: [
             if (onDelete != null) ...[
-              IconButton.outlined(
+              SnIconButton(tinted: true, color: kBad, size: 52,
                 onPressed: busy ? null : onDelete,
                 icon: const Icon(Icons.delete_outline_rounded, color: kBad),
-                style: IconButton.styleFrom(minimumSize: const Size(52, 52), side: BorderSide(color: kBad.withValues(alpha: 0.4))),
               ),
               const SizedBox(width: 10),
             ],
             Expanded(
-              child: FilledButton(
+              child: SnButton(
                 onPressed: busy ? null : onSave,
-                child: busy ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)) : Text(label ?? S.t('Save')),
+                child: busy ? const SizedBox(width: 22, height: 22, child: SnSpinner(strokeWidth: 2.5)) : Text(label ?? S.t('Save')),
               ),
             ),
           ]),

@@ -6,6 +6,7 @@ import '../../../core/strings.dart';
 import '../../../ui/form_bits.dart';
 import '../../../ui/theme.dart';
 import '../../../ui/widgets.dart';
+import '../../../ui/kit.dart';
 
 /// Speed plans: download / upload limits (and a data cap) that packages and vouchers use.
 class PlansScreen extends StatefulWidget {
@@ -27,8 +28,8 @@ class _PlansScreenState extends State<PlansScreen> {
   Widget build(BuildContext context) {
     final s = context.watch<Session>();
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('Speed plans'))),
-      floatingActionButton: FloatingActionButton.extended(onPressed: open, icon: const Icon(Icons.add_rounded), label: Text(S.t('New plan'))),
+      appBar: SnAppBar(title: Text(S.t('Speed plans'))),
+      floatingActionButton: SnFab(onPressed: open, icon: const Icon(Icons.add_rounded), label: Text(S.t('New plan'))),
       body: Loader<Map<String, dynamic>>(
         reloadKey: key,
         load: () => s.api.get('/api/m/plans'),
@@ -40,8 +41,8 @@ class _PlansScreenState extends State<PlansScreen> {
                   for (final p in d['items'] as List)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 10),
-                      child: Card(
-                        child: ListTile(
+                      child: SnCard(
+                        child: SnTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                           onTap: () => open(p as Map),
                           leading: CircleAvatar(
@@ -100,28 +101,28 @@ class _PlanFormState extends State<_PlanForm> {
 
   Widget _speeds(TextEditingController c) => Wrap(spacing: 6, children: [
         for (final v in ['1M', '2M', '5M', '10M', '20M'])
-          ActionChip(label: Text(v), onPressed: () => setState(() => c.text = v), visualDensity: VisualDensity.compact),
+          SnChip(label: Text(v), onPressed: () => setState(() => c.text = v),),
       ]);
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(p == null ? S.t('New plan') : S.t('Edit plan'))),
+        appBar: SnAppBar(title: Text(p == null ? S.t('New plan') : S.t('Edit plan'))),
         bottomNavigationBar: SaveBar(busy: busy, onSave: save, onDelete: p != null ? delete : null),
         body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
           FieldGroup(children: [
-            TextField(controller: name, decoration: InputDecoration(labelText: S.t('Name'), hintText: S.t('e.g. Student 2 Mbps'), prefixIcon: const Icon(Icons.label_outline))),
+            SnField(controller: name, decoration: InputDecoration(labelText: S.t('Name'), hintText: S.t('e.g. Student 2 Mbps'), prefixIcon: const Icon(Icons.label_outline))),
           ]),
           FieldGroup(title: S.t('Speed'), children: [
-            TextField(controller: down, decoration: InputDecoration(labelText: S.t('Download'), hintText: '5M', prefixIcon: const Icon(Icons.south_rounded, color: kGood))),
+            SnField(controller: down, decoration: InputDecoration(labelText: S.t('Download'), hintText: '5M', prefixIcon: const Icon(Icons.south_rounded, color: kGood))),
             _speeds(down),
-            TextField(controller: up, decoration: InputDecoration(labelText: S.t('Upload'), hintText: '2M', prefixIcon: const Icon(Icons.north_rounded, color: kAccent))),
+            SnField(controller: up, decoration: InputDecoration(labelText: S.t('Upload'), hintText: '2M', prefixIcon: const Icon(Icons.north_rounded, color: kAccent))),
             _speeds(up),
             Text(S.t('M = megabits a second, k = kilobits. Empty = no limit.'), style: Theme.of(context).textTheme.bodySmall),
           ]),
           FieldGroup(title: S.t('Data cap'), children: [
-            TextField(controller: cap, keyboardType: TextInputType.number,
+            SnField(controller: cap, keyboardType: TextInputType.number,
                 decoration: InputDecoration(labelText: 'GB (${S.t('optional')})', prefixIcon: const Icon(Icons.data_usage_rounded))),
-            SegmentedButton<String>(
+            SnSegmented<String>(
               segments: [
                 ButtonSegment(value: 'daily', label: Text(S.t('daily'))),
                 ButtonSegment(value: 'weekly', label: Text(S.t('weekly'))),

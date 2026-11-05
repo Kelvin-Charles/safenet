@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/strings.dart';
 import 'theme.dart';
+import '../ui/kit.dart';
 
 /// Loads data once (and on pull-to-refresh), with loading and error states.
 class Loader<T> extends StatefulWidget {
@@ -53,7 +54,7 @@ class _LoaderState<T> extends State<Loader<T>> {
       setState(() => error = null);
       reload();
     });
-    return const Center(child: CircularProgressIndicator());
+    return const Center(child: SnSpinner());
   }
 }
 
@@ -71,7 +72,7 @@ class ErrorView extends StatelessWidget {
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),
-            OutlinedButton.icon(onPressed: onRetry, icon: const Icon(Icons.refresh), label: Text(S.t('Try again'))),
+            SnButton.icon(variant: SnVariant.secondary, onPressed: onRetry, icon: const Icon(Icons.refresh), label: Text(S.t('Try again'))),
           ]),
         ),
       );
@@ -121,19 +122,19 @@ class StatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = color ?? Theme.of(context).colorScheme.primary;
-    return Card(
+    return SnCard(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          padding: const EdgeInsets.all(12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(color: c.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
               child: Icon(icon, color: c, size: 20),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Text(value, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800), maxLines: 1,
                 overflow: TextOverflow.ellipsis),
             const SizedBox(height: 2),
@@ -181,25 +182,18 @@ String stateLabel(String? state) => switch (state) {
       _ => S.t(state ?? ''),
     };
 
-void toast(BuildContext context, String text, {bool error = false}) {
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(
-      content: Text(text),
-      behavior: SnackBarBehavior.floating,
-      backgroundColor: error ? kBad : null,
-    ));
-}
+void toast(BuildContext context, String text, {bool error = false}) => snToast(context, text, error: error);
 
 Future<bool> confirm(BuildContext context, String question, {String? yes, bool danger = false}) async {
-  final r = await showDialog<bool>(
+  final r = await showSnDialog<bool>(
     context: context,
-    builder: (c) => AlertDialog(
+    builder: (c) => SnDialog(
       content: Text(question),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(c, false), child: Text(S.t('Cancel'))),
-        FilledButton(
-          style: danger ? FilledButton.styleFrom(backgroundColor: kBad, minimumSize: const Size(88, 44)) : FilledButton.styleFrom(minimumSize: const Size(88, 44)),
+        SnButton(variant: SnVariant.secondary, size: SnSize.medium, onPressed: () => Navigator.pop(c, false), child: Text(S.t('Cancel'))),
+        SnButton(
+          variant: danger ? SnVariant.danger : SnVariant.primary,
+          size: SnSize.medium,
           onPressed: () => Navigator.pop(c, true),
           child: Text(yes ?? 'OK'),
         ),

@@ -6,6 +6,7 @@ import '../core/session.dart';
 import '../core/strings.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
+import '../ui/kit.dart';
 
 /// Register a business, as on the web: a free trial business and its owner. Then confirm the email and sign in.
 class RegisterScreen extends StatefulWidget {
@@ -70,7 +71,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         InputDecoration(labelText: label, prefixIcon: Icon(icon), errorText: fields[key], helperText: helper);
     final colors = [kBad, kBad, kWarn, kGood, kGood];
     return Scaffold(
-      appBar: AppBar(title: Text(S.t('Register your business'))),
+      appBar: SnAppBar(title: Text(S.t('Register your business'))),
       body: SafeArea(
         child: ListView(padding: const EdgeInsets.fromLTRB(20, 4, 20, 24), children: [
           Container(
@@ -100,7 +101,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const SizedBox(height: 20),
           AutofillGroup(
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              TextField(
+              SnField(
                 controller: business,
                 textCapitalization: TextCapitalization.words,
                 textInputAction: TextInputAction.next,
@@ -108,7 +109,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: deco(S.t('Business name'), Icons.storefront_outlined, 'business_name', helper: S.t('Guests see it on the login page.')),
               ),
               const SizedBox(height: 14),
-              TextField(
+              SnField(
                 controller: username,
                 autocorrect: false,
                 textInputAction: TextInputAction.next,
@@ -116,7 +117,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: deco(S.t('Username'), Icons.alternate_email_rounded, 'username'),
               ),
               const SizedBox(height: 14),
-              TextField(
+              SnField(
                 controller: email,
                 keyboardType: TextInputType.emailAddress,
                 autocorrect: false,
@@ -125,7 +126,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: deco(S.t('Email'), Icons.mail_outline_rounded, 'email', helper: S.t('We send a link to confirm it.')),
               ),
               const SizedBox(height: 14),
-              TextField(
+              SnField(
                 controller: phone,
                 keyboardType: TextInputType.phone,
                 textInputAction: TextInputAction.next,
@@ -133,13 +134,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 decoration: deco('${S.t('Phone number')} (${S.t('optional')})', Icons.phone_outlined, 'phone'),
               ),
               const SizedBox(height: 14),
-              TextField(
+              SnField(
                 controller: password,
                 obscureText: hide,
                 autofillHints: const [AutofillHints.newPassword],
                 onChanged: (_) => setState(() {}),
                 decoration: deco(S.t('Password'), Icons.lock_outline_rounded, 'password', helper: S.t('At least 8 characters.')).copyWith(
-                  suffixIcon: IconButton(
+                  suffixIcon: SnIconButton(
                       icon: Icon(hide ? Icons.visibility_outlined : Icons.visibility_off_outlined), onPressed: () => setState(() => hide = !hide)),
                 ),
               ),
@@ -163,9 +164,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ]),
           ),
           const SizedBox(height: 10),
-          CheckboxListTile(
+          SnCheckTile(
             contentPadding: EdgeInsets.zero,
-            controlAffinity: ListTileControlAffinity.leading,
             value: accept,
             onChanged: (v) => setState(() => accept = v == true),
             title: Text(S.t('I accept the terms of service')),
@@ -173,12 +173,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           if (error != null) Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(error!, style: const TextStyle(color: kBad))),
           const SizedBox(height: 8),
-          FilledButton(
+          SnButton(
             onPressed: busy ? null : submit,
-            child: busy ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)) : Text(S.t('Create account')),
+            child: busy ? const SizedBox(width: 22, height: 22, child: SnSpinner(strokeWidth: 2.5)) : Text(S.t('Create account')),
           ),
           const SizedBox(height: 12),
-          TextButton(onPressed: () => Navigator.pop(context), child: Text(S.t('I already have an account'))),
+          SnButton(variant: SnVariant.ghost, size: SnSize.small, onPressed: () => Navigator.pop(context), child: Text(S.t('I already have an account'))),
           const PoweredBy(),
         ]),
       ),
@@ -211,13 +211,13 @@ class _Done extends StatelessWidget {
             Text(S.t('We sent a link to {email}. Open it to confirm your account, then sign in.', {'email': email}),
                 textAlign: TextAlign.center, style: t.textTheme.bodyLarge?.copyWith(color: t.colorScheme.outline)),
             const SizedBox(height: 32),
-            FilledButton(onPressed: () => Navigator.pop(context), child: Text(S.t('Back to sign in'))),
+            SnButton(onPressed: () => Navigator.pop(context), child: Text(S.t('Back to sign in'))),
             const SizedBox(height: 8),
-            TextButton(
+            SnButton(variant: SnVariant.ghost, size: SnSize.small,
               onPressed: () async {
                 await context.read<Session>().resendEmail(email).catchError((_) {});
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(S.t('We sent a new link.')), behavior: SnackBarBehavior.floating));
+                  toast(context, S.t('We sent a new link.'));
                 }
               },
               child: Text(S.t('Send the link again')),
