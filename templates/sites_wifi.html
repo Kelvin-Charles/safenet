@@ -112,7 +112,7 @@
                             <tr>
                                 <td>{{ g.name }}<small class="d-block text-muted">{{ g.mac }} · {{ g.ip }}</small></td>
                                 <td><span class="badge bg-{{ g.color }}">{{ g.state }}</span></td>
-                                <td>{% if g.code %}<code>{{ g.code }}</code>{% if g.left %}<small class="d-block text-muted">{{ _('{time} left', time=g.left) }}</small>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                                <td>{% if g.code %}<a href="{{ url_for('open_login', name=g.code) }}" class="text-decoration-none"><code>{{ g.code }}</code></a>{% if g.left %}<small class="d-block text-muted">{{ _('{time} left', time=g.left) }}</small>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
                                 <td>{% if g.username %}<span class="text-success"><i class="bi bi-check-circle"></i> {{ _('Valid') }}</span>
                                     {% elif g.authorized %}<span class="text-danger"><i class="bi bi-x-circle"></i> {{ _('No valid voucher: taken offline') }}</span><small class="d-block text-muted">{{ g.why }}</small>
                                     {% else %}<span class="text-muted">{{ _('Not online yet') }}</span>{% endif %}</td>

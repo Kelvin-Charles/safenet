@@ -68,6 +68,7 @@
 <script>
 (function () {
     const REFRESH_MS = 5000;
+    const OPEN = {{ url_for('open_login', name='X')[:-1]|tojson }};
     const T = {
         login: {{ _('Login')|tojson }}, rejected: {{ _('Rejected')|tojson }}, session: {{ _('Session')|tojson }}, ended: {{ _('Ended')|tojson }},
         payment: {{ _('Payment')|tojson }}, paid: {{ _('Paid')|tojson }}, failed: {{ _('Failed')|tojson }},
@@ -149,7 +150,7 @@
             const quiet = (now - Date.parse(r.updated)) / 60000;
             const left = r.expires ? (Date.parse(r.expires) - now) / 1000 : null;
             return `<tr class="${isNew ? 'flash' : ''}">
-                <td>${r.user ? `<strong class="font-monospace">${esc(r.user)}</strong>` : `<strong>${esc(T.guest)}</strong>`}
+                <td>${r.user ? `<a href="${OPEN}${encodeURIComponent(r.user)}" class="text-decoration-none"><strong class="font-monospace">${esc(r.user)}</strong></a>` : `<strong>${esc(T.guest)}</strong>`}
                     <small class="text-muted d-block">${esc(r.kind === 'phone' ? T.codeUnknown : (r.plan || (r.kind === 'voucher' ? T.voucher : T.user)))}${r.phone ? ' · ' + esc(r.phone) : ''}</small></td>
                 <td><small class="d-block">${esc(r.mac)}</small><small class="text-muted">${esc(r.ip)} · ${esc(r.router)}${r.signal !== undefined && r.signal !== null ? ` · <span class="${r.signal < -80 ? 'text-danger' : ''}">${esc(r.signal)} dBm</span>` : ''}</small></td>
                 <td>${duration(online)}${quiet > 3 ? `<small class="d-block stale" title="${esc(fill(T.noUpdate, {n: Math.floor(quiet)}))}"><i class="bi bi-hourglass-split"></i> ${esc(fill(T.quiet, {n: Math.floor(quiet)}))}</small>` : ''}</td>

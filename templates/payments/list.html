@@ -42,7 +42,7 @@
                     {% for p in pagination.items %}
                     <tr>
                         <td><small>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</small><small class="text-muted d-block font-monospace">{{ p.reference }}</small></td>
-                        <td>{% if p.payer_name %}<strong class="d-block">{{ p.payer_name }}</strong>{% endif %}{{ p.phone }}{% if p.gift_phone %}<small class="d-block"><i class="bi bi-gift"></i> {{ _('for {phone}', phone=p.gift_phone) }}</small>{% endif %}{% if p.channel %}<small class="text-muted d-block">{{ p.channel }}</small>{% endif %}</td>
+                        <td>{% if p.payer_name %}<strong class="d-block">{{ p.payer_name }}</strong>{% endif %}<a href="{{ url_for('payments', search=p.phone) }}" class="font-monospace">{{ p.phone }}</a>{% if p.gift_phone %}<small class="d-block"><i class="bi bi-gift"></i> {{ _('for') }} <a href="{{ url_for('payments', search=p.gift_phone) }}" class="font-monospace">{{ p.gift_phone }}</a></small>{% endif %}{% if p.channel %}<small class="text-muted d-block">{{ p.channel }}</small>{% endif %}</td>
                         <td>{{ p.package_name }}{% if p.offer_name %}<small class="d-block text-success"><i class="bi bi-gift"></i> {{ p.offer_name }}</small>{% endif %}</td>
                         <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}</td>
                         <td>
@@ -52,7 +52,7 @@
                             {% else %}<span class="badge bg-danger">{{ _('Failed') }}</span>{% endif %}
                             {% if p.message %}<small class="text-muted d-block">{{ p.message }}</small>{% endif %}
                         </td>
-                        <td>{% if p.voucher %}<span class="font-monospace">{{ p.voucher.code }}</span>{% else %}<span class="text-muted">-</span>{% endif %}</td>
+                        <td>{% if p.voucher %}<a href="{{ url_for('voucher_detail', voucher_id=p.voucher.id) }}" class="font-monospace">{{ p.voucher.code if p.voucher.code_final else '•••• ••••' }}</a>{% else %}<span class="text-muted">-</span>{% endif %}</td>
                         <td>
                             {% if p.status == 'pending' %}
                             <form method="POST" action="{{ url_for('refresh_payment', payment_id=p.id) }}">

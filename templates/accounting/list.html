@@ -55,7 +55,7 @@
                     <tr>
                         <td>
                             <i class="bi bi-person-circle"></i>
-                            <strong>{{ session.username }}</strong>
+                            <a href="{{ url_for('open_login', name=session.username) }}" class="text-decoration-none"><strong>{{ session.username }}</strong></a>
                         </td>
                         <td><code>{{ session.nasipaddress }}</code></td>
                         <td>

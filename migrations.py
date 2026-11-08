@@ -137,6 +137,7 @@ def run():
     _add_column('tenants', 'portal_language', 'VARCHAR(2) NULL')
     _add_column('tenants', 'portal_show_voucher', 'BOOLEAN NOT NULL DEFAULT 1')
     _add_column('tenants', 'portal_show_packages', 'BOOLEAN NOT NULL DEFAULT 1')
+    _add_column('tenants', 'portal_package_layout', 'VARCHAR(8) NULL')
     _add_column('tenants', 'portal_logo', 'MEDIUMBLOB NULL' if db.engine.dialect.name == 'mysql' else 'BLOB NULL')
     _add_column('tenants', 'portal_logo_type', 'VARCHAR(32) NULL')
     _add_column('tenants', 'portal_logo_at', 'DATETIME NULL')

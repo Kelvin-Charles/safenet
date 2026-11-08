@@ -67,6 +67,7 @@ class Tenant(db.Model):
     portal_language = db.Column(db.String(2))          # en, sw
     portal_show_voucher = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
     portal_show_packages = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
+    portal_package_layout = db.Column(db.String(8))    # list (one under another) or grid (tiles); NULL = list
     portal_logo = db.deferred(db.Column(db.LargeBinary(length=16777215)))   # MEDIUMBLOB; loaded only when needed
     portal_logo_type = db.Column(db.String(32))
     portal_logo_at = db.Column(db.DateTime)

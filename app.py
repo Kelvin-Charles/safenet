@@ -1604,6 +1604,35 @@ def _free_trial_stats(tid):
     return {'free_used': len(tried), 'free_bought': len(bought)}
 
 
+@app.route('/vouchers/<int:voucher_id>')
+@login_required
+def voucher_detail(voucher_id):
+    """Everything about one code: its state and times, who paid for it, its sessions and its login attempts."""
+    v = _voucher_query().filter(Voucher.id == voucher_id).first_or_404()
+    payments = scoped(Payment).filter(Payment.voucher_id == v.id).order_by(Payment.created_at.desc()).all()
+    sessions = _site_filters(tenant_id(), current_site())['sessions'](RadAcct.query).filter(RadAcct.username == v.code) \
+        .order_by(RadAcct.acctstarttime.desc()).limit(25).all()
+    attempts = RadPostAuth.query.filter(RadPostAuth.username == v.code).order_by(desc(RadPostAuth.authdate)).limit(15).all()
+    phones = {n for p in payments for n in (_normalize_tz_phone(p.phone or ''), _normalize_tz_phone(p.gift_phone or '')) if n}
+    contacts = {c.phone: c for c in SmsContact.query.filter(SmsContact.tenant_id == tenant_id(), SmsContact.phone.in_(list(phones) or ['-']))}
+    return render_template('vouchers/detail.html', v=v, payments=payments, sessions=sessions, attempts=attempts, contacts=contacts,
+                           currency=current_tenant().currency, offset=_local_offset(), now=datetime.utcnow())
+
+
+@app.route('/open/<path:name>')
+@login_required
+def open_login(name):
+    """A code or login name shown on a page (sessions, live, logs): its voucher page, or the customer account."""
+    name = name.strip()[:64]
+    v = _voucher_query().filter(Voucher.code == name).first()
+    if v:
+        return redirect(url_for('voucher_detail', voucher_id=v.id))
+    user = scoped(RadUser).filter(RadUser.username == name).first()
+    if user:
+        return redirect(url_for('edit_user', user_id=user.id))
+    return redirect(url_for('vouchers', search=name))
+
+
 @app.route('/vouchers/generate', methods=['GET', 'POST'])
 @login_required
 def generate_vouchers():
@@ -1907,7 +1936,7 @@ def portal_config(tenant):
         cfg.update(color=tenant.portal_color, style=tenant.portal_style, title=tenant.portal_title,
                    message=tenant.portal_message, language=tenant.portal_language,
                    show_voucher=tenant.portal_show_voucher, show_packages=tenant.portal_show_packages,
-                   sms=_sms_on(tenant),
+                   package_layout=tenant.portal_package_layout or 'list', sms=_sms_on(tenant),
                    logo_version=int(tenant.portal_logo_at.timestamp()) if tenant.portal_logo_at else None)
     return cfg
 
@@ -1949,7 +1978,7 @@ def _portal_packages(tenant):
                                   .order_by(Package.sort_order, Package.price)]
 
 
-PREVIEW_FIELDS = ('color', 'style', 'title', 'message', 'show_voucher', 'show_packages')
+PREVIEW_FIELDS = ('color', 'style', 'title', 'message', 'show_voucher', 'show_packages', 'package_layout')
 # What a guest's equipment shows: Omada and Ruijie use SafeNet's pages, the SafeNet gateway its own copy of them,
 # MikroTik (and other RADIUS routers) SafeNet's page for the code only, then the router's own status page.
 EQUIPMENT = {'omada': 'TP-Link Omada', 'ruijie': 'Ruijie', 'gateway': 'SafeNet gateway', 'mikrotik': 'MikroTik / other router'}
@@ -4771,7 +4800,7 @@ def portal_settings():
     form = PortalSettingsForm(color=tenant.portal_color or portal_ui.DEFAULT_COLOR, style=tenant.portal_style or 'gradient',
                               title=tenant.portal_title, message=tenant.portal_message,
                               language=tenant.portal_language or 'en', show_voucher=tenant.portal_show_voucher,
-                              show_packages=tenant.portal_show_packages)
+                              show_packages=tenant.portal_show_packages, package_layout=tenant.portal_package_layout or 'list')
     if form.validate_on_submit():
         upload = form.logo.data
         if upload and getattr(upload, 'filename', ''):
@@ -4790,6 +4819,7 @@ def portal_settings():
         tenant.portal_language = form.language.data
         tenant.portal_show_voucher = form.show_voucher.data
         tenant.portal_show_packages = form.show_packages.data
+        tenant.portal_package_layout = form.package_layout.data
         db.session.commit()
         flash(tr('Captive portal saved. Gateways pick up the changes within 5 minutes.'), 'success')
         return redirect(url_for('portal_settings'))
@@ -5132,6 +5162,32 @@ def _active_phones(tenant_id):
     return {_normalize_tz_phone(g or p or '') for p, g in rows} - {None}
 
 
+def _running_phones(tenant_id):
+    """Phones with a code whose time is running now (used, not expired): "Has time left". The others in
+    _active_phones only hold paid codes not used yet (their time starts at the first login): "Not used yet"."""
+    now = datetime.utcnow()
+    rows = db.session.query(Payment.phone, Payment.gift_phone).join(Voucher, Voucher.id == Payment.voucher_id).filter(
+        Payment.tenant_id == tenant_id, Payment.status == 'paid', Voucher.status == 'active', Voucher.expires_at > now).all()
+    return {_normalize_tz_phone(g or p or '') for p, g in rows} - {None}
+
+
+def _last_vouchers(tenant_id, phones):
+    """Each phone's latest paid code (bought by it or for it): {phone: Voucher}."""
+    if not phones:
+        return {}
+    tails = [p[3:] for p in phones]
+    conds = [Payment.phone.in_(list(phones)), Payment.gift_phone.in_(list(phones))] + \
+            [Payment.phone.like(f'%{t}') for t in tails] + [Payment.gift_phone.like(f'%{t}') for t in tails]
+    out = {}
+    rows = db.session.query(Payment, Voucher).join(Voucher, Voucher.id == Payment.voucher_id).filter(
+        Payment.tenant_id == tenant_id, Payment.status == 'paid', or_(*conds)).order_by(Payment.paid_at.desc(), Payment.id.desc())
+    for p, v in rows:
+        n = _normalize_tz_phone(p.gift_phone or p.phone or '')
+        if n in phones and n not in out:
+            out[n] = v
+    return out
+
+
 def _customer_phones(tenant, site_id=None, days=None, tag=None, state=None, quiet=None, ids=None):
     """Phones of a business's customers matching the choices: bought at a site, bought in the last `days`,
     tagged, with time left now or not, or not bought for `quiet` days; or exactly the customers `ids`."""
@@ -5373,7 +5429,9 @@ def customers():
     page = q.order_by(SmsContact.last_paid_at.is_(None), SmsContact.last_paid_at.desc(), SmsContact.id.desc()).paginate(
         page=a.get('page', 1, type=int), per_page=50, error_out=False)
     active = _active_phones(tenant.id)
-    return render_template('customers/list.html', page=page, total=total, sites=tenant_sites(), site_id=site_id, days=days, tag=tag,
+    running = _running_phones(tenant.id)
+    last = _last_vouchers(tenant.id, {c.phone for c in page.items})
+    return render_template('customers/list.html', page=page, running=running, last=last, total=total, sites=tenant_sites(), site_id=site_id, days=days, tag=tag,
                            state=state, quiet=quiet, search=search, day_choices=OFFER_SMS_DAYS, quiet_choices=CUSTOMER_QUIET,
                            all_tags=_tenant_tags(tenant.id), active=active, currency=tenant.currency or 'TZS', offset=_local_offset(),
                            sms_ready=sms_is_configured(),
@@ -6072,7 +6130,13 @@ def payments():
     if status:
         query = query.filter(Payment.status == status)
     if search:
-        query = query.filter(or_(Payment.phone.like(f'%{search}%'), Payment.reference.like(f'%{search}%')))
+        digits = re.sub(r'\D', '', search).lstrip('0')
+        conds = [Payment.phone.like(f'%{search}%'), Payment.gift_phone.like(f'%{search}%'), Payment.reference.like(f'%{search}%'),
+                 Payment.voucher_id.in_(db.session.query(Voucher.id).filter(Voucher.tenant_id == tenant_id(), Voucher.code == search))]
+        if len(digits) >= 6:              # 0754..., +255 754..., 255754...: phones are kept as 255...
+            digits = digits[3:] if digits.startswith('255') and len(digits) > 9 else digits
+            conds += [Payment.phone.like(f'%{digits}'), Payment.gift_phone.like(f'%{digits}')]
+        query = query.filter(or_(*conds))
     pagination = query.order_by(Payment.created_at.desc()).paginate(
         page=page, per_page=Config.ITEMS_PER_PAGE, error_out=False)
 
@@ -6382,7 +6446,7 @@ def api_gateway_config():
                    gateway=g.api_gateway.name if g.api_gateway else None,
                    trial=_guest_trial(t, _gateway_site()),
                    portal={k: cfg.get(k) for k in ('color', 'style', 'title', 'message', 'language',
-                                                   'show_voucher', 'show_packages', 'logo_version', 'sms')})
+                                                   'show_voucher', 'show_packages', 'package_layout', 'logo_version', 'sms')})
 
 
 def _gateway_site():

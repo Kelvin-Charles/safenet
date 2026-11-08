@@ -201,7 +201,7 @@
                 <tbody>
                 {% for r in recent %}
                 <tr>
-                    <td><strong class="font-monospace">{{ r.user }}</strong><small class="d-block text-muted">{{ r.mac or '' }}{{ ' · ' ~ r.ip if r.ip }}</small></td>
+                    <td>{% if r.user %}<a href="{{ url_for('open_login', name=r.user) }}" class="text-decoration-none"><strong class="font-monospace">{{ r.user }}</strong></a>{% endif %}<small class="d-block text-muted">{{ r.mac or '' }}{{ ' · ' ~ r.ip if r.ip }}</small></td>
                     <td>{{ r.access }}</td>
                     <td>{{ r.router }}</td>
                     <td>{{ ago(r.last) }}</td>

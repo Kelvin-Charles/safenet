@@ -75,7 +75,7 @@ friend = [x for x in sms if x[0] == '255712345678']; payer = [x for x in sms if 
 assert len(friend) == 1 and code in friend[0][1] and '0684000111 bought you 1 Day' in friend[0][1], sms
 assert len(payer) == 1 and code in payer[0][1] and 'to 0712345678' in payer[0][1], sms
 # the owner sees who it was for
-assert 'for 255712345678' in c.get('/payments').text
+assert re.search(r'for <a href="/payments\?search=255712345678"[^>]*>255712345678</a>', c.get('/payments').text)
 
 # gateway API (SafeNet gateway box): gift_phone passed through and reported back
 api_key = 'gw-test-key-0123456789'

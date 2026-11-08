@@ -62,7 +62,7 @@
                     {% for v, lost, phone in items %}
                     <tr>
                         <td><input type="checkbox" class="form-check-input vpick" name="vid" value="{{ v.id }}" {{ 'checked' if v.id in picked }}></td>
-                        <td class="font-monospace">{{ v.code }}</td>
+                        <td class="font-monospace"><a href="{{ url_for('voucher_detail', voucher_id=v.id) }}">{{ v.code }}</a></td>
                         <td>{{ phone or '—' }}</td>
                         <td><small>{{ (v.first_used_at + offset).strftime('%d %b %H:%M') }}</small></td>
                         <td><small>{{ (v.expires_at + offset).strftime('%d %b %H:%M') }}</small></td>
@@ -138,7 +138,7 @@
                 <td>{{ o.site.name if o.site else '—' }}</td>
                 <td><small>{{ (o.starts_at + offset).strftime('%d %b %H:%M') }} → {{ (o.ends_at + offset).strftime('%d %b %H:%M') }}</small></td>
                 <td>{{ o.credits|length }}</td>
-                <td><small class="font-monospace">{% for c in o.credits if c.gift %}{{ c.gift.code }}{% if c.gift.ruijie_state in ('pending', 'sending', 'catchup') %}…{% elif c.gift.ruijie_state == 'failed' %} ✗{% endif %}{% if not c.phone %} ({{ _('no phone: give by hand') }}){% endif %}{{ ', ' if not loop.last }}{% else %}—{% endfor %}</small></td>
+                <td><small class="font-monospace">{% for c in o.credits if c.gift %}<a href="{{ url_for('voucher_detail', voucher_id=c.gift.id) }}">{{ c.gift.code }}</a>{% if c.gift.ruijie_state in ('pending', 'sending', 'catchup') %}…{% elif c.gift.ruijie_state == 'failed' %} ✗{% endif %}{% if not c.phone %} ({{ _('no phone: give by hand') }}){% endif %}{{ ', ' if not loop.last }}{% else %}—{% endfor %}</small></td>
             </tr>
             {% endfor %}
             </tbody>

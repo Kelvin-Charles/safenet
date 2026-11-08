@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Voucher') }} {{ v.code if v.code_final else '' }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Voucher') }} {% if v.code_final %}<span class="font-monospace">{{ v.code }}</span>{% endif %}{% endblock %}
+
+{% macro when(d) %}{% if d %}{{ (d + offset).strftime('%d %b %Y %H:%M') }}{% else %}—{% endif %}{% endmacro %}
+{% macro phone(p) %}{% if p %}<a href="{{ url_for('payments', search=p) }}" class="font-monospace" title="{{ _('Payments from this phone') }}">{{ p }}</a>{% endif %}{% endmacro %}
+
+{% block content %}
+{% set st = v.state %}
+<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <a href="{{ url_for('vouchers') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> {{ _('Vouchers') }}</a>
+    {% if st == 'active' %}<span class="badge bg-success">{{ _('In use') }}{% if v.remaining_label %} · {{ _('{time} left', time=v.remaining_label) }}{% endif %}</span>
+    {% elif st == 'unused' %}<span class="badge bg-secondary">{{ _('Not used yet') }}</span>
+    {% elif st == 'expired' %}<span class="badge bg-light text-dark border">{{ _('Expired') }}</span>
+    {% else %}<span class="badge bg-danger">{{ _('Disabled') }}</span>{% endif %}
+    <span class="ms-auto"></span>
+    <a href="{{ url_for('edit_vouchers', ids=v.id) }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i> {{ _('Edit') }}</a>
+    <form method="POST" action="{{ url_for('toggle_voucher', voucher_id=v.id) }}" class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-sm {{ 'btn-outline-success' if v.status == 'disabled' else 'btn-outline-danger' }}" type="submit">
+            <i class="bi {{ 'bi-check-circle' if v.status == 'disabled' else 'bi-slash-circle' }}"></i> {{ _('Enable') if v.status == 'disabled' else _('Disable') }}</button>
+    </form>
+</div>
+
+<div class="row g-3">
+<div class="col-lg-5">
+<div class="card h-100">
+    <div class="card-header"><i class="bi bi-ticket-perforated"></i> {{ _('Details') }}</div>
+    <div class="card-body small">
+        <dl class="row mb-0">
+            <dt class="col-5">{{ _('Package') }}</dt><dd class="col-7">{{ v.validity_label }}{% if v.plan %} · {{ v.plan.name }}{% endif %}{% if v.price %} · {{ currency }} {{ '{:,.0f}'.format(v.price) }}{% endif %}{% if v.is_free %} · {{ _('Free') }}{% endif %}</dd>
+            <dt class="col-5">{{ _('Made') }}</dt><dd class="col-7">{{ when(v.created_at) }}{% if v.batch %}<br><a href="{{ url_for('vouchers', batch=v.batch) }}">{{ v.batch }}</a>{% endif %}</dd>
+            <dt class="col-5">{{ _('First used') }}</dt><dd class="col-7">{{ when(v.first_used_at) }}</dd>
+            <dt class="col-5">{{ _('Ends') }}</dt><dd class="col-7">{% if v.expires_at %}{{ when(v.expires_at) }}{% else %}<span class="text-muted">{{ _('Time starts at the first login') }}</span>{% endif %}</dd>
+            <dt class="col-5">{{ _('Device') }}</dt><dd class="col-7 font-monospace">{{ v.first_mac or '—' }}{% if (v.max_devices or 1) > 1 %} <span class="text-muted">({{ _('up to {n} at once', n=v.max_devices) }})</span>{% endif %}</dd>
+            <dt class="col-5">{{ _('Works at') }}</dt><dd class="col-7">{% for s in v.sites %}{{ s.name }}{{ ', ' if not loop.last }}{% else %}{{ _('All sites') }}{% endfor %}</dd>
+            {% if v.ruijie_state %}<dt class="col-5">Reyee</dt><dd class="col-7">{{ v.ruijie_state }}{% if v.ruijie_why %}<br><span class="text-muted">{{ v.ruijie_why }}</span>{% endif %}</dd>{% endif %}
+            {% if v.disabled_reason %}<dt class="col-5">{{ _('Disabled because') }}</dt><dd class="col-7">{{ v.disabled_reason }}</dd>{% endif %}
+        </dl>
+    </div>
+</div>
+</div>
+
+<div class="col-lg-7">
+<div class="card h-100">
+    <div class="card-header"><i class="bi bi-phone"></i> {{ _('Payment') }}</div>
+    <div class="card-body small">
+        {% for p in payments %}
+        <div class="{{ 'border-top pt-2 mt-2' if not loop.first }}">
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                {% if p.status == 'paid' %}<span class="badge bg-success">{{ _('Paid') }}</span>{% else %}<span class="badge bg-warning text-dark">{{ p.status }}</span>{% endif %}
+                <strong>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}</strong> · {{ p.package_name }}
+                <span class="text-muted ms-auto">{{ when(p.paid_at or p.created_at) }}</span>
+            </div>
+            {% set payer = contacts.get(p.phone) %}
+            <div class="mt-1">{{ _('Paid by') }} {% if p.payer_name %}<strong>{{ p.payer_name }}</strong> {% elif payer and payer.name %}<strong>{{ payer.name }}</strong> {% endif %}{{ phone(p.phone) }}
+                {% if payer %}· <a href="{{ url_for('customers', q=payer.local_phone) }}">{{ _('Customer') }}</a>{% endif %}</div>
+            {% if p.gift_phone %}<div><i class="bi bi-gift"></i> {{ _('Bought for') }} {{ phone(p.gift_phone) }}</div>{% endif %}
+            <div class="text-muted font-monospace">{{ p.reference }}{% if p.channel %} · {{ p.channel }}{% endif %}</div>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">{{ _('Not bought online: made on the Vouchers page or printed.') }}</p>
+        {% endfor %}
+    </div>
+</div>
+</div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header"><i class="bi bi-clock-history"></i> {{ _('Sessions') }}</div>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>{{ _('Started') }}</th><th>{{ _('Ended') }}</th><th>{{ _('Device') }}</th><th>{{ _('Data') }}</th><th></th></tr></thead>
+            <tbody>
+            {% for s in sessions %}
+            <tr>
+                <td><small>{{ when(s.acctstarttime) }}</small></td>
+                <td><small>{% if s.acctstoptime %}{{ when(s.acctstoptime) }}{% else %}<span class="badge bg-success">{{ _('Online') }}</span>{% endif %}</small></td>
+                <td><small class="font-monospace">{{ s.callingstationid or '—' }}{% if s.framedipaddress %} · {{ s.framedipaddress }}{% endif %}</small></td>
+                <td><small>{{ '%.1f'|format(((s.acctinputoctets or 0) + (s.acctoutputoctets or 0)) / 1048576) }} MB</small></td>
+                <td class="text-end"><a href="{{ url_for('accounting_detail', session_id=s.radacctid) }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-box-arrow-up-right"></i></a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-muted small">{{ _('No sessions yet.') }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if attempts %}
+<div class="card mt-3">
+    <div class="card-header"><i class="bi bi-shield-check"></i> {{ _('Login attempts') }}</div>
+    <ul class="list-group list-group-flush small">
+        {% for a in attempts %}<li class="list-group-item d-flex"><span>{{ when(a.authdate) }}</span>
+            <span class="ms-auto badge {{ 'bg-success' if a.reply == 'Access-Accept' else 'bg-danger' }}">{{ _('Accepted') if a.reply == 'Access-Accept' else _('Refused') }}</span></li>{% endfor %}
+    </ul>
+</div>
+{% endif %}
+{% endblock %}

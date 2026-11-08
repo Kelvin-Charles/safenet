@@ -370,6 +370,7 @@ class PortalSettingsForm(FlaskForm):
     language = SelectField(L('Default language'), choices=[('en', 'English'), ('sw', 'Kiswahili')])
     show_voucher = BooleanField(L('Voucher login'))
     show_packages = BooleanField(L('Buy packages with mobile money'))
+    package_layout = SelectField(L('How packages are shown'), choices=[('list', L('List: one under another')), ('grid', L('Grid: tiles side by side'))])
     logo = FileField(L('Logo (PNG, JPG or WebP, up to 300 KB)'))
     remove_logo = BooleanField(L('Remove the current logo'))
 

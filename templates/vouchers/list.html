@@ -117,7 +117,7 @@
                     {% set st = v.state %}
                     <tr>
                         <td><input type="checkbox" class="form-check-input bulk-pick" name="ids" value="{{ v.id }}" form="bulk-form" aria-label="{{ v.code if v.code_final else _('Being made on Reyee') }}"></td>
-                        <td>{% if v.code_final %}<strong class="font-monospace">{{ v.code }}</strong>{% else %}<span class="font-monospace text-muted" title="{{ _('Ruijie Cloud may give it its own code: it shows here once it is on Reyee (usually within a minute).') }}">•••• ••••</span>
+                        <td>{% if v.code_final %}<a href="{{ url_for('voucher_detail', voucher_id=v.id) }}" class="text-decoration-none"><strong class="font-monospace">{{ v.code }}</strong></a>{% else %}<span class="font-monospace text-muted" title="{{ _('Ruijie Cloud may give it its own code: it shows here once it is on Reyee (usually within a minute).') }}">•••• ••••</span>
                             <small class="d-block text-warning">{{ _('Being made on Reyee') }}</small>{% endif %}</td>
                         <td>
                             {% if v.plan %}<span class="badge vendor-badge bg-info">{{ v.plan.name }}</span>

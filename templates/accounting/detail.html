@@ -22,7 +22,7 @@
                         <table class="table table-sm">
                             <tr>
                                 <th width="40%">{{ _('Username') }}:</th>
-                                <td><strong>{{ session.username }}</strong></td>
+                                <td><a href="{{ url_for('open_login', name=session.username) }}" class="text-decoration-none"><strong>{{ session.username }}</strong></a></td>
                             </tr>
                             <tr>
                                 <th>{{ _('Group') }}:</th>

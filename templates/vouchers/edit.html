@@ -10,7 +10,7 @@
     <div class="col-md-8 offset-md-2">
         <div class="card">
             <div class="card-header"><i class="bi bi-pencil"></i>
-                {% if one %}{{ _('Voucher') }} <strong class="font-monospace">{{ one.code }}</strong>{% if one.first_used_at %} · <small class="text-muted">{{ _('in use since {date}', date=one.first_used_at.strftime('%d %b %H:%M')) }}</small>{% endif %}
+                {% if one %}{{ _('Voucher') }} <a href="{{ url_for('voucher_detail', voucher_id=one.id) }}"><strong class="font-monospace">{{ one.code }}</strong></a>{% if one.first_used_at %} · <small class="text-muted">{{ _('in use since {date}', date=one.first_used_at.strftime('%d %b %H:%M')) }}</small>{% endif %}
                 {% else %}{{ _('{n} vouchers', n=items|length) }} <small class="text-muted">{{ _('Tick what you want to change; the rest stays as it is.') }}</small>{% endif %}
             </div>
             <div class="card-body">

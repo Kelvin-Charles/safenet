@@ -313,6 +313,7 @@ def theme(cfg=None):
         'logo_url': cfg.get('logo_url') or '',
         'show_voucher': cfg.get('show_voucher', True) is not False,
         'show_packages': cfg.get('show_packages', True) is not False,
+        'package_layout': 'grid' if cfg.get('package_layout') == 'grid' else 'list',   # how the packages are laid out
         'sms': cfg.get('sms', True) is not False,          # codes are sent by SMS (off: shown on screen only)
         'ssid': (cfg.get('ssid') or '').strip(),
     }
@@ -578,7 +579,7 @@ def login_page(th, lang, *, packages=(), dst='', error='', tab=None, action='/lo
       {_alert(error, lang) if tab == 'buy' else ''}
       <form method="post" action="{e(buy_action)}" data-busy="{e(t(lang, 'busy_pay'))}" data-busy-hint="{e(t(lang, 'busy_pay_hint'))}">
         <input type="hidden" name="dst" value="{e(dst)}">
-        <div class="pkgs">{''.join(options)}</div>
+        <div class="pkgs{' grid' if th.get('package_layout') == 'grid' else ''}">{''.join(options)}</div>
         {net_tiles}
         <div class="field">
           <label for="phone">{t(lang, 'phone')}</label>

@@ -235,4 +235,7 @@ SW = {
     'Open the app': 'Fungua app',
     'Wi-Fi app poster': 'Bango la app ya Wi-Fi',
     'Print': 'Chapisha',
+    'How packages are shown': 'Jinsi vifurushi vinavyoonyeshwa',
+    'List: one under another': 'Orodha: kimoja chini ya kingine',
+    'Grid: tiles side by side': 'Gridi: visanduku kando kwa kando',
 }

@@ -77,7 +77,7 @@
                             <small>{{ log.authdate.strftime('%Y-%m-%d %H:%M:%S') }}</small>
                         </td>
                         <td>
-                            <strong>{{ log.username }}</strong>
+                            <a href="{{ url_for('open_login', name=log.username) }}" class="text-decoration-none"><strong>{{ log.username }}</strong></a>
                         </td>
                         <td>
                             {% if log.reply == 'Access-Accept' %}

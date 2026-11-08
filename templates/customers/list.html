@@ -51,13 +51,13 @@
                 {% for c in page.items %}
                 <tr>
                     <td><input type="checkbox" class="form-check-input cpick" name="cid" value="{{ c.id }}" form="pickForm" {{ 'disabled' if c.stopped_at }}></td>
-                    <td><strong>{{ c.name or '—' }}</strong><small class="d-block font-monospace">{{ c.local_phone }}</small>
+                    <td><a href="{{ url_for('payments', search=c.local_phone) }}" class="text-decoration-none" title="{{ _('Payments from this phone') }}"><strong>{{ c.name or '—' }}</strong><small class="d-block font-monospace">{{ c.local_phone }}</small></a>
                         {% if c.stopped_at %}<small class="text-danger d-block">{{ _('Asked to stop offers') }}</small>{% endif %}
                         {% if c.note %}<small class="text-muted d-block">{{ c.note }}</small>{% endif %}</td>
                     <td>{{ c.purchases }}× <small class="d-block text-muted">{{ currency }} {{ '{:,.0f}'.format(c.spent or 0) }}</small></td>
                     <td><small>{% if c.last_paid_at %}{{ (c.last_paid_at + offset).strftime('%d %b %Y') }}{% else %}—{% endif %}
-                        {% if c.last_package %}<span class="d-block text-muted">{{ c.last_package }}{% if c.last_site and sites|length > 1 %} · {{ c.last_site.name }}{% endif %}</span>{% endif %}</small></td>
-                    <td>{% if c.phone in active %}<span class="badge bg-success">{{ _('Has time left') }}</span>{% else %}<span class="badge bg-light text-dark border">{{ _('No time left') }}</span>{% endif %}</td>
+                        {% if c.last_package %}<span class="d-block text-muted">{{ c.last_package }}{% if c.last_site and sites|length > 1 %} · {{ c.last_site.name }}{% endif %}</span>{% endif %}{% set lv = last.get(c.phone) %}{% if lv %}<a href="{{ url_for('voucher_detail', voucher_id=lv.id) }}" class="d-block font-monospace" title="{{ _('Last code bought') }}"><i class="bi bi-ticket-perforated"></i> {{ lv.code if lv.code_final else '•••• ••••' }}</a>{% endif %}</small></td>
+                    <td>{% if c.phone in running %}<span class="badge bg-success">{{ _('Has time left') }}</span>{% elif c.phone in active %}<span class="badge bg-secondary" title="{{ _('Paid, but the code has not been used yet: its time starts at the first login.') }}">{{ _('Not used yet') }}</span>{% else %}<span class="badge bg-light text-dark border">{{ _('No time left') }}</span>{% endif %}</td>
                     <td>{% for t in c.tag_list %}<a href="{{ url_for('customers', tag=t) }}" class="badge bg-info text-dark text-decoration-none">{{ t }}</a> {% endfor %}</td>
                     <td class="text-nowrap">
                         <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#edit{{ c.id }}" title="{{ _('Edit') }}"><i class="bi bi-pencil"></i></button>
