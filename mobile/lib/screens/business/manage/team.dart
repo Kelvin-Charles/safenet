@@ -19,7 +19,7 @@ class TeamScreen extends StatefulWidget {
 class _TeamScreenState extends State<TeamScreen> {
   int key = 0;
 
-  static Color roleColor(String r) => switch (r) { 'owner' => kNavy, 'admin' => kAccent, 'staff' => kGood, _ => kGold };
+  static Color roleColor(BuildContext c, String r) => switch (r) { 'owner' => Sn.brand(c), 'admin' => kAccent, 'staff' => kGood, _ => kGold };
 
   @override
   Widget build(BuildContext context) {
@@ -47,9 +47,9 @@ class _TeamScreenState extends State<TeamScreen> {
                   child: SnTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                     leading: CircleAvatar(
-                      backgroundColor: roleColor(m['role'] as String).withValues(alpha: 0.14),
+                      backgroundColor: roleColor(context, m['role'] as String).withValues(alpha: 0.14),
                       child: Text((m['username'] as String).substring(0, 1).toUpperCase(),
-                          style: TextStyle(color: roleColor(m['role'] as String), fontWeight: FontWeight.w800)),
+                          style: TextStyle(color: roleColor(context, m['role'] as String), fontWeight: FontWeight.w800)),
                     ),
                     title: Row(children: [
                       Flexible(child: Text('${m['username']}', style: const TextStyle(fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis)),

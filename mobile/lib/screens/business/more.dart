@@ -55,7 +55,7 @@ class MoreScreen extends StatelessWidget {
       (S.t('Business'), [
         if (admin) _Tile(Icons.groups_rounded, S.t('Team'), Colors.brown, () => push(const TeamScreen())),
         if (admin) _Tile(Icons.tune_rounded, S.t('Settings'), Colors.blueGrey, () => push(const SettingsScreen())),
-        if (s.can('withdraw')) _Tile(Icons.workspace_premium_rounded, S.t('SafeNet plan'), kNavy, () => web(S.t('SafeNet plan'), '/billing')),
+        if (s.can('withdraw')) _Tile(Icons.workspace_premium_rounded, S.t('SafeNet plan'), Sn.brand(context), () => web(S.t('SafeNet plan'), '/billing')),
         _Tile(Icons.menu_book_rounded, S.t('Setup guides'), Colors.teal.shade700, () => web(S.t('Setup guides'), '/docs')),
       ]),
     ];
@@ -157,6 +157,21 @@ class MoreScreen extends StatelessWidget {
                   selected: {S.lang},
                   showSelectedIcon: false,
                   onSelectionChanged: (v) => s.setLanguage(v.first),
+                ),
+              ),
+            ),
+            SectionTitle(S.t('Appearance')),
+            SnCard(
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: SnSegmented<ThemeMode>(
+                  segments: [
+                    ButtonSegment(value: ThemeMode.light, label: Text(S.t('Light')), icon: const Icon(Icons.light_mode_rounded)),
+                    ButtonSegment(value: ThemeMode.dark, label: Text(S.t('Dark')), icon: const Icon(Icons.dark_mode_rounded)),
+                  ],
+                  selected: {s.themeMode},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (v) => s.setThemeMode(v.first),
                 ),
               ),
             ),

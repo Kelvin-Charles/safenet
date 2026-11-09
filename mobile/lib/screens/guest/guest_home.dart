@@ -25,12 +25,15 @@ class GuestHome extends StatelessWidget {
           onSelected: (v) async {
             if (v == 'lang') {
               s.setLanguage(S.lang == 'sw' ? 'en' : 'sw');
+            } else if (v == 'theme') {
+              s.setThemeMode(s.themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark);
             } else if (await confirm(context, S.t('Sign out?'), yes: S.t('Sign out'), danger: true)) {
               s.signOut();
             }
           },
           itemBuilder: (_) => [
             PopupMenuItem(value: 'lang', child: Text(S.lang == 'sw' ? 'English' : 'Kiswahili')),
+            PopupMenuItem(value: 'theme', child: Text(S.t(s.themeMode == ThemeMode.dark ? 'Light theme' : 'Dark theme'))),
             PopupMenuItem(value: 'out', child: Text(S.t('Sign out'))),
           ],
         ),

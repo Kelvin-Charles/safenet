@@ -45,6 +45,7 @@ class _SafeNetAppState extends State<SafeNetApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),
+      themeMode: s.themeMode,
       home: !s.ready
           ? const _Splash()
           : switch (s.kind) {

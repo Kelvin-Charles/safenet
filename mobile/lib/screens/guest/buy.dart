@@ -382,9 +382,9 @@ class _CheckoutState extends State<_Checkout> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         decoration: BoxDecoration(
-                          color: kNavy.withValues(alpha: 0.06),
+                          color: Sn.brand(context).withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: kNavy.withValues(alpha: 0.25), width: 1.5),
+                          border: Border.all(color: Sn.brand(context).withValues(alpha: 0.25), width: 1.5),
                         ),
                         child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                           Text('${result!['code']}', style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: 5, fontFamily: 'monospace')),

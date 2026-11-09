@@ -966,7 +966,7 @@ class _ToastState extends State<_Toast> with SingleTickerProviderStateMixin {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
-                  color: widget.error ? kBad : const Color(0xFF0F172A),
+                  color: widget.error ? kBad : Sn.dark(context) ? const Color(0xFF26324D) : const Color(0xFF0F172A),
                   borderRadius: BorderRadius.circular(Sn.r3),
                   boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 20, offset: const Offset(0, 8))],
                 ),

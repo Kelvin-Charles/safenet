@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api.dart';
@@ -23,6 +24,7 @@ class Session extends ChangeNotifier {
   Map<String, dynamic>? me; // business: /api/m/me
   String? guestPhone;
   bool ready = false;
+  ThemeMode themeMode = ThemeMode.light; // light unless the person chose dark (kept after signing out)
 
   String get lang => S.lang;
 
@@ -31,6 +33,7 @@ class Session extends ChangeNotifier {
     final k = await _store.read(key: 'kind');
     final site = await _store.read(key: 'site');
     S.lang = await _store.read(key: 'lang') ?? 'sw';
+    themeMode = await _store.read(key: 'theme') == 'dark' ? ThemeMode.dark : ThemeMode.light;
     if (token != null && k != null) {
       api.token = token;
       api.siteId = int.tryParse(site ?? '');
@@ -149,6 +152,12 @@ class Session extends ChangeNotifier {
     api.siteId = id;
     await _store.write(key: 'site', value: id?.toString() ?? '');
     notifyListeners();
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    themeMode = mode;
+    notifyListeners();
+    await _store.write(key: 'theme', value: mode == ThemeMode.dark ? 'dark' : 'light');
   }
 
   Future<void> setLanguage(String value) async {
