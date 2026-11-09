@@ -15,9 +15,11 @@
         .bar .on { background: {{ color }}; color: #fff; border-color: {{ color }}; }
         .bar label { display: inline-flex; gap: 6px; align-items: center; }
         .stage { padding: 20px 0; display: flex; justify-content: center; }
-        .sheet { --u: calc(1mm * {{ paper[0] }} / 210); width: {{ paper[0] }}mm; min-height: {{ paper[1] }}mm; background: #fff;
+        /* --k (set by the script) shrinks everything evenly when the content is taller than the paper */
+        .sheet { --u: calc(1mm * {{ paper[0] }} / 210 * var(--k, 1)); width: {{ paper[0] }}mm; min-height: {{ paper[1] }}mm; background: #fff;
                  padding: calc(var(--u) * 11); display: flex; flex-direction: column; gap: calc(var(--u) * 6); box-shadow: 0 10px 40px rgba(15,23,42,.18); }
         .sheet.cards { padding: calc(var(--u) * 8); }
+        .sheet > * { flex-shrink: 0; }     /* never squash the header (or anything) to make room: shrink evenly instead */
         .qr img { display: none !important; }
         .qr canvas { display: block !important; width: 100% !important; height: auto !important; image-rendering: pixelated; }
 
@@ -97,7 +99,7 @@
         <div class="grid">
             {% for i in range(6) %}
             <div class="card">
-                <div class="top">{{ name }} Wi-Fi</div>
+                <div class="top">{{ title }}</div>
                 <div class="qr" data-qr></div>
                 <div class="ssid">Network / Mtandao: <b>{{ ssid }}</b>{% if password %}<br>Password / Nenosiri: <b>{{ password }}</b>{% endif %}</div>
                 {% if from_price %}<div class="from">From / Kuanzia {{ from_price }}</div>{% endif %}
@@ -113,7 +115,7 @@
             {% if logo_url %}<img src="{{ logo_url }}" alt="">{% else %}
             <svg class="wifi" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M2 9a15 15 0 0 1 20 0"/><circle cx="12" cy="19.5" r="1.2" fill="#fff"/></svg>{% endif %}
             <div>
-                <h1>{{ name }} Wi-Fi</h1>
+                <h1>{{ title }}</h1>
                 <p>Fast internet · Pay with mobile money</p>
                 <p>Intaneti ya kasi · Lipa kwa simu</p>
             </div>
@@ -163,10 +165,17 @@
         document.querySelectorAll('[data-qr]').forEach(function (el) {
             if (window.QRCode) new QRCode(el, { text: el.dataset.text || joinText, width: 640, height: 640, correctLevel: QRCode.CorrectLevel.M });
         });
+        // too much for one page (logo, many packages, long text): shrink everything evenly so it fits, as printed
+        function shrink() { var s = document.querySelector('.sheet'); s.style.setProperty('--fit', 1); s.style.setProperty('--k', 1);
+            var page = parseFloat(getComputedStyle(s).minHeight), fits = function (k) { s.style.setProperty('--k', k); return s.scrollHeight <= page + 1; };
+            if (!fits(1)) { var lo = .35, hi = 1;          // the biggest size that still fits (text rewraps as it shrinks)
+                for (var i = 0; i < 10; i++) { var mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+                fits(lo); }
+            fit(); }
         // on screen, fit the sheet to the window (printing uses the real paper size)
         function fit() { var s = document.querySelector('.sheet'); s.style.setProperty('--fit', 1);
             var w = s.getBoundingClientRect().width; s.style.setProperty('--fit', Math.min(1, (window.innerWidth - 40) / w)); }
-        window.addEventListener('resize', fit); fit();
+        window.addEventListener('resize', fit); window.addEventListener('load', shrink); shrink();
     </script>
 </body>
 </html>

@@ -94,4 +94,12 @@ q = html.unescape(c.get(f'/sites/{SID}/wifi-qr').text)
 assert q.count('class="tile"') == 2 and 'TZS 1,000' in q and 'Up to 5 Mb/s' in q and 'Packages <span class="sw">Vifurushi</span>' in q
 assert 'From / Kuanzia TZS 300' in c.get(f'/sites/{SID}/wifi-qr?layout=cards').text
 assert 'class="tile"' not in c.get(f'/sites/{SID}/wifi-qr?packages=0').text
+# printing: nothing is squashed to make room (the header was cut); too much content shrinks evenly instead
+q = c.get(f'/sites/{SID}/wifi-qr?layout=poster&size=A3').text
+assert '.sheet > * { flex-shrink: 0; }' in q and 'var(--k, 1)' in q and "addEventListener('load', shrink)" in q
+assert '<h1>Zulu Connect Wi-Fi</h1>' in q
+with app.app_context():
+    db.session.get(Tenant, TID).name = 'Zulu WIFI'; db.session.commit()
+q = c.get(f'/sites/{SID}/wifi-qr?layout=poster').text
+assert '<h1>Zulu WIFI</h1>' in q and 'WIFI Wi-Fi' not in q                     # not "Zulu WIFI Wi-Fi"
 print('WIFI QR OK')

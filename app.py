@@ -7208,8 +7208,9 @@ def wifi_qr(site_id):
     networks = [{'name': n['name'], 'logo': url_for('static', filename='img/' + portal_ui.NETWORKS[n['id']]['logo']) + f'?v={portal_ui.LOGOS_VERSION}'}
                 for n in payment_networks(tenant) if n['id'] in portal_ui.NETWORKS]
     size = request.args.get('size') if request.args.get('size') in PAPER_SIZES else 'A4'
+    title = hs['name'] if re.search(r'wi-?fi', hs['name'] or '', re.I) else f"{hs['name']} Wi-Fi"    # not "SafeNet WIFI Wi-Fi"
     return render_template('wifi_qr.html', site=site, ssid=ssid, password=site.wifi_password,
-                           qr_text=_wifi_qr_text(ssid, site.wifi_password), name=hs['name'], support=hs['support'],
+                           qr_text=_wifi_qr_text(ssid, site.wifi_password), name=hs['name'], title=title, support=hs['support'],
                            color=th['color'], dark=th['dark'], app_url=_guest_app_link(tenant),
                            layout='cards' if request.args.get('layout') == 'cards' else 'poster',
                            packages=packages if request.args.get('packages') != '0' else [], has_packages=bool(packages),
