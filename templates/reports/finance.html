@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Financial report') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Financial report') }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .fin-kpi { background: #fff; border-radius: 14px; padding: 1rem 1.1rem; border-left: 4px solid var(--c); height: 100%; box-shadow: 0 1px 2px rgba(15,23,42,.06); }
+    .fin-kpi .l { font-size: .7rem; font-weight: 700; letter-spacing: .04em; color: #6B7280; text-transform: uppercase; }
+    .fin-kpi .v { font-size: 1.6rem; font-weight: 800; color: var(--c); line-height: 1.2; }
+    .fin-kpi .s { font-size: .78rem; color: #6B7280; }
+    .stmt td { padding: .3rem .5rem; }
+    .stmt .sec td { padding-top: .9rem; font-weight: 700; color: #051D60; font-size: .78rem; letter-spacing: .04em; }
+    .stmt .tot td { font-weight: 700; border-top: 1.5px solid #111827; }
+    .stmt .net td { font-weight: 800; color: #fff !important; font-size: 1.05rem; background: var(--n) !important; padding: .55rem .6rem; }
+    .stmt .ind { padding-left: 1.4rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set cur = rep.currency %}
+{% set money = '{:,.0f}' %}
+{% set t = rep.totals %}
+<form method="GET" class="card mb-3"><div class="card-body d-flex flex-wrap gap-2 align-items-end">
+    <div><label class="form-label small mb-1">{{ _('Period') }}</label>
+        <select name="period" class="form-select form-select-sm" style="min-width: 12rem" onchange="document.getElementById('months').hidden = this.value !== 'custom'; if (this.value !== 'custom') this.form.submit()">
+            {% for key, label in periods %}<option value="{{ key }}" {{ 'selected' if rep.period == key }}>{{ label }}</option>{% endfor %}
+        </select></div>
+    <div id="months" {{ 'hidden' if rep.period != 'custom' }}><div class="d-flex gap-2 align-items-end">
+        <div><label class="form-label small mb-1">{{ _('From') }}</label><input type="month" name="from" value="{{ rep.start }}" class="form-control form-control-sm"></div>
+        <div><label class="form-label small mb-1">{{ _('To') }}</label><input type="month" name="to" value="{{ rep.end }}" class="form-control form-control-sm"></div>
+        <button class="btn btn-sm btn-outline-primary">{{ _('Show') }}</button>
+    </div></div>
+    <div class="ms-auto d-flex flex-wrap gap-2">
+        <a href="{{ pdf_url }}&view=1" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-eye"></i> {{ _('Open PDF') }}</a>
+        <a href="{{ pdf_url }}" class="btn btn-sm btn-primary"><i class="bi bi-file-earmark-pdf"></i> {{ _('Download PDF') }}</a>
+    </div>
+</div></form>
+
+<div class="mb-3">
+    <h2 class="h5 mb-0">{{ rep.business }}</h2>
+    <div class="text-muted small">{% if rep.site_name %}{{ rep.site_name }} · {% endif %}{{ rep.title }} · {{ _('Amounts in {currency}', currency=cur) }}</div>
+</div>
+
+{% macro change(key, good_up=True) %}
+    {% set c = rep.compare[key] %}
+    {% if c is none %}{{ _('No earlier figures to compare') }}
+    {% else %}<strong class="{{ 'text-success' if (c > 0) == good_up and c else ('text-danger' if c else '') }}">{{ '+' if c > 0 }}{{ c }}%</strong> {{ _('vs the period before') }}{% endif %}
+{% endmacro %}
+<div class="row g-3 mb-3">
+    <div class="col-md-3 col-6"><div class="fin-kpi" style="--c:#15803D"><div class="l">{{ _('Money in') }}</div><div class="v">{{ money.format(t.sales) }}</div><div class="s">{{ change('sales') }}</div></div></div>
+    <div class="col-md-3 col-6"><div class="fin-kpi" style="--c:#B91C1C"><div class="l">{{ _('Money out') }}</div><div class="v">{{ money.format(t.out) }}</div><div class="s">{{ change('out', False) }}</div></div></div>
+    <div class="col-md-3 col-6"><div class="fin-kpi" style="--c:{{ '#15803D' if t.net >= 0 else '#B91C1C' }}"><div class="l">{{ _('Net profit') if t.net >= 0 else _('Net loss') }}</div><div class="v">{{ money.format(t.net) }}</div><div class="s">{{ change('net') }}</div></div></div>
+    <div class="col-md-3 col-6"><div class="fin-kpi" style="--c:#051D60"><div class="l">{{ _('Profit margin') }}</div><div class="v">{{ (t.margin ~ '%') if t.margin is not none else '-' }}</div><div class="s">{{ _('of money in kept as profit') }}</div></div></div>
+</div>
+
+<div class="row">
+    <div class="col-lg-7">
+        <div class="card"><div class="card-header"><i class="bi bi-journal-text"></i> {{ _('Income statement') }}</div><div class="card-body">
+            <table class="table table-sm stmt mb-0">
+                <tr class="sec"><td colspan="2">{{ _('INCOME') }}</td></tr>
+                <tr><td class="ind">{{ _('Mobile-money sales') }}</td><td class="text-end">{{ money.format(t.online) }}</td></tr>
+                <tr><td class="ind">{{ _('Cash vouchers') }}</td><td class="text-end">{{ money.format(t.cash) }}</td></tr>
+                <tr class="tot"><td>{{ _('Total income') }}</td><td class="text-end">{{ money.format(t.sales) }}</td></tr>
+                <tr class="sec"><td colspan="2">{{ _('EXPENSES') }}</td></tr>
+                {% for name, amount in rep.by_cat %}<tr><td class="ind">{{ name }}</td><td class="text-end">{{ money.format(amount) }}</td></tr>{% endfor %}
+                {% if t.fees %}<tr><td class="ind">{{ _('SafeNet payment fees') }}</td><td class="text-end">{{ money.format(t.fees) }}</td></tr>{% endif %}
+                {% if t.sms %}<tr><td class="ind">{{ _('SMS to customers') }}</td><td class="text-end">{{ money.format(t.sms) }}</td></tr>{% endif %}
+                {% if t.plan %}<tr><td class="ind">{{ _('SafeNet plan') }}</td><td class="text-end">{{ money.format(t.plan) }}</td></tr>{% endif %}
+                {% if not rep.by_cat and not t.safenet %}<tr><td class="ind text-muted">{{ _('No expenses recorded') }}</td><td class="text-end">0</td></tr>{% endif %}
+                <tr class="tot"><td>{{ _('Total expenses') }}</td><td class="text-end">{{ money.format(t.out) }}</td></tr>
+                <tr class="net" style="--n: {{ '#15803D' if t.net >= 0 else '#B91C1C' }}"><td>{{ _('NET PROFIT') if t.net >= 0 else _('NET LOSS') }}</td><td class="text-end">{{ money.format(t.net) }}</td></tr>
+            </table>
+        </div></div>
+    </div>
+    <div class="col-lg-5">
+        {% set pb = rep.payback %}
+        <div class="card"><div class="card-header"><i class="bi bi-piggy-bank"></i> {{ _('Investment and payback') }} <small class="text-muted">({{ _('all time') }})</small></div><div class="card-body">
+            {% if pb.out or pb['in'] %}
+            <div class="fs-4 fw-bold">{{ pb.percent }}% <small class="fs-6 fw-normal text-muted">{{ _('paid back (all time)') }}</small></div>
+            <div class="progress my-2" style="height: 10px;"><div class="progress-bar {{ 'bg-success' if pb.percent >= 100 }}" style="width: {{ pb.percent }}%"></div></div>
+            <table class="table table-sm mb-0 small">
+                <tr><td>{{ _('Invested (your expenses)') }}</td><td class="text-end">{{ money.format(pb.invested) }}</td></tr>
+                <tr><td>{{ _('All money out') }}</td><td class="text-end">{{ money.format(pb.out) }}</td></tr>
+                <tr><td>{{ _('All money in') }}</td><td class="text-end">{{ money.format(pb['in']) }}</td></tr>
+                <tr class="fw-bold"><td>{{ _('Profit so far') if pb.net >= 0 else _('Still to earn back') }}</td><td class="text-end">{{ money.format(pb.net|abs) }}</td></tr>
+            </table>
+            {% else %}<p class="text-muted mb-0">{{ _('No money in or out yet.') }}</p>{% endif %}
+        </div></div>
+        {% if rep.has_prev %}
+        <div class="card"><div class="card-header"><i class="bi bi-arrow-left-right"></i> {{ _('Compared with the period before') }}</div><div class="card-body">
+            <table class="table table-sm mb-0 small">
+                <thead><tr><th></th><th class="text-end">{{ _('Before') }}</th><th class="text-end">{{ _('Now') }}</th></tr></thead>
+                <tr><td>{{ _('Money in') }}</td><td class="text-end">{{ money.format(rep.prev.sales) }}</td><td class="text-end">{{ money.format(t.sales) }}</td></tr>
+                <tr><td>{{ _('Money out') }}</td><td class="text-end">{{ money.format(rep.prev.out) }}</td><td class="text-end">{{ money.format(t.out) }}</td></tr>
+                <tr class="fw-bold"><td>{{ _('Net') }}</td><td class="text-end">{{ money.format(rep.prev.net) }}</td><td class="text-end">{{ money.format(t.net) }}</td></tr>
+            </table>
+        </div></div>
+        {% endif %}
+    </div>
+</div>
+
+{% if rep.sites %}
+<div class="card"><div class="card-header"><i class="bi bi-geo-alt"></i> {{ _('Sites compared') }}</div><div class="card-body"><div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>{{ _('Site') }}</th><th class="text-end">{{ _('Money in') }}</th><th class="text-end">{{ _('Money out') }}</th><th class="text-end">{{ _('Net') }}</th><th class="text-end">{{ _('Margin') }}</th></tr></thead>
+        {% for s in rep.sites %}<tr class="{{ 'text-muted' if s.other }}"><td>{{ s.name }}</td><td class="text-end">{{ money.format(s.sales) }}</td><td class="text-end">{{ money.format(s.out) }}</td>
+            <td class="text-end {{ 'text-success' if s.net > 0 else ('text-danger' if s.net < 0) }}">{{ money.format(s.net) }}</td><td class="text-end">{{ (s.margin ~ '%') if s.margin is not none else '-' }}</td></tr>{% endfor %}
+    </table>
+</div></div></div>
+{% endif %}
+
+{% if rep.shown|length > 1 %}
+<div class="card"><div class="card-header"><i class="bi bi-calendar3"></i> {{ _('Month by month ({currency})', currency=cur) }}</div><div class="card-body"><div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>{{ _('Month') }}</th><th class="text-end">{{ _('Mobile money') }}</th><th class="text-end">{{ _('Cash') }}</th><th class="text-end">{{ _('Money in') }}</th><th class="text-end">{{ _('Expenses') }}</th><th class="text-end">SafeNet</th><th class="text-end">{{ _('Net') }}</th><th class="text-end">{{ _('Running total') }}</th></tr></thead>
+        {% for r in rep.shown %}<tr><td class="text-nowrap">{{ r.label }}</td><td class="text-end">{{ money.format(r.online) }}</td><td class="text-end">{{ money.format(r.cash) }}</td><td class="text-end">{{ money.format(r.sales) }}</td>
+            <td class="text-end">{{ money.format(r.spent) }}</td><td class="text-end">{{ money.format(r.safenet) }}</td>
+            <td class="text-end {{ 'text-success' if r.net > 0 else ('text-danger' if r.net < 0) }}">{{ money.format(r.net) }}</td>
+            <td class="text-end fw-bold {{ 'text-success' if r.running > 0 else ('text-danger' if r.running < 0) }}">{{ money.format(r.running) }}</td></tr>{% endfor %}
+    </table>
+</div></div></div>
+{% endif %}
+
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card"><div class="card-header"><i class="bi bi-bag"></i> {{ _('Sales by package') }}</div><div class="card-body">
+            {% if rep.packages %}
+            <table class="table table-sm mb-0 small">
+                <thead><tr><th>{{ _('What was sold') }}</th><th class="text-end">{{ _('Sold') }}</th><th class="text-end">{{ _('Amount ({currency})', currency=cur) }}</th></tr></thead>
+                {% for name, count, amount in rep.packages %}<tr><td>{{ name }}</td><td class="text-end">{{ '{:,}'.format(count) }}</td><td class="text-end">{{ money.format(amount) }}</td></tr>{% endfor %}
+            </table>
+            {% else %}<p class="text-muted mb-0">{{ _('Nothing sold in this period.') }}</p>{% endif %}
+        </div></div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card"><div class="card-header"><i class="bi bi-receipt"></i> {{ _('Expense details') }}</div><div class="card-body">
+            {% if rep['items'] %}
+            <div class="table-responsive"><table class="table table-sm mb-0 small">
+                <thead><tr><th>{{ _('Date') }}</th><th>{{ _('What') }}</th>{% if rep.all_sites %}<th>{{ _('Site') }}</th>{% endif %}<th class="text-end">{{ _('Amount ({currency})', currency=cur) }}</th></tr></thead>
+                {% for e in rep['items'] %}<tr><td class="text-nowrap">{{ e.spent_on.strftime('%Y-%m-%d') }}</td><td>{{ e.description }}<span class="d-block text-muted">{{ rep.categories.get(e.category, e.category) }}{% if e.paid_to %} · {{ _('to {name}', name=e.paid_to) }}{% endif %}</span></td>
+                    {% if rep.all_sites %}<td>{{ e.site.name if e.site else _('Whole business') }}</td>{% endif %}<td class="text-end text-nowrap">{{ money.format(e.amount) }}</td></tr>{% endfor %}
+            </table></div>
+            {% else %}<p class="text-muted mb-0">{{ _('No expenses in this period.') }}{% if current_user.has_role('admin') %} <a href="{{ url_for('add_expense') }}">{{ _('Add an expense') }}</a>{% endif %}</p>{% endif %}
+        </div></div>
+    </div>
+</div>
+<p class="small text-muted">{{ _('Money in is what customers paid: mobile-money payments when they were paid, and cash vouchers when they were first used. Money out is the expenses recorded in SafeNet plus what SafeNet charged (payment fees, SMS and the SafeNet plan). Payback counts everything from the first month.') }}</p>
+{% endblock %}

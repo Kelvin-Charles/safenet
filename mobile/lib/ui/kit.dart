@@ -150,8 +150,8 @@ class SnButton extends StatelessWidget {
           constraints: BoxConstraints(minHeight: h, minWidth: expand ? double.infinity : 0),
           padding: EdgeInsets.symmetric(horizontal: pad),
           decoration: deco,
-          alignment: Alignment.center,
-          child: text,
+          // centred, but only as tall as the button (an aligned box would fill a page's bottom bar)
+          child: Align(widthFactor: expand ? null : 1, heightFactor: 1, child: text),
         ),
       ),
     );
@@ -672,9 +672,10 @@ class _Arc extends CustomPainter {
 }
 
 class SnProgressBar extends StatelessWidget {
-  const SnProgressBar({super.key, this.value, this.minHeight = 4});
+  const SnProgressBar({super.key, this.value, this.minHeight = 4, this.color});
   final double? value;
   final double minHeight;
+  final Color? color;   // a solid bar instead of the brand gradient
 
   @override
   Widget build(BuildContext context) => ClipRRect(
@@ -684,7 +685,7 @@ class SnProgressBar extends StatelessWidget {
           child: value == null ? const _Indeterminate() : LayoutBuilder(
             builder: (_, box) => Stack(children: [
               Container(color: Sn.line(context)),
-              AnimatedContainer(duration: Sn.fast, width: box.maxWidth * value!.clamp(0, 1), decoration: const BoxDecoration(gradient: Sn.gradient)),
+              AnimatedContainer(duration: Sn.fast, width: box.maxWidth * value!.clamp(0, 1), decoration: color != null ? BoxDecoration(color: color) : const BoxDecoration(gradient: Sn.gradient)),
             ]),
           ),
         ),

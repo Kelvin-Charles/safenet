@@ -181,7 +181,8 @@ def block_suspended_tenants():
 # Partners / shareholders (role "viewer"): read-only pages only; a partner limited to one
 # site also doesn't see the business-wide pages (earnings balance, all sites, customer accounts).
 VIEWER_PAGES = {'dashboard', 'live', 'api_live', 'payments', 'accounting', 'accounting_detail', 'vouchers',
-                'docs', 'logout', 'static', 'landing', 'stop_impersonating', 'portal', 'portal_logo', 'set_language', 'expenses', 'expenses_csv'}
+                'docs', 'logout', 'static', 'landing', 'stop_impersonating', 'portal', 'portal_logo', 'set_language', 'expenses', 'expenses_csv',
+                'finance_report', 'finance_report_pdf'}
 VIEWER_BUSINESS_PAGES = VIEWER_PAGES | {'earnings', 'sites_page', 'users', 'auth_logs', 'switch_site'}
 VIEWER_CHANGES = {'switch_site', 'stop_impersonating', 'set_language'}      # the only POSTs a partner may make
 
@@ -7564,26 +7565,32 @@ def _can_see_expenses():
     return current_user.has_role('admin') or current_user.is_viewer
 
 
+_MONEY_KEYS = ('sales', 'online', 'cash', 'fees', 'sms', 'plan', 'spent')
+
+
 def _money_by_month(tid, site):
     """{'YYYY-MM': {sales, fees, sms, plan, spent}} for one site (None = the whole business), in local months.
     sales: what customers paid (mobile money + cash vouchers first used); fees, sms, plan: what SafeNet charged;
     spent: expenses recorded by hand (a site's own; the whole business: every expense)."""
     offset = _local_offset()
     months = {}
-    row = lambda when: months.setdefault((when + offset).strftime('%Y-%m'), dict.fromkeys(('sales', 'fees', 'sms', 'plan', 'spent'), Decimal(0)))
+    row = lambda when: months.setdefault((when + offset).strftime('%Y-%m'), dict.fromkeys(_MONEY_KEYS, Decimal(0)))
     view = _site_filters(tid, site)
     pays = view['payments'](db.session.query(Payment.paid_at, Payment.amount, Payment.fee_amount, Payment.provider_account)
                             .filter(Payment.tenant_id == tid, Payment.status == 'paid', Payment.paid_at.isnot(None)))
     for when, amount, fee, account in pays:
         r = row(when)
         r['sales'] += Decimal(str(amount or 0))
+        r['online'] += Decimal(str(amount or 0))
         if account == 'platform':
             r['fees'] += Decimal(str(fee or 0))
     cash = view['vouchers'](db.session.query(Voucher.first_used_at, Voucher.price).filter(
         Voucher.tenant_id == tid, Voucher.first_used_at.isnot(None), Voucher.price.isnot(None),
         or_(Voucher.batch.is_(None), Voucher.batch != 'online-payments')))
     for when, price in cash:
-        row(when)['sales'] += Decimal(str(price or 0))
+        r = row(when)
+        r['sales'] += Decimal(str(price or 0))
+        r['cash'] += Decimal(str(price or 0))
     sms = db.session.query(SmsCharge.created_at, SmsCharge.amount).filter(SmsCharge.tenant_id == tid)
     for when, amount in (sms.filter(SmsCharge.site_id == site.id) if site else sms):
         row(when)['sms'] += Decimal(str(amount or 0))
@@ -7593,7 +7600,7 @@ def _money_by_month(tid, site):
             row(when)['plan'] += Decimal(str(amount or 0)) - Decimal(str(sms_part or 0))
     spent = db.session.query(Expense.spent_on, Expense.amount).filter(Expense.tenant_id == tid)
     for day, amount in (spent.filter(Expense.site_id == site.id) if site else spent):
-        months.setdefault(day.strftime('%Y-%m'), dict.fromkeys(('sales', 'fees', 'sms', 'plan', 'spent'), Decimal(0)))['spent'] += Decimal(str(amount))
+        months.setdefault(day.strftime('%Y-%m'), dict.fromkeys(_MONEY_KEYS, Decimal(0)))['spent'] += Decimal(str(amount))
     return months
 
 
@@ -7624,7 +7631,7 @@ def _expense_report(tid, site, period):
         last = max(keys[-1], (datetime.utcnow() + _local_offset()).strftime('%Y-%m'))
         while f'{y:04d}-{m:02d}' <= last:
             k = f'{y:04d}-{m:02d}'
-            r = months.get(k) or dict.fromkeys(('sales', 'fees', 'sms', 'plan', 'spent'), Decimal(0))
+            r = months.get(k) or dict.fromkeys(_MONEY_KEYS, Decimal(0))
             out = r['spent'] + r['fees'] + r['sms'] + r['plan']
             running += r['sales'] - out
             rows.append(dict(r, month=k, label=datetime(y, m, 1).strftime('%b %Y'), out=out, net=r['sales'] - out, running=running))
@@ -7787,6 +7794,172 @@ def delete_expense(expense_id):
     db.session.commit()
     flash(tr('Expense deleted.'), 'success')
     return redirect(url_for('expenses'))
+
+
+# ---------------------------------------------------------------------------
+# Financial report: income statement for a period (on screen and as a PDF)
+# ---------------------------------------------------------------------------
+REPORT_PERIODS = ('this_month', 'last_month', 'this_quarter', 'last_quarter', 'this_year', 'last_year', '12m', 'all', 'custom')
+
+
+def _report_period_names():
+    return [('this_month', tr('This month')), ('last_month', tr('Last month')), ('this_quarter', tr('This quarter')),
+            ('last_quarter', tr('Last quarter')), ('this_year', tr('This year')), ('last_year', tr('Last year')),
+            ('12m', tr('Last 12 months')), ('all', tr('All time')), ('custom', tr('Choose months'))]
+
+
+def _month_add(key, n):
+    y, m = map(int, key.split('-'))
+    y, m = divmod(y * 12 + m - 1 + n, 12)
+    return f'{y:04d}-{m + 1:02d}'
+
+
+def _report_months(period, first, last):
+    """(first month, last month) as 'YYYY-MM' for a period; `first`/`last` are the custom choice."""
+    now = (datetime.utcnow() + _local_offset()).strftime('%Y-%m')
+    y, m = map(int, now.split('-'))
+    q = f'{y:04d}-{(m - 1) // 3 * 3 + 1:02d}'
+    return {'this_month': (now, now), 'last_month': (_month_add(now, -1),) * 2,
+            'this_quarter': (q, now), 'last_quarter': (_month_add(q, -3), _month_add(q, -1)),
+            'this_year': (f'{y}-01', now), 'last_year': (f'{y - 1}-01', f'{y - 1}-12'),
+            '12m': (_month_add(now, -11), now)}.get(period) or (
+        (first, last) if period == 'custom' else (None, now))
+
+
+def _month_label(key):
+    y, m = map(int, key.split('-'))
+    return f"{tr(['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][m - 1])} {y}"
+
+
+def _finance_report(tid, site, period, first=None, last=None):
+    """Everything the financial report shows, for one site (None = the whole business) and a run of months."""
+    ok = lambda k: bool(k and re.fullmatch(r'\d{4}-(0[1-9]|1[0-2])', k))
+    if period == 'custom' and not (ok(first) and ok(last)):
+        period = 'this_month'
+    start, end = _report_months(period, first, last)
+    months = _money_by_month(tid, site)
+    if start is None:                              # all time: from the first month with money
+        start = min(months) if months else end
+    if start > end:
+        start, end = end, start
+    zero = lambda: dict.fromkeys(_MONEY_KEYS, Decimal(0))
+
+    def rows_for(data, a, b):
+        out, k = [], a
+        while k <= b:
+            r = dict(data.get(k) or zero(), month=k, label=_month_label(k))
+            r['safenet'] = r['fees'] + r['sms'] + r['plan']
+            r['out'] = r['spent'] + r['safenet']
+            r['net'] = r['sales'] - r['out']
+            out.append(r)
+            k = _month_add(k, 1)
+        return out
+
+    def sums(rows):
+        t = {k: sum((r[k] for r in rows), Decimal(0)) for k in _MONEY_KEYS + ('safenet', 'out', 'net')}
+        t['margin'] = round(float(t['net'] * 100 / t['sales']), 1) if t['sales'] else None
+        return t
+
+    rows = rows_for(months, start, end)
+    running = Decimal(0)
+    for r in rows:
+        running += r['net']
+        r['running'] = running
+    totals = sums(rows)
+    n = len(rows)
+    prev = sums(rows_for(months, _month_add(start, -n), _month_add(start, -1)))
+    change = lambda a, b: None if not b else round(float((a - b) * 100 / abs(b)))
+    compare = {k: change(totals[k], prev[k]) for k in ('sales', 'out', 'net')}
+
+    # the period in local dates, and in UTC for timestamps
+    d0 = datetime.strptime(start + '-01', '%Y-%m-%d')
+    d1 = datetime.strptime(_month_add(end, 1) + '-01', '%Y-%m-%d')
+    u0, u1 = d0 - _local_offset(), d1 - _local_offset()
+    q = scoped(Expense).filter(Expense.spent_on >= d0.date(), Expense.spent_on < d1.date())
+    q = q.filter(Expense.site_id == site.id) if site else q
+    items = q.order_by(Expense.spent_on, Expense.id).all()
+    names = dict(_expense_categories())
+    cats = {}
+    for e in items:
+        cats[e.category] = cats.get(e.category, Decimal(0)) + Decimal(str(e.amount))
+    by_cat = sorted(((names.get(k, k), v) for k, v in cats.items()), key=lambda x: -x[1])
+
+    view = _site_filters(tid, site)
+    pkg = view['payments'](db.session.query(Payment.package_name, func.count(Payment.id), func.coalesce(func.sum(Payment.amount), 0))
+                           .filter(Payment.tenant_id == tid, Payment.status == 'paid', Payment.paid_at >= u0, Payment.paid_at < u1)) \
+        .group_by(Payment.package_name).all()
+    packages = sorted(([name or tr('Other'), int(c), Decimal(str(a))] for name, c, a in pkg), key=lambda x: -x[2])
+    cash = view['vouchers'](db.session.query(func.count(Voucher.id), func.coalesce(func.sum(Voucher.price), 0)).filter(
+        Voucher.tenant_id == tid, Voucher.first_used_at >= u0, Voucher.first_used_at < u1, Voucher.price.isnot(None),
+        or_(Voucher.batch.is_(None), Voucher.batch != 'online-payments'))).one()
+    if cash[0]:
+        packages.append([tr('Cash vouchers (sold by hand)'), int(cash[0]), Decimal(str(cash[1]))])
+
+    sites = []
+    if site is None and len(tenant_sites(tid)) > 1:
+        for s in tenant_sites(tid):
+            t = sums(rows_for(_money_by_month(tid, s), start, end))
+            sites.append({'name': s.name, 'sales': t['sales'], 'out': t['out'], 'net': t['net'], 'margin': t['margin']})
+        shared = scoped(Expense).filter(Expense.site_id.is_(None), Expense.spent_on >= d0.date(), Expense.spent_on < d1.date())
+        shared = Decimal(str(shared.with_entities(func.coalesce(func.sum(Expense.amount), 0)).scalar())) + totals['plan']
+        unlinked = totals['sales'] - sum((x['sales'] for x in sites), Decimal(0))
+        other_out = totals['out'] - shared - sum((x['out'] for x in sites), Decimal(0))   # fees/SMS of sales without a site
+        if shared or unlinked or other_out:
+            sites.append({'name': tr('Shared and not linked to a site'), 'sales': unlinked, 'out': shared + other_out,
+                          'net': unlinked - shared - other_out, 'margin': None, 'other': True})
+
+    payback = _expense_report(tid, site, 'all')['payback']
+    tenant = db.session.get(Tenant, tid)
+    busy = [i for i, r in enumerate(rows) if any(r[k] for k in _MONEY_KEYS)]
+    shown = rows[busy[0]:] if busy else rows[-1:]   # the months before the first money are left out of tables and charts
+    return {'rows': rows, 'shown': shown, 'totals': totals, 'prev': prev, 'has_prev': bool(prev['sales'] or prev['out']), 'compare': compare, 'by_cat': by_cat, 'items': items,
+            'packages': packages, 'sites': sites, 'payback': payback, 'period': period, 'start': start, 'end': end,
+            'title': _month_label(start) if start == end else f'{_month_label(start)} – {_month_label(end)}',
+            'site_name': site.name if site else (tr('All sites') if len(tenant_sites(tid)) > 1 else None),
+            'all_sites': site is None and len(tenant_sites(tid)) > 1,
+            'business': tenant.name, 'currency': tenant.currency, 'categories': names,
+            'generated': (datetime.utcnow() + _local_offset()).strftime('%d %b %Y, %H:%M'),
+            'by': current_user.username if current_user.is_authenticated else ''}
+
+
+def _report_args():
+    period = request.args.get('period', 'this_month')
+    return (period if period in REPORT_PERIODS else 'this_month'), request.args.get('from'), request.args.get('to')
+
+
+@app.route('/reports/finance')
+@login_required
+def finance_report():
+    if not _can_see_expenses():
+        flash(tr("You don't have permission to open that page."), 'warning')
+        return redirect(url_for('dashboard'))
+    period, first, last = _report_args()
+    rep = _finance_report(tenant_id(), current_site(), period, first, last)
+    return render_template('reports/finance.html', rep=rep, periods=_report_period_names(),
+                           pdf_url=url_for('finance_report_pdf', period=rep['period'], **({'from': rep['start'], 'to': rep['end']} if rep['period'] == 'custom' else {})))
+
+
+@app.route('/reports/finance.pdf')
+@login_required
+def finance_report_pdf():
+    if not _can_see_expenses():
+        abort(403)
+    return _finance_pdf_response()
+
+
+def _finance_pdf_response():
+    """The financial report PDF for the period in the query string (web page and mobile app)."""
+    import finance_pdf
+    period, first, last = _report_args()
+    tenant = current_tenant()
+    rep = _finance_report(tenant.id, current_site(), period, first, last)
+    logo = None
+    if tenant.portal_logo_type in ('image/png', 'image/jpeg', 'image/webp', 'image/gif'):
+        logo = tenant.portal_logo
+    pdf = finance_pdf.build(rep, tr, logo=logo, color=tenant.portal_color or '#051D60')
+    name = re.sub(r'[^\w-]+', '-', f"{rep['business']} {rep['site_name'] or ''} {rep['start']} {rep['end'] if rep['end'] != rep['start'] else ''}").strip('-').lower()
+    disposition = 'inline' if request.args.get('view') else 'attachment'
+    return Response(pdf, mimetype='application/pdf', headers={'Content-Disposition': f'{disposition}; filename=financial-report-{name}.pdf'})
 
 
 # ---------------------------------------------------------------------------

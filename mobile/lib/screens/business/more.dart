@@ -8,6 +8,8 @@ import '../../core/session.dart';
 import '../../core/strings.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
+import 'manage/expenses.dart';
+import 'manage/finance_report.dart';
 import 'manage/offers.dart';
 import 'manage/packages.dart';
 import 'manage/plans.dart';
@@ -43,6 +45,8 @@ class MoreScreen extends StatelessWidget {
         _Tile(Icons.receipt_long_rounded, S.t('Payments'), kGood, () => push(const PaymentsScreen())),
         if (s.can('money')) _Tile(Icons.account_balance_wallet_rounded, S.t('Earnings'), kGold, () => push(const EarningsScreen())),
         if (s.can('withdraw')) _Tile(Icons.call_made_rounded, S.t('Withdraw'), Colors.green.shade800, () => web(S.t('Withdraw'), '/earnings')),
+        if (s.can('expenses')) _Tile(Icons.receipt_long_outlined, S.t('Expenses'), kBad, () => push(const ExpensesScreen())),
+        if (s.can('expenses')) _Tile(Icons.picture_as_pdf_rounded, S.t('Financial report'), Colors.deepPurple, () => push(const FinanceReportScreen())),
         _Tile(Icons.bar_chart_rounded, S.t('Reports'), Colors.indigo, () => web(S.t('Reports'), '/accounting')),
       ]),
       (S.t('Network'), [

@@ -12,7 +12,7 @@ found = {}
 for path in glob.glob('templates/**/*.html', recursive=True):
     for m in re.finditer(r'(?<![\w.])_' + LIT, open(path).read()):
         found.setdefault((m.group(1) if m.group(1) is not None else m.group(2)).replace("\\'", "'").replace('\\"', '"'), path)
-for path, fn in (('app.py', 'tr'), ('tenancy.py', 'tr'), ('forms.py', 'L')):
+for path, fn in (('app.py', 'tr'), ('tenancy.py', 'tr'), ('forms.py', 'L'), ('finance_pdf.py', 'tr')):
     if os.path.exists(path):
         for m in re.finditer(r'(?<![\w.])' + fn + LIT, open(path).read()):
             found.setdefault((m.group(1) if m.group(1) is not None else m.group(2)).replace("\\'", "'").replace('\\"', '"'), path)
@@ -43,7 +43,7 @@ d = c.get('/dashboard').text
 assert 'Dashibodi' in d and 'lang="sw"' in d and 'English' in d
 pages = ['/dashboard', '/live', '/sites', '/users', '/vouchers', '/vouchers/generate', '/payments', '/earnings', '/packages', '/packages/add',
          '/plans', '/gateways', '/routers', '/nas', '/accounting', '/auth-logs', '/billing', '/settings/portal', '/settings',
-         '/settings/payments', '/team', '/team/add', '/radius-features', '/users/add', '/plans/add', '/nas/add']
+         '/settings/payments', '/expenses', '/expenses/add', '/reports/finance', '/team', '/team/add', '/radius-features', '/users/add', '/plans/add', '/nas/add']
 for lang in ('sw', 'en'):
     c.post('/language', data={'csrf_token': tok(c.get('/dashboard').text), 'lang': lang})
     for url in pages:

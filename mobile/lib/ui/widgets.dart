@@ -111,12 +111,12 @@ class SectionTitle extends StatelessWidget {
 
 /// A small number tile: icon, label, value.
 class StatTile extends StatelessWidget {
-  const StatTile({super.key, required this.icon, required this.label, required this.value, this.color, this.sub, this.onTap});
+  const StatTile({super.key, required this.icon, required this.label, required this.value, this.color, this.sub, this.subColor, this.onTap});
   final IconData icon;
   final String label;
   final String value;
   final String? sub;
-  final Color? color;
+  final Color? color, subColor;
   final VoidCallback? onTap;
 
   @override
@@ -139,7 +139,7 @@ class StatTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis),
             const SizedBox(height: 2),
             Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
-            if (sub != null) Text(sub!, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: c)),
+            if (sub != null) Text(sub!, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: subColor ?? c)),
           ]),
         ),
       ),

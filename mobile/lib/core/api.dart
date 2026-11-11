@@ -55,6 +55,23 @@ class Api {
   Future<Map<String, dynamic>> post(String path, [Map<String, dynamic>? body]) =>
       _send(() => _client.post(_uri(path), headers: _headers, body: jsonEncode(body ?? {})));
 
+  /// A file from the API (e.g. a PDF report), as bytes.
+  Future<List<int>> getBytes(String path, [Map<String, dynamic>? query]) async {
+    http.Response r;
+    try {
+      r = await _client.get(_uri(path, query), headers: {..._headers, 'Accept': '*/*'}).timeout(const Duration(seconds: 60));
+    } catch (_) {
+      throw ApiError('No connection to SafeNet. Check your internet and try again.');
+    }
+    if (r.statusCode >= 200 && r.statusCode < 300) return r.bodyBytes;
+    if (r.statusCode == 401 && token != null) onSignedOut?.call();
+    String? message;
+    try {
+      message = (jsonDecode(utf8.decode(r.bodyBytes)) as Map)['error'] as String?;
+    } catch (_) {}
+    throw ApiError(message ?? 'Something went wrong (${r.statusCode}). Try again.', r.statusCode);
+  }
+
   Future<Map<String, dynamic>> delete(String path) => _send(() => _client.delete(_uri(path), headers: _headers));
 
   Future<Map<String, dynamic>> _send(Future<http.Response> Function() call) async {

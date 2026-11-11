@@ -11,3 +11,4 @@ gunicorn==21.2.0
 email-validator==2.1.0
 
 
+reportlab==4.2.5

@@ -189,7 +189,8 @@ def _me_json(admin):
         'sites': [{'id': s.id, 'name': s.name, 'reyee': bool(s.ruijie_ready)} for s in sites],
         'fixed_site': admin.site_id if admin.site_id and not admin.is_superadmin else None,
         'can': {'money': can_money, 'customers': admin.has_role('admin'), 'packages': admin.has_role('admin'),
-                'change': not admin.is_viewer, 'withdraw': admin.has_role('owner'), 'sms': A.sms_is_configured()},
+                'change': not admin.is_viewer, 'withdraw': admin.has_role('owner'), 'sms': A.sms_is_configured(),
+                'expenses': admin.has_role('admin') or admin.is_viewer},
     }
 
 
@@ -1481,3 +1482,104 @@ def guest_pay(reference):
         if not phone and not payment.gift_phone and v.code not in codes:
             out['token'] = A._tokens('mobile-guest').dumps({'v': (codes + [v.code])[-20:]})
     return jsonify(out)
+
+
+# ---------------------------------------------------------------- expenses and the financial report
+def _need_expenses():
+    _need_login()
+    if not A._can_see_expenses():
+        abort(403)
+
+
+def _expense_json(e):
+    return {'id': e.id, 'amount': _money(e.amount), 'date': e.spent_on.isoformat(), 'category': e.category,
+            'category_name': dict(A._expense_categories()).get(e.category, e.category), 'description': e.description,
+            'paid_to': e.paid_to, 'site_id': e.site_id, 'site': e.site.name if e.site else None}
+
+
+def _money_rows(rows, keys):
+    return [{**{k: r[k] for k in ('month', 'label') if k in r}, **{k: _money(r[k]) for k in keys if k in r}} for r in rows]
+
+
+@bp.route('/api/m/expenses')
+def expenses():
+    """What was spent and earned (the web Expenses page): totals for a period, payback (all time), months, items."""
+    _need_expenses()
+    tid, site = A.tenant_id(), A.current_site()
+    period = request.args.get('period', 'all')
+    if period not in ('all', 'month', 'last_month', 'year', '12m'):
+        period = 'all'
+    r = A._expense_report(tid, site, period)
+    t = r['totals']
+    pb = r['payback']
+    shared = None
+    if site:
+        shared = _money(db.session.query(func.coalesce(func.sum(A.Expense.amount), 0))
+                        .filter(A.Expense.tenant_id == tid, A.Expense.site_id.is_(None)).scalar())
+    return jsonify(
+        currency=A.current_tenant().currency or 'TZS', period=period, can_edit=current_user.has_role('admin'),
+        totals={k: _money(t[k]) for k in ('sales', 'spent', 'safenet', 'fees', 'sms', 'plan', 'out', 'net')},
+        payback={'invested': _money(pb['invested']), 'out': _money(pb['out']), 'in': _money(pb['in']), 'net': _money(pb['net']),
+                 'percent': pb['percent'], 'month': pb.get('month'), 'months_left': pb.get('months_left'),
+                 'pace': _money(pb['pace']) if pb.get('pace') else None},
+        months=_money_rows(r['shown'], ('sales', 'out', 'net', 'running')),
+        by_category=[{'name': n, 'amount': _money(a)} for n, a in r['by_cat']],
+        items=[_expense_json(e) for e in r['items']],
+        categories=[{'id': k, 'name': v} for k, v in A._expense_categories()],
+        sites=[{'id': s.id, 'name': s.name} for s in A.tenant_sites()], site=site.name if site else None, shared=shared)
+
+
+@bp.route('/api/m/expenses', methods=['POST'])
+@bp.route('/api/m/expenses/<int:eid>', methods=['POST'])
+def expense_save(eid=None):
+    _need_login('admin')
+    e = A.owned_or_404(A.Expense, eid) if eid else A.Expense(tenant_id=A.tenant_id())
+    d = request.get_json(silent=True) or {}
+    problem = A._expense_from_form(e, _f({'amount': d.get('amount'), 'spent_on': d.get('date'), 'description': d.get('description'),
+                                         'category': d.get('category'), 'site_id': d.get('site_id'), 'paid_to': d.get('paid_to')}))
+    if problem:
+        db.session.rollback()
+        return _err(problem, 400)
+    if not eid:
+        e.created_by_id = current_user.id
+        db.session.add(e)
+    db.session.commit()
+    return jsonify(_expense_json(e))
+
+
+@bp.route('/api/m/expenses/<int:eid>', methods=['DELETE'])
+def expense_delete(eid):
+    _need_login('admin')
+    db.session.delete(A.owned_or_404(A.Expense, eid))
+    db.session.commit()
+    return jsonify(ok=True)
+
+
+@bp.route('/api/m/reports/finance')
+def finance_report():
+    """The financial report as data (the app draws it; the PDF comes from /api/m/reports/finance.pdf)."""
+    _need_expenses()
+    period, first, last = A._report_args()
+    rep = A._finance_report(A.tenant_id(), A.current_site(), period, first, last)
+    t, keys = rep['totals'], ('sales', 'online', 'cash', 'spent', 'fees', 'sms', 'plan', 'safenet', 'out', 'net')
+    pb = rep['payback']
+    return jsonify(
+        currency=rep['currency'], business=rep['business'], title=rep['title'], site=rep['site_name'], period=rep['period'],
+        start=rep['start'], end=rep['end'], periods=[{'id': k, 'name': v} for k, v in A._report_period_names()],
+        totals={**{k: _money(t[k]) for k in keys}, 'margin': t['margin']},
+        previous={k: _money(rep['prev'][k]) for k in ('sales', 'out', 'net')} if rep['has_prev'] else None,
+        compare=rep['compare'],
+        months=_money_rows(rep['shown'], ('online', 'cash', 'sales', 'spent', 'safenet', 'out', 'net', 'running')),
+        by_category=[{'name': n, 'amount': _money(a)} for n, a in rep['by_cat']],
+        packages=[{'name': n, 'count': c, 'amount': _money(a)} for n, c, a in rep['packages']],
+        sites=[{'name': s['name'], 'sales': _money(s['sales']), 'out': _money(s['out']), 'net': _money(s['net']),
+                'margin': s['margin'], 'other': bool(s.get('other'))} for s in rep['sites']],
+        payback={'invested': _money(pb['invested']), 'out': _money(pb['out']), 'in': _money(pb['in']), 'net': _money(pb['net']),
+                 'percent': pb['percent'], 'month': pb.get('month'), 'months_left': pb.get('months_left')},
+        items=[_expense_json(e) for e in rep['items']])
+
+
+@bp.route('/api/m/reports/finance.pdf')
+def finance_report_pdf():
+    _need_expenses()
+    return A._finance_pdf_response()

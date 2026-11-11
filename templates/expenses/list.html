@@ -19,6 +19,7 @@
             <a href="{{ url_for('expenses', period=key) }}" class="btn {{ 'btn-primary' if period == key else 'btn-outline-secondary' }}">{{ label }}</a>
             {% endfor %}
         </div>
+        <a href="{{ url_for('finance_report') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf"></i> {{ _('Financial report') }}</a>
         <a href="{{ url_for('expenses_csv') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> CSV</a>
         {% if can_edit %}<a href="{{ url_for('add_expense') }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> {{ _('Add an expense') }}</a>{% endif %}
     </div>
