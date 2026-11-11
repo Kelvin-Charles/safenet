@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import SiteAddress, voucher_sites, Outage, OutageCredit, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
+from models import Expense, SiteAddress, voucher_sites, Outage, OutageCredit, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -48,6 +48,7 @@ import time
 import struct
 import json
 import io
+import csv
 import zipfile
 import sys
 import click
@@ -180,7 +181,7 @@ def block_suspended_tenants():
 # Partners / shareholders (role "viewer"): read-only pages only; a partner limited to one
 # site also doesn't see the business-wide pages (earnings balance, all sites, customer accounts).
 VIEWER_PAGES = {'dashboard', 'live', 'api_live', 'payments', 'accounting', 'accounting_detail', 'vouchers',
-                'docs', 'logout', 'static', 'landing', 'stop_impersonating', 'portal', 'portal_logo', 'set_language'}
+                'docs', 'logout', 'static', 'landing', 'stop_impersonating', 'portal', 'portal_logo', 'set_language', 'expenses', 'expenses_csv'}
 VIEWER_BUSINESS_PAGES = VIEWER_PAGES | {'earnings', 'sites_page', 'users', 'auth_logs', 'switch_site'}
 VIEWER_CHANGES = {'switch_site', 'stop_impersonating', 'set_language'}      # the only POSTs a partner may make
 
@@ -7546,6 +7547,246 @@ def platform_switch_back():
     _check_csrf()
     session.pop('tenant_id', None); session.pop('site_id', None)
     return redirect(url_for('platform_tenants'))
+
+
+# ---------------------------------------------------------------------------
+# Expenses: what a business spent on its sites, against what they earned (money in, money out, paid back)
+# ---------------------------------------------------------------------------
+def _expense_categories():
+    return [('equipment', tr('Equipment (routers, access points)')), ('installation', tr('Installation and labour')),
+            ('materials', tr('Cables and materials')), ('printing', tr('Posters and printing')),
+            ('internet', tr('Internet bill')), ('power', tr('Electricity')), ('rent', tr('Rent and site fees')),
+            ('transport', tr('Transport')), ('repairs', tr('Repairs')), ('salaries', tr('Salaries and commissions')),
+            ('marketing', tr('Advertising')), ('other', tr('Other'))]
+
+
+def _can_see_expenses():
+    return current_user.has_role('admin') or current_user.is_viewer
+
+
+def _money_by_month(tid, site):
+    """{'YYYY-MM': {sales, fees, sms, plan, spent}} for one site (None = the whole business), in local months.
+    sales: what customers paid (mobile money + cash vouchers first used); fees, sms, plan: what SafeNet charged;
+    spent: expenses recorded by hand (a site's own; the whole business: every expense)."""
+    offset = _local_offset()
+    months = {}
+    row = lambda when: months.setdefault((when + offset).strftime('%Y-%m'), dict.fromkeys(('sales', 'fees', 'sms', 'plan', 'spent'), Decimal(0)))
+    view = _site_filters(tid, site)
+    pays = view['payments'](db.session.query(Payment.paid_at, Payment.amount, Payment.fee_amount, Payment.provider_account)
+                            .filter(Payment.tenant_id == tid, Payment.status == 'paid', Payment.paid_at.isnot(None)))
+    for when, amount, fee, account in pays:
+        r = row(when)
+        r['sales'] += Decimal(str(amount or 0))
+        if account == 'platform':
+            r['fees'] += Decimal(str(fee or 0))
+    cash = view['vouchers'](db.session.query(Voucher.first_used_at, Voucher.price).filter(
+        Voucher.tenant_id == tid, Voucher.first_used_at.isnot(None), Voucher.price.isnot(None),
+        or_(Voucher.batch.is_(None), Voucher.batch != 'online-payments')))
+    for when, price in cash:
+        row(when)['sales'] += Decimal(str(price or 0))
+    sms = db.session.query(SmsCharge.created_at, SmsCharge.amount).filter(SmsCharge.tenant_id == tid)
+    for when, amount in (sms.filter(SmsCharge.site_id == site.id) if site else sms):
+        row(when)['sms'] += Decimal(str(amount or 0))
+    if site is None:            # the SafeNet plan is for the whole business (its bill's SMS are counted above)
+        for when, amount, sms_part in db.session.query(SubscriptionPayment.created_at, SubscriptionPayment.amount, SubscriptionPayment.sms_amount) \
+                .filter(SubscriptionPayment.tenant_id == tid, SubscriptionPayment.status == 'paid'):
+            row(when)['plan'] += Decimal(str(amount or 0)) - Decimal(str(sms_part or 0))
+    spent = db.session.query(Expense.spent_on, Expense.amount).filter(Expense.tenant_id == tid)
+    for day, amount in (spent.filter(Expense.site_id == site.id) if site else spent):
+        months.setdefault(day.strftime('%Y-%m'), dict.fromkeys(('sales', 'fees', 'sms', 'plan', 'spent'), Decimal(0)))['spent'] += Decimal(str(amount))
+    return months
+
+
+def _expense_period(period):
+    """(first day, day after the last) in local dates for a period name, or (None, None) for all time."""
+    today = (datetime.utcnow() + _local_offset()).date()
+    month = today.replace(day=1)
+    if period == 'month':
+        return month, None
+    if period == 'last_month':
+        return (month - timedelta(days=1)).replace(day=1), month
+    if period == 'year':
+        return today.replace(month=1, day=1), None
+    if period == '12m':
+        y, m = (month.year, month.month - 11) if month.month > 11 else (month.year - 1, month.month + 1)
+        return month.replace(year=y, month=m), None
+    return None, None
+
+
+def _expense_report(tid, site, period):
+    months = _money_by_month(tid, site)
+    start, end = _expense_period(period)
+    keys = sorted(months)
+    # every month from the first one with money to this month, so quiet months show too
+    rows, running = [], Decimal(0)
+    if keys:
+        y, m = map(int, keys[0].split('-'))
+        last = max(keys[-1], (datetime.utcnow() + _local_offset()).strftime('%Y-%m'))
+        while f'{y:04d}-{m:02d}' <= last:
+            k = f'{y:04d}-{m:02d}'
+            r = months.get(k) or dict.fromkeys(('sales', 'fees', 'sms', 'plan', 'spent'), Decimal(0))
+            out = r['spent'] + r['fees'] + r['sms'] + r['plan']
+            running += r['sales'] - out
+            rows.append(dict(r, month=k, label=datetime(y, m, 1).strftime('%b %Y'), out=out, net=r['sales'] - out, running=running))
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    total = lambda rs, key: sum((r[key] for r in rs), Decimal(0))
+    shown = [r for r in rows if (not start or r['month'] >= start.strftime('%Y-%m')) and (not end or r['month'] < end.strftime('%Y-%m'))]
+    period_totals = {k: total(shown, k) for k in ('sales', 'fees', 'sms', 'plan', 'spent', 'out', 'net')}
+    period_totals['safenet'] = period_totals['fees'] + period_totals['sms'] + period_totals['plan']
+    # paid back: all time, whatever period is shown
+    all_out, all_in = total(rows, 'out'), total(rows, 'sales')
+    payback = {'invested': total(rows, 'spent'), 'out': all_out, 'in': all_in, 'net': all_in - all_out,
+               'percent': min(100, int(all_in * 100 / all_out)) if all_out else (100 if all_in else 0)}
+    if all_out and all_in >= all_out:
+        for i, r in enumerate(rows):               # the month the running total last turned from loss to profit
+            if r['running'] >= 0 and (i == 0 or rows[i - 1]['running'] < 0):
+                payback['month'] = r['label']
+    elif all_out:
+        full = rows[-4:-1]                         # pace of the last three full months
+        pace = total(full, 'net') / len(full) if full else Decimal(0)
+        if pace > 0:
+            payback['pace'] = pace
+            payback['months_left'] = int(-(payback['net'] // pace))  # ceil of what is left / pace
+    cats = {}
+    q = scoped(Expense)
+    q = q.filter(Expense.site_id == site.id) if site else q
+    if start:
+        q = q.filter(Expense.spent_on >= start)
+    if end:
+        q = q.filter(Expense.spent_on < end)
+    items = q.order_by(Expense.spent_on.desc(), Expense.id.desc()).all()
+    for e in items:
+        cats[e.category] = cats.get(e.category, Decimal(0)) + Decimal(str(e.amount))
+    names = dict(_expense_categories())
+    by_cat = sorted(((names.get(k, k), v) for k, v in cats.items()), key=lambda x: -x[1])
+    return {'rows': rows, 'shown': list(reversed(shown)), 'totals': period_totals, 'payback': payback,
+            'items': items, 'by_cat': by_cat, 'start': start, 'end': end}
+
+
+@app.route('/expenses')
+@login_required
+def expenses():
+    if not _can_see_expenses():
+        flash(tr("You don't have permission to open that page."), 'warning')
+        return redirect(url_for('dashboard'))
+    tid, site = tenant_id(), current_site()
+    period = request.args.get('period', 'all')
+    if period not in ('all', 'month', 'last_month', 'year', '12m'):
+        period = 'all'
+    report = _expense_report(tid, site, period)
+    shared = None
+    if site:                                       # costs shared by all sites are not in one site's numbers
+        shared = Decimal(str(db.session.query(func.coalesce(func.sum(Expense.amount), 0))
+                             .filter(Expense.tenant_id == tid, Expense.site_id.is_(None)).scalar()))
+    return render_template('expenses/list.html', r=report, site=site, period=period, shared=shared,
+                           categories=dict(_expense_categories()), can_edit=current_user.has_role('admin'),
+                           many_sites=len(tenant_sites()) > 1)
+
+
+@app.route('/expenses.csv')
+@login_required
+def expenses_csv():
+    if not _can_see_expenses():
+        abort(403)
+    site = current_site()
+    q = scoped(Expense)
+    q = q.filter(Expense.site_id == site.id) if site else q
+    names = dict(_expense_categories())
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow([tr('Date'), tr('Site'), tr('Category'), tr('What'), tr('Paid to'), tr('Amount')])
+    for e in q.order_by(Expense.spent_on, Expense.id):
+        w.writerow([e.spent_on.isoformat(), e.site.name if e.site else tr('Whole business'), names.get(e.category, e.category),
+                    e.description, e.paid_to or '', f'{e.amount:.0f}'])
+    name = re.sub(r'[^\w-]+', '-', (site.name if site else current_tenant().name)).strip('-').lower() or 'business'
+    return Response(out.getvalue(), mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename=expenses-{name}.csv'})
+
+
+def _expense_from_form(e, f):
+    """Fill an expense from the form. Returns a problem in words, or None."""
+    try:
+        amount = Decimal(re.sub(r'[,\s]', '', f.get('amount') or ''))
+    except Exception:
+        amount = None
+    try:
+        day = datetime.strptime(f.get('spent_on') or '', '%Y-%m-%d').date()
+    except ValueError:
+        return tr('Enter the date it was paid.')
+    description = (f.get('description') or '').strip()[:200]
+    site_id = f.get('site_id', type=int) or None
+    category = f.get('category') or 'other'
+    if amount is None or not amount.is_finite() or not 0 < amount < Decimal('10000000000'):
+        return tr('Enter the amount paid, e.g. 150000.')
+    if not description:
+        return tr('Say what it was for, e.g. "2 access points".')
+    if site_id and not any(x.id == site_id for x in tenant_sites()):
+        return tr('Choose a site.')
+    if day > (datetime.utcnow() + _local_offset()).date() + timedelta(days=1):
+        return tr('The date cannot be in the future.')
+    e.amount, e.spent_on, e.description, e.site_id = amount.quantize(Decimal('0.01')), day, description, site_id
+    e.category = category if category in dict(_expense_categories()) else 'other'
+    e.paid_to = (f.get('paid_to') or '').strip()[:100] or None
+    return None
+
+
+def _expense_page(e, title):
+    return render_template('expenses/form.html', e=e, title=title, sites=tenant_sites(), categories=_expense_categories(),
+                           currency=current_tenant().currency)
+
+
+@app.route('/expenses/add', methods=['GET', 'POST'])
+@login_required
+@role_required('admin')
+def add_expense():
+    site = current_site()
+    e = Expense(tenant_id=tenant_id(), site_id=site.id if site else (tenant_sites()[0].id if len(tenant_sites()) == 1 else None),
+                spent_on=(datetime.utcnow() + _local_offset()).date(), category=request.args.get('category') or 'equipment')
+    if request.method == 'POST':
+        _check_csrf()
+        problem = _expense_from_form(e, request.form)
+        if problem:
+            flash(problem, 'danger')
+        else:
+            e.created_by_id = current_user.id
+            db.session.add(e)
+            db.session.commit()
+            flash(tr('Expense saved: {amount}.', amount=f'{current_tenant().currency} {e.amount:,.0f}'), 'success')
+            if request.form.get('again'):
+                return redirect(url_for('add_expense', category=e.category))
+            return redirect(url_for('expenses'))
+    return _expense_page(e, tr('Add an expense'))
+
+
+@app.route('/expenses/<int:expense_id>/edit', methods=['GET', 'POST'])
+@login_required
+@role_required('admin')
+def edit_expense(expense_id):
+    e = owned_or_404(Expense, expense_id)
+    if request.method == 'POST':
+        _check_csrf()
+        problem = _expense_from_form(e, request.form)
+        if problem:
+            flash(problem, 'danger')
+            db.session.rollback()
+            e = owned_or_404(Expense, expense_id)
+        else:
+            db.session.commit()
+            flash(tr('Expense saved: {amount}.', amount=f'{current_tenant().currency} {e.amount:,.0f}'), 'success')
+            return redirect(url_for('expenses'))
+    return _expense_page(e, tr('Change an expense'))
+
+
+@app.route('/expenses/<int:expense_id>/delete', methods=['POST'])
+@login_required
+@role_required('admin')
+def delete_expense(expense_id):
+    _check_csrf()
+    e = owned_or_404(Expense, expense_id)
+    db.session.delete(e)
+    db.session.commit()
+    flash(tr('Expense deleted.'), 'success')
+    return redirect(url_for('expenses'))
 
 
 # ---------------------------------------------------------------------------

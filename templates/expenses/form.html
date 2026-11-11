@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-receipt"></i> {{ title }}</div>
+            <div class="card-body">
+                <form method="POST" novalidate>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="row">
+                        <div class="col-md-6 mb-3"><label class="form-label">{{ _('Amount paid') }}</label>
+                            <div class="input-group"><span class="input-group-text">{{ currency }}</span>
+                                <input name="amount" class="form-control" inputmode="decimal" value="{{ '{:.0f}'.format(e.amount) if e.amount else '' }}" placeholder="150000" required autofocus></div></div>
+                        <div class="col-md-6 mb-3"><label class="form-label">{{ _('Date paid') }}</label>
+                            <input type="date" name="spent_on" class="form-control" value="{{ e.spent_on.strftime('%Y-%m-%d') if e.spent_on else '' }}" required></div>
+                    </div>
+                    <div class="mb-3"><label class="form-label">{{ _('What was it for?') }}</label>
+                        <input name="description" class="form-control" maxlength="200" value="{{ e.description or '' }}" placeholder="{{ _('e.g. 2 access points, 50 posters, installation') }}" required></div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3"><label class="form-label">{{ _('Category') }}</label>
+                            <select name="category" class="form-select">
+                                {% for key, label in categories %}<option value="{{ key }}" {{ 'selected' if e.category == key }}>{{ label }}</option>{% endfor %}
+                            </select></div>
+                        <div class="col-md-6 mb-3"><label class="form-label">{{ _('Site') }}</label>
+                            <select name="site_id" class="form-select">
+                                {% for s in sites %}<option value="{{ s.id }}" {{ 'selected' if e.site_id == s.id }}>{{ s.name }}</option>{% endfor %}
+                                <option value="0" {{ 'selected' if not e.site_id }}>{{ _('Whole business (shared by all sites)') }}</option>
+                            </select></div>
+                    </div>
+                    <div class="mb-3"><label class="form-label">{{ _('Paid to') }} <span class="text-muted">({{ _('optional') }})</span></label>
+                        <input name="paid_to" class="form-control" maxlength="100" value="{{ e.paid_to or '' }}" placeholder="{{ _('Shop, technician or printer') }}"></div>
+                    <div class="d-flex flex-wrap gap-2 justify-content-between">
+                        <a href="{{ url_for('expenses') }}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> {{ _('Cancel') }}</a>
+                        <div class="d-flex gap-2">
+                            {% if not e.id %}<button class="btn btn-outline-primary" type="submit" name="again" value="1"><i class="bi bi-plus-lg"></i> {{ _('Save and add another') }}</button>{% endif %}
+                            <button class="btn btn-primary" type="submit"><i class="bi bi-check-lg"></i> {{ _('Save') }}</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

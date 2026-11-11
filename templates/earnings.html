@@ -6,6 +6,7 @@
 
 {% block content %}
 {% set cur = tenant.currency %}
+<div class="text-end mb-2"><a href="{{ url_for('expenses') }}" class="small"><i class="bi bi-receipt-cutoff"></i> {{ _('See expenses and profit') }}</a></div>
 <div class="row mb-3">
     <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.gross) }}</div><div class="stat-label">{{ _('{currency} mobile-money sales', currency=cur) }}</div></div></div>
     <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value">{{ '{:,.0f}'.format(stats.cash) }}</div><div class="stat-label">{{ _('{currency} cash vouchers used', currency=cur) }}</div></div></div>

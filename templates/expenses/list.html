@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Expenses') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Expenses and profit') }}{% endblock %}
+
+{% block content %}
+{% set cur = tenant.currency %}
+{% set money = '{:,.0f}' %}
+{% set t = r.totals %}
+{% set pb = r.payback %}
+<div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
+    <div class="small text-muted">
+        <i class="bi bi-geo-alt"></i> {% if site %}{{ _('Site: {site}', site=site.name) }}{% elif many_sites %}{{ _('All sites') }}{% else %}{{ tenant.name }}{% endif %}
+        {% if many_sites and not site %}<span class="d-block">{{ _('Pick a site in the top bar to see one site on its own.') }}</span>{% endif %}
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <div class="btn-group btn-group-sm flex-wrap" role="group">
+            {% for key, label in [('all', _('All time')), ('12m', _('Last 12 months')), ('year', _('This year')), ('month', _('This month')), ('last_month', _('Last month'))] %}
+            <a href="{{ url_for('expenses', period=key) }}" class="btn {{ 'btn-primary' if period == key else 'btn-outline-secondary' }}">{{ label }}</a>
+            {% endfor %}
+        </div>
+        <a href="{{ url_for('expenses_csv') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i> CSV</a>
+        {% if can_edit %}<a href="{{ url_for('add_expense') }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> {{ _('Add an expense') }}</a>{% endif %}
+    </div>
+</div>
+
+<div class="row mb-1">
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value text-success">{{ money.format(t.sales) }}</div><div class="stat-label">{{ _('{currency} money in (sales)', currency=cur) }}</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value text-danger">{{ money.format(t.spent) }}</div><div class="stat-label">{{ _('{currency} your expenses', currency=cur) }}</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value text-danger">{{ money.format(t.safenet) }}</div><div class="stat-label">{{ _('{currency} SafeNet fees, SMS and plan', currency=cur) }}</div></div></div>
+    <div class="col-md-3 col-6 mb-3"><div class="stat-card"><div class="stat-value {{ 'text-success' if t.net >= 0 else 'text-danger' }}">{{ '+' if t.net > 0 }}{{ money.format(t.net) }}</div><div class="stat-label">{{ _('{currency} profit', currency=cur) if t.net >= 0 else _('{currency} loss', currency=cur) }}</div></div></div>
+</div>
+
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-piggy-bank"></i> {{ _('Has it paid back?') }} <small class="text-muted">({{ _('all time') }})</small></div>
+            <div class="card-body">
+                {% if not pb.out and not pb.in %}
+                <p class="text-muted mb-0">{{ _('Record what you spent to set up this site (equipment, installation, posters...) and SafeNet shows when the sales have paid it back.') }}</p>
+                {% else %}
+                <div class="d-flex justify-content-between small mb-1">
+                    <span>{{ _('Money in: {amount}', amount=cur ~ ' ' ~ money.format(pb['in'])) }}</span>
+                    <span>{{ _('Money out: {amount}', amount=cur ~ ' ' ~ money.format(pb.out)) }}</span>
+                </div>
+                <div class="progress mb-2" style="height: 14px;" role="progressbar" aria-valuenow="{{ pb.percent }}" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress-bar {{ 'bg-success' if pb.percent >= 100 else '' }}" style="width: {{ pb.percent }}%"></div>
+                </div>
+                {% if pb.net >= 0 and pb.out %}
+                <p class="mb-0"><i class="bi bi-check-circle-fill text-success"></i> <strong>{{ _('Paid back') }}</strong>{% if pb.month %} {{ _('in {month}', month=pb.month) }}{% endif %}.
+                    {{ _('Profit so far: {amount}.', amount=cur ~ ' ' ~ money.format(pb.net)) }}</p>
+                {% elif pb.out %}
+                <p class="mb-1"><strong>{{ _('{percent}% paid back.', percent=pb.percent) }}</strong> {{ _('{amount} still to earn back.', amount=cur ~ ' ' ~ money.format(-pb.net)) }}</p>
+                {% if pb.months_left %}<p class="small text-muted mb-0">{{ _('At the last three months\' pace ({amount} a month), about {n} more months.', amount=cur ~ ' ' ~ money.format(pb.pace), n=pb.months_left) }}</p>{% endif %}
+                {% else %}
+                <p class="mb-0 text-muted">{{ _('No expenses recorded yet: everything earned is profit.') }}</p>
+                {% endif %}
+                {% endif %}
+                {% if shared %}<p class="small text-muted mt-2 mb-0"><i class="bi bi-info-circle"></i> {{ _('{amount} of costs shared by all sites are not counted here; see All sites.', amount=cur ~ ' ' ~ money.format(shared)) }}</p>{% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><i class="bi bi-pie-chart"></i> {{ _('Where the money went') }}</div>
+            <div class="card-body">
+                {% set biggest = (r.by_cat[0][1] if r.by_cat else 0) or 1 %}
+                {% for name, amount in r.by_cat %}
+                <div class="mb-2">
+                    <div class="d-flex justify-content-between small"><span>{{ name }}</span><strong>{{ cur }} {{ money.format(amount) }}</strong></div>
+                    <div class="progress" style="height: 6px;"><div class="progress-bar bg-danger" style="width: {{ (amount * 100 / biggest)|round|int }}%"></div></div>
+                </div>
+                {% endfor %}
+                {% if t.safenet %}
+                <div class="small text-muted mt-3">{{ _('SafeNet costs (counted for you, nothing to record):') }}
+                    {% if t.plan %}{{ _('fees {fees}, SMS {sms}, plan {plan}', fees=money.format(t.fees), sms=money.format(t.sms), plan=money.format(t.plan)) }}{% else %}{{ _('fees {fees}, SMS {sms}', fees=money.format(t.fees), sms=money.format(t.sms)) }}{% endif %}</div>
+                {% endif %}
+                {% if not r.by_cat and not t.safenet %}<p class="text-muted mb-0">{{ _('No expenses in this period.') }}</p>{% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-calendar3"></i> {{ _('Month by month') }}</div>
+            <div class="card-body">
+                {% if r.shown %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>{{ _('Month') }}</th><th class="text-end">{{ _('Money in') }}</th><th class="text-end">{{ _('Money out') }}</th><th class="text-end">{{ _('Profit') }}</th><th class="text-end">{{ _('Total so far') }}</th></tr></thead>
+                        <tbody>
+                            {% for m in r.shown %}
+                            <tr>
+                                <td class="text-nowrap"><small>{{ m.label }}</small></td>
+                                <td class="text-end text-success">{{ money.format(m.sales) }}</td>
+                                <td class="text-end text-danger">{{ money.format(m.out) }}</td>
+                                <td class="text-end {{ 'text-success' if m.net >= 0 else 'text-danger' }}">{{ money.format(m.net) }}</td>
+                                <td class="text-end {{ 'text-success' if m.running >= 0 else 'text-danger' }}"><strong>{{ money.format(m.running) }}</strong></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <small class="text-muted">{{ _('Money out = your expenses + SafeNet fees, SMS and plan. Total so far counts from your first month.') }}</small>
+                {% else %}
+                <p class="text-muted mb-0">{{ _('Nothing in this period.') }}</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><i class="bi bi-receipt"></i> {{ _('Expenses') }} <small class="text-muted">({{ r['items']|length }})</small></div>
+            <div class="card-body">
+                {% if r['items'] %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>{{ _('Date') }}</th><th>{{ _('What') }}</th>{% if many_sites and not site %}<th>{{ _('Site') }}</th>{% endif %}<th class="text-end">{{ _('Amount') }}</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+                        <tbody>
+                            {% for e in r['items'] %}
+                            <tr>
+                                <td class="text-nowrap"><small>{{ e.spent_on.strftime('%Y-%m-%d') }}</small></td>
+                                <td>{{ e.description }}<small class="d-block text-muted">{{ categories.get(e.category, e.category) }}{% if e.paid_to %} · {{ _('to {name}', name=e.paid_to) }}{% endif %}</small></td>
+                                {% if many_sites and not site %}<td><small>{{ e.site.name if e.site else _('Whole business') }}</small></td>{% endif %}
+                                <td class="text-end text-nowrap">{{ cur }} {{ money.format(e.amount) }}</td>
+                                {% if can_edit %}
+                                <td class="text-end text-nowrap">
+                                    <a href="{{ url_for('edit_expense', expense_id=e.id) }}" class="btn btn-sm btn-outline-secondary" title="{{ _('Change') }}"><i class="bi bi-pencil"></i></a>
+                                    <form method="POST" action="{{ url_for('delete_expense', expense_id=e.id) }}" class="d-inline" onsubmit="return confirm({{ _('Delete this expense?')|tojson|forceescape }})">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button class="btn btn-sm btn-outline-danger" title="{{ _('Delete') }}"><i class="bi bi-trash"></i></button>
+                                    </form>
+                                </td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">{{ _('No expenses in this period.') }}{% if can_edit %} <a href="{{ url_for('add_expense') }}">{{ _('Add an expense') }}</a>{% endif %}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

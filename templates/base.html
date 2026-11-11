@@ -270,8 +270,10 @@
             {{ link(['vouchers', 'generate_vouchers', 'outage'], url_for('vouchers'), 'bi-ticket-perforated', _('Vouchers')) }}
             {{ link(['payments'], url_for('payments'), 'bi-phone', _('Payments')) }}
             {% if partner and not site_partner %}{{ link(['earnings'], url_for('earnings'), 'bi-wallet2', _('Earnings')) }}{% endif %}
+            {% if partner %}{{ link(['expenses'], url_for('expenses'), 'bi-receipt-cutoff', _('Expenses')) }}{% endif %}
             {% if is_admin %}
             {{ link(['earnings'], url_for('earnings'), 'bi-wallet2', _('Earnings')) }}
+            {{ link(['expenses', 'add_expense', 'edit_expense'], url_for('expenses'), 'bi-receipt-cutoff', _('Expenses')) }}
             {{ link(['packages', 'add_package', 'edit_package'], url_for('packages'), 'bi-bag', _('Packages')) }}
             {{ link(['customers'], url_for('customers'), 'bi-person-lines-fill', _('Customers')) }}
             {{ link(['offers', 'add_offer', 'edit_offer', 'offer_sms'], url_for('offers'), 'bi-gift', _('Offers')) }}

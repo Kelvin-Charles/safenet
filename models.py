@@ -1059,3 +1059,27 @@ class SmsCharge(db.Model):
 
     def __repr__(self):
         return f'<SmsCharge {self.tenant_id} {self.amount}>'
+
+
+class Expense(db.Model):
+    """Money a business spent on a site (equipment, installation, posters, rent...), recorded by hand so the
+    owner can set what went in against what the site earned. site_id NULL: shared by the whole business."""
+    __tablename__ = 'expenses'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    site_id = db.Column(db.Integer, db.ForeignKey('sites.id', ondelete='SET NULL'), index=True)
+    spent_on = db.Column(db.Date, nullable=False, index=True)
+    category = db.Column(db.String(16), nullable=False, default='other')
+    description = db.Column(db.String(200), nullable=False)
+    paid_to = db.Column(db.String(100))
+    amount = db.Column(db.Numeric(12, 2), nullable=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='SET NULL'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    site = db.relationship('Site')
+    created_by = db.relationship('Admin')
+
+    def __repr__(self):
+        return f'<Expense {self.tenant_id} {self.amount}>'
