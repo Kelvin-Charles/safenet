@@ -33,7 +33,7 @@ flutter:
   assets:
     - assets/logo.png
 
-# App icon: dart run flutter_launcher_icons  (artwork drawn in assets/brand/)
+# App icon: dart run flutter_launcher_icons  (artwork made from the web logo, static/img/logo.png)
 flutter_launcher_icons:
   android: true
   ios: true
@@ -41,6 +41,7 @@ flutter_launcher_icons:
   remove_alpha_ios: true
   adaptive_icon_background: assets/brand/icon_bg.png
   adaptive_icon_foreground: assets/brand/icon_fg.png
+  adaptive_icon_foreground_inset: 0
   min_sdk_android: 21
 
 # Launch screen: dart run flutter_native_splash:create
@@ -50,5 +51,5 @@ flutter_native_splash:
   android_12:
     color: "#051D60"
     image: assets/brand/splash12.png
-    icon_background_color: "#051D60"
+    icon_background_color: "#FFFFFF"
   fullscreen: false
