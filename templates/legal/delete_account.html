@@ -1,0 +1,57 @@
+{% extends "legal/layout.html" %}
+{% block title %}Delete your account{% endblock %}
+{% block body %}
+<section data-lang="en">
+    <h1>Delete your SafeNet account</h1>
+    <p class="updated">SafeNet by Safezone Tech</p>
+    <p>You can ask for your SafeNet account and its data to be deleted. In the SafeNet app: <strong>More → Delete my account</strong> (businesses)
+        or the <strong>⋮ menu → Delete my account</strong> (Wi-Fi customers). Or use this form.</p>
+    <div class="box">
+        <strong>What is deleted:</strong> your login, profile, phone number and contact details, your voucher codes and Wi-Fi sessions, and (for a business)
+        its sites, devices, packages, team and customers list.<br>
+        <strong>What is kept:</strong> payment and payout records, as long as tax and financial laws require (usually five years), without being used for anything else.<br>
+        <strong>When:</strong> within 30 days. We may contact you to check the account is yours before deleting it.
+    </div>
+</section>
+<section data-lang="sw">
+    <h1>Futa akaunti yako ya SafeNet</h1>
+    <p class="updated">SafeNet ya Safezone Tech</p>
+    <p>Unaweza kuomba akaunti yako ya SafeNet na taarifa zake zifutwe. Kwenye programu ya SafeNet: <strong>Zaidi → Futa akaunti yangu</strong> (biashara)
+        au <strong>menyu ⋮ → Futa akaunti yangu</strong> (wateja wa Wi-Fi). Au tumia fomu hii.</p>
+    <div class="box">
+        <strong>Kinachofutwa:</strong> akaunti yako ya kuingia, wasifu, namba ya simu na mawasiliano, vocha zako na muda wa Wi-Fi, na (kwa biashara)
+        maeneo yake, vifaa, vifurushi, timu na orodha ya wateja.<br>
+        <strong>Kinachobaki:</strong> kumbukumbu za malipo, kwa muda sheria za kodi na fedha zinavyotaka (kwa kawaida miaka mitano), bila kutumika kwa jambo jingine.<br>
+        <strong>Lini:</strong> ndani ya siku 30. Tunaweza kuwasiliana nawe kuhakikisha akaunti ni yako kabla ya kuifuta.
+    </div>
+</section>
+
+{% if sent %}
+<div class="box ok">
+    <span data-lang="en"><strong>Request received.</strong> We will delete the account within 30 days and tell you when it is done.</span>
+    <span data-lang="sw"><strong>Ombi limepokelewa.</strong> Tutafuta akaunti ndani ya siku 30 na kukujulisha ikikamilika.</span>
+</div>
+{% else %}
+{% if problem %}<div class="box bad">{{ problem }}</div>{% endif %}
+<form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label><span data-lang="en">Which account?</span><span data-lang="sw">Akaunti gani?</span></label>
+    <div class="radios">
+        <label><input type="radio" name="kind" value="guest" {{ 'checked' if form.kind != 'business' }}>
+            <span><span data-lang="en">I buy Wi-Fi<small>A customer: you sign in with your phone number</small></span>
+                  <span data-lang="sw">Ninanunua Wi-Fi<small>Mteja: unaingia kwa namba ya simu</small></span></span></label>
+        <label><input type="radio" name="kind" value="business" {{ 'checked' if form.kind == 'business' }}>
+            <span><span data-lang="en">I run a Wi-Fi business<small>You sign in with a username and password</small></span>
+                  <span data-lang="sw">Nina biashara ya Wi-Fi<small>Unaingia kwa jina la mtumiaji na nenosiri</small></span></span></label>
+    </div>
+    <label for="account"><span data-lang="en">Your phone number, or your username or email</span><span data-lang="sw">Namba yako ya simu, au jina la mtumiaji au barua pepe</span></label>
+    <input id="account" name="account" value="{{ form.account }}" maxlength="120" required placeholder="0712 345 678">
+    <label for="contact"><span data-lang="en">How can we reach you about it?</span><span data-lang="sw">Tukupate vipi kuhusu ombi hili?</span></label>
+    <input id="contact" name="contact" value="{{ form.contact }}" maxlength="120" placeholder="Phone or email · Simu au barua pepe">
+    <label for="reason"><span data-lang="en">Anything we should know? (optional)</span><span data-lang="sw">Kuna jambo tujue? (si lazima)</span></label>
+    <textarea id="reason" name="reason" maxlength="500">{{ form.reason }}</textarea>
+    <button type="submit"><span data-lang="en">Ask to delete my account</span><span data-lang="sw">Omba akaunti yangu ifutwe</span></button>
+</form>
+{% endif %}
+<p style="margin-top:28px"><a href="{{ url_for('privacy') }}">Privacy policy · Sera ya faragha</a></p>
+{% endblock %}

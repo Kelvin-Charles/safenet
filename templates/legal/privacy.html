@@ -1,0 +1,158 @@
+{% extends "legal/layout.html" %}
+{% block title %}Privacy policy{% endblock %}
+{% block body %}
+<section data-lang="en">
+<h1>Privacy policy</h1>
+<p class="updated">Last updated {{ updated }}</p>
+<p>SafeNet is a Wi-Fi billing service made by Safezone Tech in Dar es Salaam, Tanzania. Wi-Fi businesses (hotels, hostels, shops, cafés)
+use it to sell internet with vouchers and mobile money, and their customers use it to buy Wi-Fi and see what they bought. This policy
+explains what the SafeNet website, the SafeNet app and the Wi-Fi login pages collect, why, who sees it and how to have it deleted.
+It follows Tanzania's Personal Data Protection Act, 2022.</p>
+
+<h2>Two kinds of people use SafeNet</h2>
+<ul>
+    <li><strong>Businesses</strong> (owners and their team) sign in with a username and password to run their Wi-Fi business.</li>
+    <li><strong>Wi-Fi customers</strong> buy internet from a business, on its Wi-Fi login page or in the app, and can sign in to the app
+        with their phone number and an SMS code or a voucher code.</li>
+</ul>
+<p>For a business's customers, the business decides why their data is used; SafeNet keeps and processes it for the business so the Wi-Fi works.</p>
+
+<h2>What we collect</h2>
+<p><strong>From businesses:</strong> business name, username, email address, phone number and language; the places (sites) and network devices
+set up; packages, prices and offers; team members' names, emails and roles; how the business is paid (mobile-money number, Lipa Namba or bank
+account) and its withdrawals; expenses it records; its SafeNet plan and bills.</p>
+<p><strong>From Wi-Fi customers:</strong> phone number; what was bought (package, price, time, place) and the voucher code; the name the
+mobile-money network gives for the payer, when it gives one; the device's network (MAC) address and IP address on the Wi-Fi, login times and data
+used, so the right device gets online for the time paid; SMS messages SafeNet sends (voucher codes, receipts and, if the business sends them,
+offers, with a way to stop them).</p>
+<p><strong>In the app:</strong> the sign-in token, kept in the phone's secure storage, and the language and theme chosen. When the phone joins a
+Wi-Fi network, the app asks SafeNet whether it is a SafeNet business's Wi-Fi so it can offer to buy there; this uses the network address SafeNet
+sees, not the phone's location. The app has no advertising and no third-party analytics or tracking, and does not read contacts, photos,
+files or location.</p>
+
+<h2>Why we use it</h2>
+<ul>
+    <li>To sell and deliver Wi-Fi: take payments, create voucher codes, let the right device online and end its time when it runs out.</li>
+    <li>To send voucher codes, receipts and alerts by SMS and email.</li>
+    <li>To show businesses their sales, customers, earnings and reports, and pay out their money.</li>
+    <li>To keep the service secure: stop fraud, misuse and free-riding, and fix problems.</li>
+    <li>To meet legal duties, such as keeping payment records.</li>
+</ul>
+
+<h2>Who sees it</h2>
+<ul>
+    <li><strong>The Wi-Fi business</strong> you buy from sees your phone number, purchases, codes and sessions at its places.</li>
+    <li><strong>Payment providers</strong> (ClickPesa, Snippe and the mobile-money networks) process payments and payouts.</li>
+    <li><strong>Our SMS and email providers</strong> deliver messages.</li>
+    <li><strong>Network equipment services</strong> the business uses (such as TP-Link Omada and Ruijie Cloud) receive the device address
+        and code needed to let it online.</li>
+    <li><strong>Authorities</strong>, only when the law requires it.</li>
+</ul>
+<p>We do not sell personal data or use it for advertising.</p>
+
+<h2>How long we keep it</h2>
+<p>Account data is kept while the account is used. Login sessions and logs are kept as long as needed to run and secure the service.
+Payment and payout records are kept as long as tax and financial laws require (usually at least five years), even after an account is deleted.
+Everything else is deleted when you ask, or when a business closes its account.</p>
+
+<h2>How we protect it</h2>
+<p>Everything travels over HTTPS. Passwords are stored only as secure hashes, and payment and device keys are encrypted. Each business sees only its
+own data, and access by our team is limited to what support needs.</p>
+
+<h2>Your choices and rights</h2>
+<ul>
+    <li>See and correct your details: businesses in their Settings; customers by asking the business or us.</li>
+    <li>Stop offer messages: use the stop link in the SMS.</li>
+    <li>Delete your account and data: in the app (More → Delete my account, or the menu for Wi-Fi customers) or at
+        <a href="{{ url_for('delete_account') }}">{{ request.host_url }}delete-account</a>.</li>
+    <li>Ask anything about your data, or complain: write to <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>. You may also
+        complain to Tanzania's Personal Data Protection Commission.</li>
+</ul>
+
+<h2>Children</h2>
+<p>SafeNet is not made for children under 13 and we do not knowingly collect their data. If you think a child has given us data, write to us and we will delete it.</p>
+
+<h2>Changes</h2>
+<p>We will post any change here with a new date, and tell businesses by email when a change matters.</p>
+
+<h2>Contact</h2>
+<p>Safezone Tech (SafeNet), Dar es Salaam, Tanzania · <a href="mailto:{{ contact_email }}">{{ contact_email }}</a></p>
+</section>
+
+<section data-lang="sw">
+<h1>Sera ya faragha</h1>
+<p class="updated">Imesasishwa {{ updated }}</p>
+<p>SafeNet ni huduma ya kuuza Wi-Fi iliyotengenezwa na Safezone Tech, Dar es Salaam, Tanzania. Biashara za Wi-Fi (hoteli, hosteli, maduka, migahawa)
+huitumia kuuza intaneti kwa vocha na pesa za simu, na wateja wao huitumia kununua Wi-Fi na kuona walichonunua. Sera hii inaeleza tovuti ya SafeNet,
+programu ya SafeNet na kurasa za kuingia Wi-Fi zinakusanya nini, kwa nini, nani anaona, na jinsi ya kuomba vifutwe. Inafuata Sheria ya Ulinzi wa
+Taarifa Binafsi ya Tanzania, 2022.</p>
+
+<h2>Aina mbili za watumiaji</h2>
+<ul>
+    <li><strong>Biashara</strong> (wamiliki na timu yao) huingia kwa jina la mtumiaji na nenosiri kuendesha biashara yao ya Wi-Fi.</li>
+    <li><strong>Wateja wa Wi-Fi</strong> hununua intaneti kwa biashara, kwenye ukurasa wake wa kuingia Wi-Fi au kwenye programu, na wanaweza kuingia
+        kwenye programu kwa namba ya simu na nambari ya SMS au vocha.</li>
+</ul>
+<p>Kwa wateja wa biashara, biashara ndiyo huamua taarifa zao zitumikeje; SafeNet huzihifadhi na kuzichakata kwa niaba ya biashara ili Wi-Fi ifanye kazi.</p>
+
+<h2>Tunachokusanya</h2>
+<p><strong>Kutoka kwa biashara:</strong> jina la biashara, jina la mtumiaji, barua pepe, namba ya simu na lugha; maeneo na vifaa vya mtandao
+vilivyowekwa; vifurushi, bei na ofa; majina, barua pepe na nafasi za wanatimu; jinsi biashara inavyolipwa (namba ya simu, Lipa Namba au akaunti ya benki)
+na pesa ilizotoa; matumizi inayorekodi; kifurushi chake cha SafeNet na bili.</p>
+<p><strong>Kutoka kwa wateja wa Wi-Fi:</strong> namba ya simu; kilichonunuliwa (kifurushi, bei, muda, eneo) na nambari ya vocha; jina la mlipaji
+linalotolewa na mtandao wa simu, likitolewa; anwani ya kifaa (MAC) na anwani ya IP kwenye Wi-Fi, muda wa kuingia na data iliyotumika, ili kifaa
+sahihi kipate intaneti kwa muda uliolipiwa; SMS ambazo SafeNet hutuma (vocha, risiti na, biashara ikituma, ofa, pamoja na njia ya kuzisimamisha).</p>
+<p><strong>Kwenye programu:</strong> alama ya kuingia, inayohifadhiwa kwa usalama kwenye simu, na lugha na mwonekano uliochagua. Simu ikiunganishwa
+na Wi-Fi, programu huiuliza SafeNet kama ni Wi-Fi ya biashara ya SafeNet ili ikupe nafasi ya kununua hapo; hii hutumia anwani ya mtandao
+ambayo SafeNet inaiona, si mahali simu ilipo. Programu haina matangazo wala programu za kufuatilia za watu wengine, na haisomi anwani za watu, picha,
+mafaili wala mahali ulipo.</p>
+
+<h2>Kwa nini tunazitumia</h2>
+<ul>
+    <li>Kuuza na kutoa Wi-Fi: kupokea malipo, kutengeneza vocha, kuruhusu kifaa sahihi na kukisimamisha muda ukiisha.</li>
+    <li>Kutuma vocha, risiti na taarifa kwa SMS na barua pepe.</li>
+    <li>Kuonyesha biashara mauzo, wateja, mapato na taarifa, na kuwalipa pesa zao.</li>
+    <li>Kulinda huduma: kuzuia udanganyifu na matumizi mabaya, na kurekebisha matatizo.</li>
+    <li>Kutimiza wajibu wa kisheria, kama kuhifadhi kumbukumbu za malipo.</li>
+</ul>
+
+<h2>Nani anaziona</h2>
+<ul>
+    <li><strong>Biashara ya Wi-Fi</strong> unayonunua kwake huona namba yako ya simu, ulichonunua, vocha na muda wako kwenye maeneo yake.</li>
+    <li><strong>Watoa huduma za malipo</strong> (ClickPesa, Snippe na mitandao ya pesa za simu) huchakata malipo.</li>
+    <li><strong>Watoa huduma wetu wa SMS na barua pepe</strong> hufikisha ujumbe.</li>
+    <li><strong>Huduma za vifaa vya mtandao</strong> anazotumia mfanyabiashara (kama TP-Link Omada na Ruijie Cloud) hupokea anwani ya kifaa na vocha
+        zinazohitajika kukiruhusu.</li>
+    <li><strong>Mamlaka</strong>, pale tu sheria inapotaka.</li>
+</ul>
+<p>Hatuuzi taarifa binafsi wala kuzitumia kwa matangazo.</p>
+
+<h2>Tunazihifadhi kwa muda gani</h2>
+<p>Taarifa za akaunti huhifadhiwa wakati akaunti inatumika. Kumbukumbu za kuingia huhifadhiwa kwa muda unaohitajika kuendesha na kulinda huduma.
+Kumbukumbu za malipo huhifadhiwa kwa muda sheria za kodi na fedha zinavyotaka (kwa kawaida angalau miaka mitano), hata baada ya akaunti kufutwa.
+Mengine yote hufutwa ukiomba, au biashara ikifunga akaunti yake.</p>
+
+<h2>Tunavyozilinda</h2>
+<p>Kila kitu husafiri kwa HTTPS. Manenosiri huhifadhiwa kwa njia salama isiyosomeka, na funguo za malipo na vifaa husimbwa. Kila biashara huona
+taarifa zake tu, na timu yetu huona kile tu kinachohitajika kwa msaada.</p>
+
+<h2>Haki na uchaguzi wako</h2>
+<ul>
+    <li>Kuona na kurekebisha taarifa zako: biashara kwenye Mipangilio; wateja kwa kuiomba biashara au sisi.</li>
+    <li>Kusimamisha ujumbe wa ofa: tumia kiungo cha kusimamisha kwenye SMS.</li>
+    <li>Kufuta akaunti na taarifa zako: kwenye programu (Zaidi → Futa akaunti yangu, au menyu kwa wateja wa Wi-Fi) au kwenye
+        <a href="{{ url_for('delete_account') }}">{{ request.host_url }}delete-account</a>.</li>
+    <li>Kuuliza chochote kuhusu taarifa zako au kulalamika: tuandikie <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>. Unaweza pia
+        kulalamika kwa Tume ya Ulinzi wa Taarifa Binafsi ya Tanzania.</li>
+</ul>
+
+<h2>Watoto</h2>
+<p>SafeNet haikutengenezwa kwa watoto chini ya miaka 13 na hatukusanyi taarifa zao kwa makusudi. Ukidhani mtoto ametupa taarifa, tuandikie tuzifute.</p>
+
+<h2>Mabadiliko</h2>
+<p>Tutaweka mabadiliko yoyote hapa na tarehe mpya, na kuziarifu biashara kwa barua pepe mabadiliko yakiwa muhimu.</p>
+
+<h2>Mawasiliano</h2>
+<p>Safezone Tech (SafeNet), Dar es Salaam, Tanzania · <a href="mailto:{{ contact_email }}">{{ contact_email }}</a></p>
+</section>
+{% endblock %}

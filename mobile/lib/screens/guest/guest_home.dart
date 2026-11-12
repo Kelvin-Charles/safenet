@@ -10,6 +10,7 @@ import '../../ui/widgets.dart';
 import 'buy.dart';
 import 'here_banner.dart';
 import 'history.dart';
+import '../account_actions.dart';
 import '../../ui/kit.dart';
 
 /// A Wi-Fi customer's own view: codes with time and data left, where they connect, what they spent.
@@ -27,6 +28,10 @@ class GuestHome extends StatelessWidget {
               s.setLanguage(S.lang == 'sw' ? 'en' : 'sw');
             } else if (v == 'theme') {
               s.setThemeMode(s.themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark);
+            } else if (v == 'privacy') {
+              openPrivacy();
+            } else if (v == 'delete') {
+              askToDeleteAccount(context, guest: true);
             } else if (await confirm(context, S.t('Sign out?'), yes: S.t('Sign out'), danger: true)) {
               s.signOut();
             }
@@ -34,7 +39,9 @@ class GuestHome extends StatelessWidget {
           itemBuilder: (_) => [
             PopupMenuItem(value: 'lang', child: Text(S.lang == 'sw' ? 'English' : 'Kiswahili')),
             PopupMenuItem(value: 'theme', child: Text(S.t(s.themeMode == ThemeMode.dark ? 'Light theme' : 'Dark theme'))),
+            PopupMenuItem(value: 'privacy', child: Text(S.t('Privacy policy'))),
             PopupMenuItem(value: 'out', child: Text(S.t('Sign out'))),
+            PopupMenuItem(value: 'delete', child: Text(S.t('Delete my account'), style: const TextStyle(color: kBad))),
           ],
         ),
       ]),

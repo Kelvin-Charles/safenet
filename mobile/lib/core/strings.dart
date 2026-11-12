@@ -448,5 +448,9 @@ class S {
     "to {name}": "kwa {name}",
     "vs the period before": "ukilinganisha na kipindi kilichopita",
     "{amount} of costs shared by all sites are not counted here; see All sites.": "Gharama za pamoja za maeneo yote ({amount}) hazihesabiwi hapa; angalia Maeneo yote.",
+    // privacy and deleting an account
+    "Delete my account": "Futa akaunti yangu",
+    "Privacy policy": "Sera ya faragha",
+    "Request received.": "Ombi limepokelewa.",
 };
 }

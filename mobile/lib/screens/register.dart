@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'account_actions.dart' show openPrivacy;
 import 'package:provider/provider.dart';
 
 import '../core/api.dart';
@@ -180,6 +181,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const SizedBox(height: 12),
           SnButton(variant: SnVariant.ghost, size: SnSize.small, onPressed: () => Navigator.pop(context), child: Text(S.t('I already have an account'))),
           const PoweredBy(),
+          Center(child: SnButton(variant: SnVariant.ghost, size: SnSize.small, onPressed: openPrivacy, child: Text(S.t('Privacy policy')))),
         ]),
       ),
     );

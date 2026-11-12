@@ -1083,3 +1083,25 @@ class Expense(db.Model):
 
     def __repr__(self):
         return f'<Expense {self.tenant_id} {self.amount}>'
+
+
+class DeletionRequest(db.Model):
+    """Someone asked for their SafeNet account and data to be deleted (from the app or /delete-account). The platform
+    team checks who it is and deletes it (Platform: Deletions); payment records the law requires are kept."""
+    __tablename__ = 'deletion_requests'
+
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(16), nullable=False)               # business, guest
+    account = db.Column(db.String(120), nullable=False)           # username/email, or phone number
+    contact = db.Column(db.String(120))                           # how to reach them about it
+    reason = db.Column(db.String(500))
+    source = db.Column(db.String(8), nullable=False, default='web')   # web, app (signed in: who it is is known)
+    verified = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    admin_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='SET NULL'))     # the signed-in business account
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='SET NULL'))
+    status = db.Column(db.String(12), nullable=False, default='new', server_default='new', index=True)  # new, done, rejected
+    note = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    done_at = db.Column(db.DateTime)
+
+    tenant = db.relationship('Tenant')

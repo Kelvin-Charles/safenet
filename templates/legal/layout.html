@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{% endblock %} · SafeNet</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap">
+    <style>
+        :root { --ink: #051D60; --ink-2: #334155; --muted: #64748b; --line: #e2e8f0; --soft: #F6F8FC; --ok: #15803D; --ok-bg: #EAF7EF; --bad: #B91C1C; --bad-bg: #FDECEC; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: 'Poppins', system-ui, sans-serif; color: #0f172a; background: #fff; line-height: 1.7; font-size: 16px; }
+        a { color: #1E3A8A; }
+        header { border-bottom: 1px solid var(--line); }
+        header .in, main, footer .in { max-width: 820px; margin: 0 auto; padding: 0 20px; }
+        header .in { display: flex; align-items: center; justify-content: space-between; height: 68px; }
+        .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-weight: 700; font-size: 20px; }
+        .brand img { width: 32px; }
+        .langs a { font-size: 14px; color: var(--ink-2); text-decoration: none; padding: 4px 10px; border-radius: 8px; }
+        .langs a.on { background: var(--soft); color: var(--ink); font-weight: 600; }
+        main { padding-top: 32px; padding-bottom: 56px; }
+        h1 { font-size: 32px; line-height: 1.25; color: var(--ink); margin: 0 0 6px; }
+        .updated { color: var(--muted); font-size: 14px; margin: 0 0 28px; }
+        h2 { font-size: 21px; color: var(--ink); margin: 36px 0 8px; }
+        p, li { color: #1f2937; }
+        .box { background: var(--soft); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin: 20px 0; }
+        .ok { background: var(--ok-bg); border-color: #bfe5cc; }
+        .bad { background: var(--bad-bg); border-color: #f5c2c2; color: var(--bad); }
+        label { display: block; font-weight: 600; font-size: 14px; margin: 16px 0 6px; color: var(--ink-2); }
+        input, textarea, select { width: 100%; font: inherit; font-size: 15px; padding: 11px 13px; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; }
+        textarea { min-height: 90px; }
+        .radios { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+        .radios label { margin: 0; font-weight: 500; border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px 14px; display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+        .radios input { width: auto; margin-top: 5px; }
+        .radios small { display: block; color: var(--muted); font-weight: 400; }
+        button { margin-top: 22px; background: var(--ink); color: #fff; border: 0; border-radius: 10px; font: 600 15px Poppins, sans-serif; padding: 13px 26px; cursor: pointer; }
+        footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+        footer .in { padding-top: 20px; padding-bottom: 28px; display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: space-between; }
+        footer a { color: var(--muted); }
+        [data-lang] { display: none; }
+        body.en [data-lang="en"], body.sw [data-lang="sw"] { display: block; }
+        @media (max-width: 560px) { h1 { font-size: 26px; } .radios { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body class="en">
+    <header><div class="in">
+        <a class="brand" href="{{ url_for('landing') }}"><img src="{{ url_for('static', filename='img/safenet-mark.png') }}" alt=""> SafeNet</a>
+        <nav class="langs"><a href="#en" data-set="en" class="on">English</a><a href="#sw" data-set="sw">Kiswahili</a></nav>
+    </div></header>
+    <main>{% block body %}{% endblock %}</main>
+    <footer><div class="in">
+        <span>© {{ year }} Safezone Tech · SafeNet</span>
+        <span><a href="{{ url_for('privacy') }}">Privacy policy</a> · <a href="{{ url_for('delete_account') }}">Delete your account</a> · <a href="mailto:{{ contact_email }}">{{ contact_email }}</a></span>
+    </div></footer>
+    <script>
+        (function () {
+            function set(lang) {
+                document.body.className = lang;
+                document.documentElement.lang = lang;
+                document.querySelectorAll('[data-set]').forEach(function (a) { a.classList.toggle('on', a.dataset.set === lang); });
+                try { localStorage.setItem('sn_legal_lang', lang); } catch (e) {}
+            }
+            document.querySelectorAll('[data-set]').forEach(function (a) { a.addEventListener('click', function (e) { e.preventDefault(); set(a.dataset.set); history.replaceState(null, '', '#' + a.dataset.set); }); });
+            var saved = null; try { saved = localStorage.getItem('sn_legal_lang'); } catch (e) {}
+            var cookie = (document.cookie.match(/(?:^|; )sn_lang=(\w+)/) || [])[1];
+            set(location.hash === '#sw' || location.hash === '#en' ? location.hash.slice(1) : (saved || cookie || 'en'));
+        })();
+    </script>
+</body>
+</html>

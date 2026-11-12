@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Platform: Deletions - {{ app_name }}{% endblock %}
+{% block page_title %}Platform: Account deletions{% endblock %}
+{% block content %}
+<div class="card"><div class="card-body small">
+    People ask here (app or <a href="{{ url_for('delete_account') }}" target="_blank">/delete-account</a>) to have their account deleted.
+    App requests come from the signed-in account, so it is them; web requests: check first (call or SMS the contact). Do it within 30 days,
+    keep payment records, then mark it done. A Wi-Fi customer: remove their phone from Customers and their codes; a business: close and remove the tenant.
+</div></div>
+<div class="card"><div class="card-body">
+    {% if items %}
+    <div class="table-responsive"><table class="table align-middle">
+        <thead><tr><th>Asked</th><th>Who</th><th>Contact</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+        {% for r in items %}
+        <tr>
+            <td><small>{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}</small><small class="d-block text-muted">{{ 'App' if r.source == 'app' else 'Web' }}</small></td>
+            <td><strong>{{ r.account }}</strong><small class="d-block text-muted">{{ 'Business' if r.kind == 'business' else 'Wi-Fi customer' }}{% if r.tenant %} · {{ r.tenant.name }}{% endif %}</small>
+                {% if r.verified %}<span class="badge bg-success">Signed in</span>{% else %}<span class="badge bg-warning text-dark">Check it is them</span>{% endif %}</td>
+            <td><small>{{ r.contact or '-' }}</small></td>
+            <td><small>{{ r.reason or '-' }}</small></td>
+            <td>{% if r.status == 'new' %}<span class="badge bg-danger">New</span>{% elif r.status == 'done' %}<span class="badge bg-success">Deleted</span>{% else %}<span class="badge bg-secondary">Rejected</span>{% endif %}
+                {% if r.done_at %}<small class="d-block text-muted">{{ r.done_at.strftime('%Y-%m-%d') }}</small>{% endif %}{% if r.note %}<small class="d-block text-muted">{{ r.note }}</small>{% endif %}</td>
+            <td class="text-nowrap">
+                <form method="POST" class="d-flex gap-1">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="id" value="{{ r.id }}">
+                    <input name="note" class="form-control form-control-sm" placeholder="Note" style="max-width: 140px">
+                    {% if r.status == 'new' %}
+                    <button name="status" value="done" class="btn btn-sm btn-success">Deleted</button>
+                    <button name="status" value="rejected" class="btn btn-sm btn-outline-secondary">Reject</button>
+                    {% else %}<button name="status" value="new" class="btn btn-sm btn-outline-secondary">Reopen</button>{% endif %}
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </table></div>
+    {% else %}<p class="text-muted mb-0">No requests yet.</p>{% endif %}
+</div></div>
+{% endblock %}

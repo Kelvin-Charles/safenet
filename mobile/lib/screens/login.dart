@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'account_actions.dart' show openPrivacy;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -115,6 +116,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: business ? _BusinessForm(config: config) : _CustomerForm(config: config),
                       ),
                       const PoweredBy(),
+                      Center(child: SnButton(variant: SnVariant.ghost, size: SnSize.small, onPressed: openPrivacy, child: Text(S.t('Privacy policy')))),
                     ]),
                   ),
                 ]),

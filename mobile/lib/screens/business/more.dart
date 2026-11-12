@@ -18,6 +18,7 @@ import 'manage/sites.dart';
 import 'manage/sms.dart';
 import 'manage/team.dart';
 import 'web_page.dart';
+import '../account_actions.dart';
 import '../../ui/kit.dart';
 
 class MoreScreen extends StatelessWidget {
@@ -179,6 +180,8 @@ class MoreScreen extends StatelessWidget {
                 ),
               ),
             ),
+            SectionTitle(S.t('Account')),
+            const AccountActions(),
             const PoweredBy(),
           ]),
     );

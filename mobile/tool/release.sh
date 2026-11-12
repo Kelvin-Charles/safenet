@@ -26,7 +26,8 @@ case "${1:-}" in
   key-cert)
     ks=$(sed -n 's/^storeFile=//p' android/key.properties); alias=$(sed -n 's/^keyAlias=//p' android/key.properties)
     case "$ks" in /*) ;; *) ks="android/app/$ks" ;; esac
-    keytool -export -rfc -keystore "$ks" -alias "$alias" -file android/upload_certificate.pem
+    STOREPASS=$(sed -n 's/^storePassword=//p' android/key.properties) \
+      keytool -export -rfc -keystore "$ks" -alias "$alias" -storepass:env STOREPASS -file android/upload_certificate.pem
     keytool -printcert -file android/upload_certificate.pem | grep -E 'SHA1|SHA256'
     ;;
   *) echo "usage: tool/release.sh android|ios|key-cert"; exit 1 ;;

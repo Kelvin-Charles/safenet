@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import Expense, SiteAddress, voucher_sites, Outage, OutageCredit, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
+from models import DeletionRequest, Expense, SiteAddress, voucher_sites, Outage, OutageCredit, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -7960,6 +7960,77 @@ def _finance_pdf_response():
     name = re.sub(r'[^\w-]+', '-', f"{rep['business']} {rep['site_name'] or ''} {rep['start']} {rep['end'] if rep['end'] != rep['start'] else ''}").strip('-').lower()
     disposition = 'inline' if request.args.get('view') else 'attachment'
     return Response(pdf, mimetype='application/pdf', headers={'Content-Disposition': f'{disposition}; filename=financial-report-{name}.pdf'})
+
+
+# ---------------------------------------------------------------------------
+# Privacy policy and account deletion (public pages, needed for the app stores)
+# ---------------------------------------------------------------------------
+def _contact_email():
+    return Config.MAIL_USERNAME or Config.ADMIN_EMAIL
+
+
+@app.route('/privacy')
+def privacy():
+    return render_template('legal/privacy.html', contact_email=_contact_email(), updated='11 November 2026', year=datetime.utcnow().year)
+
+
+def _new_deletion_request(kind, account, contact=None, reason=None, source='web', admin=None, verified=False):
+    req = DeletionRequest(kind=kind, account=account[:120], contact=(contact or '')[:120] or None, reason=(reason or '')[:500] or None,
+                          source=source, verified=verified, admin_id=admin.id if admin else None,
+                          tenant_id=admin.tenant_id if admin else None)
+    db.session.add(req)
+    db.session.commit()
+    app.logger.info('account deletion requested: %s %s (%s)', kind, account, source)
+    body = (f'Someone asked for their SafeNet account to be deleted.\n\nKind: {kind}\nAccount: {account}\n'
+            f'Contact: {contact or "-"}\nFrom: {source}{" (signed in, so it is them)" if verified else " (check it is them)"}\n'
+            f'Reason: {reason or "-"}\n\nHandle it in Platform: Deletions: {Config.PUBLIC_URL}/platform/deletions\n')
+    for admin_ in Admin.query.filter_by(is_superadmin=True, is_active=True):
+        if admin_.email:
+            send_mail(admin_.email, f'Account deletion request: {account}', body)
+    return req
+
+
+@app.route('/delete-account', methods=['GET', 'POST'])
+def delete_account():
+    """Ask for a SafeNet account (a business login, or a Wi-Fi customer's phone number) and its data to be deleted."""
+    sent = problem = None
+    form = {'kind': request.form.get('kind', 'guest'), 'account': '', 'contact': '', 'reason': ''}
+    if request.method == 'POST':
+        _check_csrf()
+        form.update({k: (request.form.get(k) or '').strip() for k in ('account', 'contact', 'reason')})
+        ip = f'ip:{_client_ip()}'
+        if form['kind'] not in ('business', 'guest'):
+            form['kind'] = 'guest'
+        if _rate_limited('delete', ip, 5, 60):
+            problem = tr('Too many requests. Try again in an hour.')
+        elif len(form['account']) < 3:
+            problem = tr('Enter your username or email (business) or the phone number you buy Wi-Fi with.')
+        elif form['kind'] == 'business' and not form['contact']:
+            problem = tr('Enter a phone number or email we can reach you on.')
+        else:
+            _rate_hit('delete', ip)
+            _new_deletion_request(form['kind'], form['account'], form['contact'] or form['account'], form['reason'])
+            sent = True
+    return render_template('legal/delete_account.html', sent=sent, problem=problem, form=form, contact_email=_contact_email(),
+                           year=datetime.utcnow().year)
+
+
+@app.route('/platform/deletions', methods=['GET', 'POST'])
+@login_required
+@superadmin_required
+def platform_deletions():
+    if request.method == 'POST':
+        _check_csrf()
+        req = db.get_or_404(DeletionRequest, request.form.get('id', type=int))
+        status = request.form.get('status')
+        if status in ('done', 'rejected', 'new'):
+            req.status, req.note = status, (request.form.get('note') or '').strip()[:255] or req.note
+            req.done_at = datetime.utcnow() if status != 'new' else None
+            db.session.commit()
+            flash(f'Request from {req.account} marked {status}.', 'success')
+        return redirect(url_for('platform_deletions'))
+    items = DeletionRequest.query.order_by(DeletionRequest.status != 'new', DeletionRequest.id.desc()).limit(200).all()
+    return render_template('platform/deletions.html', items=items)
 
 
 # ---------------------------------------------------------------------------

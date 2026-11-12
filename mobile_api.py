@@ -32,7 +32,7 @@ GUEST_DAYS = 365
 WEB_LINK_SECONDS = 120
 PER_PAGE = 30
 # what a partner (read-only account) may send besides looking
-VIEWER_POSTS = {'mobile.login', 'mobile.web_link', 'mobile.guest_login'}
+VIEWER_POSTS = {'mobile.login', 'mobile.web_link', 'mobile.guest_login', 'mobile.delete_me'}
 
 
 def init(flask_app, core):
@@ -1583,3 +1583,20 @@ def finance_report():
 def finance_report_pdf():
     _need_expenses()
     return A._finance_pdf_response()
+
+
+# ---------------------------------------------------------------- deleting your own account (app stores require it)
+@bp.route('/api/m/account/delete', methods=['POST'])
+@bp.route('/api/m/guest/account/delete', methods=['POST'])
+def delete_me():
+    """Ask for the signed-in account (business login or Wi-Fi customer) and its data to be deleted; the platform team does it."""
+    reason = str((request.get_json(silent=True) or {}).get('reason') or '')[:500]
+    if request.path.startswith('/api/m/guest/'):
+        phone, codes = _guest_who()
+        codes = codes if isinstance(codes, list) else [codes] if codes else []
+        account = phone or ', '.join(codes)
+        A._new_deletion_request('guest', account, phone, reason, source='app', verified=True)
+    else:
+        user = _need_login()
+        A._new_deletion_request('business', f'{user.username} ({user.email})', user.email, reason, source='app', admin=user, verified=True)
+    return jsonify(ok=True, message=tr('Request received. We will delete the account within 30 days and tell you when it is done.'))
