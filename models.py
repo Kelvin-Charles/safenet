@@ -46,6 +46,7 @@ class Tenant(db.Model):
     guest_trial_plan_id = db.Column(db.Integer, db.ForeignKey('plans.id', ondelete='SET NULL'))   # speed; none = no limit
     guest_trial_who = db.Column(db.String(8), nullable=False, default='new', server_default='new')       # new, all
     guest_trial_every = db.Column(db.String(8), nullable=False, default='once', server_default='once')   # once, day
+    radius_secret = db.Column(db.String(60))            # RADIUS secret for the business's hotspot access points
     # The business's own login to SafeNet's Omada Controller (advanced users; only its sites)
     omada_login = db.Column(db.String(64))
     omada_user_id = db.Column(db.String(64))
@@ -114,6 +115,14 @@ class Site(db.Model):
     wifidog_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     wifidog_seen_at = db.Column(db.DateTime)            # last ping or request from an access point
     wifidog_gw_id = db.Column(db.String(64))            # last access point id seen
+    # RADIUS access points with an external login page (Grandstream, Cambium, CoovaChilli, MikroTik, Meraki): they send
+    # guests to /hs/<portal_token>, SafeNet checks the code and hands it back to the device, which asks SafeNet's RADIUS
+    hotspot_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    hotspot_kind = db.Column(db.String(16))             # brand recognised from the last redirect
+    hotspot_seen_at = db.Column(db.DateTime)            # last guest sent here by the device
+    hotspot_ip = db.Column(db.String(45))               # the site's public IP, learned from guests (RADIUS comes from it)
+    hotspot_problem = db.Column(db.String(200))         # why that IP could not be used, shown on Sites
+    hotspot_unknown = db.Column(db.String(500))         # last redirect SafeNet did not recognise (for support)
     omada_checked_at = db.Column(db.DateTime)          # last successful connection
     omada_synced_at = db.Column(db.DateTime)           # guests' data usage last read from SafeNet's controller
     omada_scanned_at = db.Column(db.DateTime)          # access points last asked to look for guests' own hotspots

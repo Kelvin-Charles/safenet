@@ -655,6 +655,14 @@ authenticate {
 preacct {
  preprocess
 
+ # SafeNet hotspot access points (Grandstream, Cambium…) sit behind the site's internet router and report their
+ # private address. Record the site's public address instead, which is how SafeNet knows the site of each session.
+ if ("%{client:shortname}" =~ /^hotspot-/) {
+  update request {
+   &NAS-IP-Address := "%{Packet-Src-IP-Address}"
+  }
+ }
+
  #
  # Merge Acct-[Input|Output]-Gigawords and Acct-[Input-Output]-Octets
  # into a single 64bit counter Acct-[Input|Output]-Octets64.

@@ -32,7 +32,7 @@ with app.app_context():
 # owner switches it on
 c = app.test_client(); r = c.get('/login'); c.post('/login', data={'username': 'owner', 'password': 'password1', 'csrf_token': tok(r.text)})
 p = c.get('/sites').text
-assert 'Switch on Ruijie access points' in p
+assert 'Switch on WiFiDog' in p
 r = c.post(f'/sites/{SID}/wifidog', data={'csrf_token': tok(p), 'action': 'enable'}, follow_redirects=True).text
 with app.app_context(): TOKEN = db.session.get(Site, SID).portal_token
 AUTH_URL = f'http://radius.example.tz:5001/wifidog/{TOKEN}/'

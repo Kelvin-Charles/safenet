@@ -1,0 +1,76 @@
+{% extends "docs/layout.html" %}
+{% block body %}
+<div class="flow" aria-label="How it connects">
+    <div class="box">Guest's phone</div><span class="arr">→</span>
+    <div class="box">Access point<small>Grandstream, Cambium…</small></div><span class="arr">→</span>
+    <div class="box">Your internet router</div><span class="arr">→</span>
+    <div class="box">Internet</div>
+</div>
+<div class="flow">
+    <div class="box">Guest's phone</div><span class="arr">⇄</span>
+    <div class="box hl">SafeNet login page</div><span class="arr">·</span>
+    <div class="box">Access point</div><span class="arr">⇄</span>
+    <div class="box hl">SafeNet RADIUS</div>
+</div>
+<p>Many business access points can send guests to an <strong>external login page</strong> and then check the code with a <strong>RADIUS server</strong>. SafeNet is both. Guests see your SafeNet login page with your packages, pay with mobile money or type a voucher, and SafeNet hands the code back to the access point, which checks it with SafeNet and lets the phone online.</p>
+
+<h2 id="models">Which devices work</h2>
+<div class="table-scroll"><table>
+    <thead><tr><th>Brand</th><th>Status</th></tr></thead>
+    <tbody>
+        <tr><td><strong>Grandstream GWN</strong> (GWN76xx access points, GWN.Cloud, GWN Manager)</td><td>✅ Supported. External splash page with RADIUS.</td></tr>
+        <tr><td><strong>Cambium</strong> (cnPilot, XV/XE access points, cnMaestro)</td><td>✅ Supported. External hotspot with RADIUS, posted to the access point.</td></tr>
+        <tr><td><strong>CoovaChilli</strong> (OpenWrt and other Linux routers)</td><td>✅ Supported.</td></tr>
+        <tr><td><strong>MikroTik</strong>, <strong>Meraki</strong></td><td>✅ Supported, now with buying on the login page.</td></tr>
+        <tr><td><strong>Huawei</strong>, <strong>Aruba</strong>, others</td><td>🧪 Not tested yet. Follow the steps; if SafeNet doesn't recognise the device, the Sites page shows what it sent. Send that to support.</td></tr>
+        <tr><td><strong>UniFi</strong></td><td>Coming: UniFi lets guests online through its controller, which needs its own setup.</td></tr>
+    </tbody>
+</table></div>
+<div class="note warn"><i class="bi bi-exclamation-triangle"></i><p><strong>Your own internet address.</strong> The access point's RADIUS requests reach SafeNet from the site's internet address. SafeNet learns it by itself when the first guest opens the login page, so a changing address is fine. But some 4G/5G lines share one address between many customers. If SafeNet finds the address is shared with another SafeNet business, the Sites page tells you; then ask the provider for your own (public) IP, or use a <a href="{{ url_for('docs', slug='gateway') }}">SafeNet gateway</a> or <a href="{{ url_for('docs', slug='mikrotik') }}">MikroTik</a>.</p></div>
+
+<h2 id="safenet">1. Switch it on in SafeNet</h2>
+<ol class="steps">
+    <li><strong>Open your site</strong>In SafeNet open <strong>Sites</strong> and click <strong>RADIUS</strong> next to the site.</li>
+    <li><strong>Switch it on</strong>Click <strong>Switch on RADIUS access points</strong>. SafeNet shows:
+        <div class="table-scroll"><table>
+            <tbody>
+                <tr><th>External login page URL</th><td><code>{{ public_url }}/hs/YOUR-SITE-CODE</code> (yours is on the Sites page)</td></tr>
+                <tr><th>RADIUS server</th><td><code>{{ server_ip or public_host }}</code></td></tr>
+                <tr><th>Ports</th><td>Authentication <code>1812</code>, accounting <code>1813</code></td></tr>
+                <tr><th>RADIUS secret</th><td>shown on the Sites page (one for all your sites)</td></tr>
+                <tr><th>Allow before login</th><td><code>{{ public_host }}</code>{% if server_ip %} and <code>{{ server_ip }}</code>{% endif %}</td></tr>
+            </tbody>
+        </table></div></li>
+    <li><strong>Add packages</strong>Make sure at least one package is sold at this site on the <strong>Packages</strong> page.</li>
+</ol>
+
+<h2 id="grandstream">2a. Grandstream GWN</h2>
+<ol class="steps">
+    <li><strong>Update the firmware</strong>Use recent firmware on every access point (older ones lack the external splash page).</li>
+    <li><strong>Make a captive portal policy</strong>In GWN.Cloud, GWN Manager or the master access point's web page open <em>Captive Portal → Policy → Add</em>. Splash page: <strong>External</strong>, with the external login page URL from SafeNet.</li>
+    <li><strong>RADIUS</strong>Authentication: <strong>RADIUS</strong>, with SafeNet's server, port 1812 and the secret. Turn on accounting (port 1813, interim update 60 seconds).</li>
+    <li><strong>Pre-authentication rules</strong>Add <code>{{ public_host }}</code>{% if server_ip %} and <code>{{ server_ip }}</code>{% endif %} so phones can open the login page before they log in.</li>
+    <li><strong>Use it on the guest Wi-Fi</strong>Edit the guest SSID: security <strong>Open</strong>, captive portal on, this policy.</li>
+</ol>
+
+<h2 id="cambium">2b. Cambium</h2>
+<ol class="steps">
+    <li><strong>Guest access</strong>In cnMaestro (or the access point's page) edit the guest WLAN: <em>Guest Access → Portal mode: External Hotspot</em>, and the external login page URL from SafeNet as the splash page.</li>
+    <li><strong>RADIUS</strong>Add SafeNet's RADIUS server for authentication (1812) and accounting (1813) with the secret.</li>
+    <li><strong>Leave "External Portal Post Through cnMaestro" off</strong>SafeNet sends the code to the access point itself.</li>
+    <li><strong>Walled garden</strong>Add <code>{{ public_host }}</code>{% if server_ip %} and <code>{{ server_ip }}</code>{% endif %}.</li>
+</ol>
+
+<h2 id="coova">2c. CoovaChilli (OpenWrt)</h2>
+<p>Install <code>coova-chilli</code> on the router and set, in <code>/etc/config/chilli</code> (or <code>/etc/chilli/config</code>): <code>uamserver</code> = the external login page URL, <code>uamallowed</code> = SafeNet's address, <code>radiusserver1</code> = SafeNet's RADIUS server, <code>radiussecret</code> = the secret. Leave <code>uamsecret</code> empty.</p>
+
+<h2 id="mikrotik">2d. MikroTik and Meraki</h2>
+<p>These keep their RADIUS setup from the <a href="{{ url_for('docs', slug='mikrotik') }}">MikroTik</a> or <a href="{{ url_for('docs', slug='other-routers') }}">other routers</a> guide. To let guests buy on the login page too, send them to the external login page URL: on MikroTik from the hotspot's <code>login.html</code> (with <code>link-login-only</code>, <code>link-orig</code> and <code>mac</code>), on Meraki as the <em>custom splash URL</em> with "Sign-on with my RADIUS server".</p>
+
+<h2 id="test">3. Test it</h2>
+<ol class="steps">
+    <li><strong>Join the Wi-Fi</strong>With a phone, join the guest Wi-Fi and open any website. Your SafeNet login page appears, and the Sites page shows <strong>Last guest sent by …</strong> and the internet address SafeNet sees.</li>
+    <li><strong>Log in</strong>Make a voucher (<strong>Vouchers → Generate</strong>) and type it. The phone gets online. <strong>Auth logs</strong> shows the access point's RADIUS check.</li>
+    <li><strong>Code accepted but no internet?</strong>The access point's RADIUS request didn't reach SafeNet, or the secret differs. Check the secret, that the access point uses port 1812, and the address on the Sites page.</li>
+</ol>
+{% endblock %}

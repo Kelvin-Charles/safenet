@@ -30,6 +30,7 @@ from tenancy import (current_tenant, tenant_id, scoped, owned_or_404, tenant_use
                      tenant_sites, current_site, site_for_new_things)
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 import hashlib
+import html
 import base64
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
@@ -42,7 +43,7 @@ from functools import wraps
 from datetime import timedelta
 import ipaddress
 from decimal import Decimal
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, urlencode, quote
 import socket
 import time
 import struct
@@ -406,7 +407,7 @@ def _session_where(row, tid):
     if kind in ('omada', 'wifidog', 'ruijie') and sid.isdigit():
         site = db.session.get(Site, int(sid))
         if site is not None and site.tenant_id == tid:
-            return f"{ {'omada': 'Omada', 'wifidog': 'Ruijie', 'ruijie': 'Reyee'}[kind]} · {site.name}"
+            return f"{ {'omada': 'Omada', 'wifidog': 'WiFiDog', 'ruijie': 'Reyee'}[kind]} · {site.name}"
     return where
 
 
@@ -425,8 +426,12 @@ DOCS = [
      'EAP225 and other Omada access points: plug in, point them to SafeNet, and sell internet. No extra box needed.'),
     ('ruijie', 'Ruijie (RG-AP)', 'bi-broadcast-pin', 'Ruijie access points',
      'Ruijie enterprise access points (RG-AP820-L and others) connect straight to SafeNet with WiFiDog. Just the access point and internet.'),
+    ('wifidog', 'OpenWrt, Cudy, Comfast…', 'bi-router-fill', 'OpenWrt, Cudy, Comfast, Wavlink and other WiFiDog routers',
+     'Routers and access points with WiFiDog connect straight to SafeNet. Which brands work and how to set each one up.'),
     ('reyee', 'Reyee (RG-RAP6262)', 'bi-cloud', 'Reyee access points, from the box to the first sale',
      'RG-RAP6262 and other Reyee access points with Ruijie Cloud: power on, add to Ruijie Cloud, connect SafeNet, upload the login page.'),
+    ('radius-aps', 'Grandstream, Cambium…', 'bi-hdd-rack', 'Grandstream, Cambium and other RADIUS access points',
+     'Access points with an external login page and RADIUS: SafeNet login page, mobile money and vouchers.'),
     ('gateway', 'SafeNet gateway box', 'bi-hdd-network', 'SafeNet gateway box with any access point',
      'A small Linux computer between the internet and any access point. Every SafeNet feature, with any brand of Wi-Fi.'),
     ('mikrotik', 'MikroTik', 'bi-router', 'MikroTik routers',
@@ -452,6 +457,7 @@ def docs(slug='start'):
     home = Tenant.query.filter_by(slug=migrations.DEFAULT_TENANT_SLUG).first()
     public = Config.PUBLIC_URL or request.host_url.rstrip('/')
     return render_template(f'docs/{slug}.html', pages=DOC_PAGES, page=DOC_PAGES[i], wifidog_base=Config.WIFIDOG_BASE, sms_price=Config.SMS_PRICE,
+                           wifidog_host=urlparse(Config.WIFIDOG_BASE).hostname, wifidog_port=urlparse(Config.WIFIDOG_BASE).port or 80,
                            server_ip=_server_ip(),
                            prev=DOC_PAGES[i - 1] if i > 0 else None,
                            next=DOC_PAGES[i + 1] if i + 1 < len(DOC_PAGES) else None,
@@ -1983,7 +1989,7 @@ def _portal_packages(tenant):
 PREVIEW_FIELDS = ('color', 'style', 'title', 'message', 'show_voucher', 'show_packages', 'package_layout')
 # What a guest's equipment shows: Omada and Ruijie use SafeNet's pages, the SafeNet gateway its own copy of them,
 # MikroTik (and other RADIUS routers) SafeNet's page for the code only, then the router's own status page.
-EQUIPMENT = {'omada': 'TP-Link Omada', 'ruijie': 'Ruijie', 'gateway': 'SafeNet gateway', 'mikrotik': 'MikroTik / other router'}
+EQUIPMENT = {'omada': 'TP-Link Omada', 'ruijie': 'Ruijie / WiFiDog', 'hotspot': 'Grandstream, Cambium (RADIUS)', 'gateway': 'SafeNet gateway', 'mikrotik': 'MikroTik / other router'}
 
 # In the settings preview: show a logo picked but not saved yet (sent by the settings page)
 PREVIEW_LOGO_JS = """<script>window.addEventListener('message',function(ev){
@@ -2002,7 +2008,9 @@ def _site_equipment(site, main_site_id=None):
         kinds.append('ruijie')
     if Gateway.query.filter(Gateway.tenant_id == site.tenant_id, Gateway.is_active.is_(True), own).count():
         kinds.append('gateway')
-    if Nas.query.filter(Nas.tenant_id == site.tenant_id,
+    if site.hotspot_enabled:
+        kinds.append('hotspot')
+    if Nas.query.filter(Nas.tenant_id == site.tenant_id, or_(Nas.vendor.is_(None), Nas.vendor != 'hotspot'),
                         or_(Nas.site_id == site.id, *([Nas.site_id.is_(None)] if site.id == main_site_id else []))).count():
         kinds.append('mikrotik')
     return kinds
@@ -2118,7 +2126,7 @@ def _portal_preview(tenant, th, lang, here):
         return portal_ui.login_page(th, lang, packages=packages, tab=tab, error=error, preview=True, simulate=True,
                                     buy_enabled=buy_enabled, lang_url=here, networks=networks,
                                     action=url(view='sim-login'), buy_action=url(view='sim-buy'),
-                                    trial=_guest_trial(tenant, site) if equip in ('omada', 'ruijie', 'mikrotik', 'gateway') else None,
+                                    trial=_guest_trial(tenant, site) if equip in ('omada', 'ruijie', 'hotspot', 'mikrotik', 'gateway') else None,
                                     trial_action=url(view='sim-login'), logo_base=url_for('static', filename='img/'))
 
     def online(user, seconds, new_code=None):
@@ -3398,6 +3406,310 @@ def site_wifidog(site_id):
     flash(tr('Ruijie / WiFiDog access points switched on for "{site}".', site=site.name) if site.wifidog_enabled else
           tr('Ruijie / WiFiDog access points switched off for "{site}".', site=site.name), 'success')
     return redirect(url_for('sites_page'))
+
+
+# ---------------------------------------------------------------------------
+# RADIUS access points with an external login page: Grandstream GWN, Cambium, CoovaChilli (OpenWrt and others),
+# MikroTik and Meraki send new guests to /hs/<portal_token> with their own parameters. SafeNet shows the login page
+# (vouchers, buying, free trial), checks the code, then hands it back to the device, which asks SafeNet's RADIUS
+# server. RADIUS comes from the site's public IP, which SafeNet learns from the guests opening the page.
+# ---------------------------------------------------------------------------
+HOTSPOT_KINDS = {'grandstream': 'Grandstream GWN', 'cambium': 'Cambium', 'coova': 'CoovaChilli',
+                 'mikrotik': 'MikroTik', 'meraki': 'Meraki'}
+
+
+def _hs_redirect(args):
+    """(kind, guest) recognised from the device's redirect parameters, or (None, {})."""
+    a = lambda k: (args.get(k) or '').strip()[:500]
+    if a('link-login-only'):
+        return 'mikrotik', {'login': a('link-login-only'), 'next': a('link-orig'), 'mac': a('mac'), 'ip': a('ip')}
+    if a('ga_srvr') and a('ga_Qv'):
+        return 'cambium', {'srvr': a('ga_srvr'), 'qv': a('ga_Qv'), 'mac': a('ga_cmac'), 'ap': a('ga_ap_mac'),
+                           'next': a('ga_orig_url'), 'ssid': a('ga_ssid')}
+    if a('uamip') and a('challenge'):
+        return 'coova', {'uamip': a('uamip'), 'uamport': a('uamport') or '3990', 'challenge': a('challenge'),
+                         'mac': a('mac'), 'ip': a('ip'), 'next': a('userurl')}
+    if a('login_url') and 'continue_url' in args:
+        return 'meraki', {'login': a('login_url'), 'next': a('continue_url'), 'mac': a('client_mac'), 'ip': a('client_ip')}
+    if a('login_url') and a('client_mac'):
+        return 'grandstream', {'login': a('login_url'), 'mac': a('client_mac'), 'ap': a('ap_mac'),
+                               'next': a('orig_url'), 'ssid': a('ssid')}
+    return None, {}
+
+
+def _hs_local_host(host):
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_private or ip.is_link_local
+
+
+def _hs_handoff(guest, username, password):
+    """(method, url, fields) that log the guest in on the device, or None when its address isn't a local device
+    (never send a code to an arbitrary site)."""
+    kind, nxt = guest.get('kind'), guest.get('next', '')
+    if kind in ('mikrotik', 'grandstream', 'meraki') and not _is_gateway_url(guest.get('login', '')):
+        return None
+    if kind == 'mikrotik':           # the hotspot login accepts GET, which avoids the browser's https-to-http form warning
+        return 'get', guest['login'], {'username': username, 'password': password, 'dst': nxt}
+    if kind == 'grandstream':
+        return 'get', guest['login'], {'username': username, 'password': password, 'redirect': nxt}
+    if kind == 'meraki':
+        return 'post', guest['login'], {'username': username, 'password': password, 'success_url': nxt}
+    if kind == 'cambium':
+        if not _hs_local_host(guest.get('srvr', '')):
+            return None
+        return 'post', f"http://{guest['srvr']}:880/cgi-bin/hotspot_login.cgi?ga_Qv={quote(guest.get('qv', ''), safe='')}", {
+            'ga_user': username, 'ga_pass': password, 'ga_Qv': guest.get('qv', ''), 'ga_cmac': guest.get('mac', ''),
+            'ga_ap_mac': guest.get('ap', ''), 'ga_orig_url': nxt}
+    if kind == 'coova':
+        challenge = guest.get('challenge', '')
+        if not _hs_local_host(guest.get('uamip', '')) or not re.fullmatch(r'[0-9a-fA-F]{32}', challenge) \
+                or not str(guest.get('uamport', '')).isdigit():
+            return None
+        # CHAP with the device's challenge (CoovaChilli's uamsecret left empty)
+        response = hashlib.md5(b'\0' + password.encode() + bytes.fromhex(challenge)).hexdigest()
+        return 'get', f"http://{guest['uamip']}:{int(guest['uamport'])}/logon", {
+            'username': username, 'response': response, 'userurl': nxt}
+    return None
+
+
+def _hs_go(method, url, fields):
+    """Send the guest's browser to the device with the code."""
+    if method == 'get':
+        return redirect(url + ('&' if '?' in url else '?') + urlencode(fields))
+    inputs = ''.join(f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v or "")}">' for k, v in fields.items())
+    page = (f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            f'<title>SafeNet</title></head><body style="font-family:system-ui,sans-serif;text-align:center;padding:3rem 1rem">'
+            f'<form id="f" method="post" action="{html.escape(url)}">{inputs}'
+            f'<p>Connecting…</p><button type="submit" style="padding:.7rem 1.4rem;font-size:1rem">Continue</button></form>'
+            f'<script>document.getElementById("f").submit()</script></body></html>')
+    resp = make_response(page)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+def _hs_site(token):
+    site = Site.query.filter_by(portal_token=token, hotspot_enabled=True).first() if token else None
+    if site is None:
+        abort(404)
+    return site, db.session.get(Tenant, site.tenant_id)
+
+
+def _hs_guest(token):
+    guest = session.get('hs') or {}
+    return guest if guest.get('token') == token else {}
+
+
+def _tenant_radius_secret(tenant):
+    if not tenant.radius_secret:
+        tenant.radius_secret = secrets.token_urlsafe(18)[:20]
+    return tenant.radius_secret
+
+
+def _hs_learn_ip(site, tenant):
+    """Register the site's public IP (where its guests, and so its access points' RADIUS, come from) as a RADIUS
+    client with the business's secret. FreeRADIUS picks it up on the next request (dynamic clients)."""
+    try:
+        ip = ipaddress.ip_address(_client_ip())
+    except ValueError:
+        return
+    if not ip.is_global:
+        return
+    ip = str(ip)
+    mine = Nas.query.filter_by(site_id=site.id, vendor='hotspot').first()
+    if mine is not None and mine.nasname == ip:
+        site.hotspot_ip, site.hotspot_problem = ip, None
+        return
+    other = Nas.query.filter_by(nasname=ip).first()
+    if other is not None and other.tenant_id != tenant.id:
+        site.hotspot_problem = 'shared'
+        log.warning('hotspot: site %s public IP %s is a RADIUS client of tenant %s', site.id, ip, other.tenant_id)
+        return
+    if other is not None and other.vendor != 'hotspot':
+        site.hotspot_problem = f'nas:{other.shortname}'[:200]
+        return
+    if other is not None:            # another site of this business on the same internet line: that client serves both
+        other.site_id = None         # (so codes for either site are accepted there)
+        if mine is not None:
+            db.session.delete(mine)
+    elif mine is not None:
+        mine.nasname, mine.secret = ip, _tenant_radius_secret(tenant)
+    else:
+        db.session.add(Nas(tenant_id=tenant.id, site_id=site.id, nasname=ip, shortname=f'hotspot-{site.id}'[:32],
+                           type='other', secret=_tenant_radius_secret(tenant), vendor='hotspot',
+                           description=f'Hotspot access points at {site.name}'[:200]))
+    if site.hotspot_ip != ip:
+        log.info('hotspot: site %s now on public IP %s (was %s)', site.id, ip, site.hotspot_ip)
+    site.hotspot_ip, site.hotspot_problem = ip, None
+
+
+def _hs_let_in(site, tenant, guest, username, password):
+    """Check the code; (response sending the guest to the device, None) or (None, error)."""
+    ok, message, _info = _gateway_authenticate(tenant, username, password, _wifidog_mac(guest.get('mac')), site)
+    _log_auth(username, ok)
+    if not ok:
+        db.session.commit()
+        return None, message
+    target = _hs_handoff(guest, username, password)
+    if target is None:
+        db.session.rollback()
+        return None, 'Please connect to the Wi-Fi again and open any website to get here.'
+    db.session.commit()
+    return _hs_go(*target), None
+
+
+@app.route('/hs/<token>')
+def hotspot_portal(token):
+    """Where the access point sends a new guest (its external login page / splash page URL)."""
+    site, tenant = _hs_site(token)
+    base = f'/hs/{site.portal_token}'
+    kind, guest = _hs_redirect(request.args)
+    if kind:
+        session['hs'] = {'token': site.portal_token, 'kind': kind, **guest}
+        site.hotspot_kind, site.hotspot_seen_at = kind, datetime.utcnow()
+        _hs_learn_ip(site, tenant)
+        db.session.commit()
+        code = _returning_code(tenant.id, guest.get('mac'), site)
+        if code:
+            resp, error = _hs_let_in(site, tenant, session['hs'], code, code)
+            if resp is not None:
+                log.info('hotspot: %s back online with %s', guest.get('mac'), code)
+                return resp
+    elif request.args and not request.args.get('lang'):
+        # A device SafeNet doesn't know yet: keep what it sent so support can add it
+        log.warning('hotspot: unrecognised redirect at site %s: %s', site.id, dict(request.args))
+        site.hotspot_unknown = request.query_string.decode('latin-1')[:500]
+        db.session.commit()
+    return _hotspot_page(site, tenant, base)
+
+
+@app.route('/hs/<token>/login', methods=['POST'])
+def hotspot_login(token):
+    site, tenant = _hs_site(token)
+    base = f'/hs/{site.portal_token}'
+    guest = _hs_guest(site.portal_token)
+    err = lambda m: _hotspot_page(site, tenant, base, error=m, tab='voucher')
+    if not guest.get('kind'):
+        return err('Please connect to the Wi-Fi again and open any website to get here.')
+    if not request.form.get('agree'):
+        return err('Please accept the terms of use to continue.')
+    key, site_key = f"hs:{site.id}:{guest.get('mac')}", f'hs:{site.id}:{_client_ip()}'
+    if _omada_too_many(key, 6) or _omada_too_many(site_key, 60):
+        return err('Too many wrong attempts. Please wait a few minutes and try again.')
+    username = (request.form.get('username') or '').strip()[:64]
+    password = request.form.get('password') or ''
+    if not username:
+        username = password = re.sub(r'\s+', '', request.form.get('code') or '')[:32]
+    if not username:
+        return err('Enter your voucher code.')
+    resp, error = _hs_let_in(site, tenant, guest, username, password)
+    if error:
+        _omada_failures.setdefault(key, []).append(time.time())
+        _omada_failures.setdefault(site_key, []).append(time.time())
+        return err(error)
+    return resp
+
+
+@app.route('/hs/<token>/trial', methods=['POST'])
+def hotspot_trial(token):
+    site, tenant = _hs_site(token)
+    base = f'/hs/{site.portal_token}'
+    guest = _hs_guest(site.portal_token)
+    problem = _guest_trial_problem(tenant, guest.get('mac') if guest.get('kind') else None, site)
+    if problem:
+        return _hotspot_page(site, tenant, base, error=problem, tab='buy')
+    code = _guest_trial_code(tenant, site, guest['mac'])
+    resp, error = _hs_let_in(site, tenant, guest, code, code)
+    if error:
+        return _hotspot_page(site, tenant, base, error=error, tab='buy')
+    return resp
+
+
+@app.route('/hs/<token>/buy', methods=['POST'])
+def hotspot_buy(token):
+    site, tenant = _hs_site(token)
+    base = f'/hs/{site.portal_token}'
+    guest = _hs_guest(site.portal_token)
+    err = lambda m: _hotspot_page(site, tenant, base, error=m, tab='buy')
+    if not guest.get('kind'):
+        return err('Please connect to the Wi-Fi again and open any website to get here.')
+    if not request.form.get('agree'):
+        return err('Please accept the terms of use to continue.')
+    package = _site_packages(Package.query.filter_by(id=request.form.get('package_id', type=int), tenant_id=tenant.id,
+                                                     is_active=True, show_on_portal=True), site.id).first()
+    if not package:
+        return err('Choose a package.')
+    phone = request.form.get('phone', '')
+    network = (request.form.get('network') or '')[:16] or None
+    if payment_networks(tenant) and not network:
+        return err('Choose your mobile-money network.')
+    payment, error, _ = _start_purchase(tenant, site.id, package, phone, network, _wifidog_mac(guest.get('mac')),
+                                        guest.get('ip'), f'hotspot-{site.id}', gift_phone=_gift_phone_field())
+    if error:
+        return err(error)
+    session['hs_ref'] = payment.reference
+    return redirect(f'{base}/buy/wait?ref={payment.reference}')
+
+
+@app.route('/hs/<token>/buy/wait')
+def hotspot_wait(token):
+    site, tenant = _hs_site(token)
+    base = f'/hs/{site.portal_token}'
+    guest = _hs_guest(site.portal_token)
+    ref = (request.args.get('ref') or '')[:20]
+    if not guest.get('kind') or session.get('hs_ref') != ref:
+        return redirect(base)
+    payment = _refresh_payment(ref)
+    if payment is None or payment.tenant_id != tenant.id:
+        return redirect(base)
+    if payment.status == 'paid' and payment.voucher and payment.gift_phone:
+        session.pop('hs_ref', None)
+        return _hotspot_page(site, tenant, base, view='gift', code=payment.voucher.code, friend=payment.gift_phone,
+                             package=payment.package_name)
+    if payment.status == 'paid' and payment.voucher:
+        code = payment.voucher.code
+        session.pop('hs_ref', None)
+        resp, error = _hs_let_in(site, tenant, guest, code, code)
+        if error:
+            return _hotspot_page(site, tenant, base, error=f'Payment received. Your voucher code is {code}. {error}', tab='voucher')
+        return resp
+    if payment.status in ('failed', 'review'):
+        session.pop('hs_ref', None)
+        return _hotspot_page(site, tenant, base, error=f"Payment not completed: {payment.message or 'The payment was not completed.'}", tab='buy')
+    timed_out = (datetime.utcnow() - payment.created_at).total_seconds() > 120 and not request.args.get('again')
+    return _hotspot_page(site, tenant, base, view='wait', ref=ref, timed_out=timed_out,
+                         info={'amount': f'{payment.charged:.0f}', 'currency': payment.currency, 'phone': payment.phone,
+                               'package': payment.package_name, 'gift_phone': payment.gift_phone or ''})
+
+
+@app.route('/sites/<int:site_id>/hotspot', methods=['POST'])
+@login_required
+@role_required('admin')
+def site_hotspot(site_id):
+    _check_csrf()
+    site = owned_or_404(Site, site_id)
+    tenant = db.session.get(Tenant, site.tenant_id)
+    action = request.form.get('action')
+    if action == 'enable':
+        site.hotspot_enabled = True
+        if not site.portal_token:
+            site.portal_token = secrets.token_urlsafe(12)[:16]
+        _tenant_radius_secret(tenant)
+        flash(tr('RADIUS access points switched on for "{site}".', site=site.name), 'success')
+    elif action == 'disable':
+        site.hotspot_enabled = False
+        Nas.query.filter_by(site_id=site.id, vendor='hotspot').delete()
+        site.hotspot_ip = site.hotspot_problem = None
+        flash(tr('RADIUS access points switched off for "{site}".', site=site.name), 'success')
+    elif action == 'new-secret':
+        tenant.radius_secret = None
+        secret = _tenant_radius_secret(tenant)
+        Nas.query.filter_by(tenant_id=tenant.id, vendor='hotspot').update({'secret': secret}, synchronize_session=False)
+        flash(tr('New RADIUS secret made. Enter it on every access point of this business.'), 'success')
+    db.session.commit()
+    return redirect(url_for('sites_page', open=f'hotspot-{site.id}'))
 
 
 # ---------------------------------------------------------------------------
@@ -7111,9 +7423,11 @@ def sites_page():
                            omada_password=secretbox.decrypt(current_tenant().omada_password_enc) if current_tenant().omada_password_enc and current_user.has_role('admin') else '', rows=rows, currency=current_tenant().currency,
                            limit=plan.max_sites if plan else None, omada_hosted=_omada_hosted_available(),
                            omada_host=Config.OMADA_HOSTED_HOST, wifidog_base=Config.WIFIDOG_BASE,
+                           wifidog_host=urlparse(Config.WIFIDOG_BASE).hostname, wifidog_port=urlparse(Config.WIFIDOG_BASE).port or 80,
                            omada_openapi=_omada_openapi_available(),
                            server_ip=_server_ip(), now=datetime.utcnow(), ruijie_clouds=ruijie.CLOUDS,
-                           ruijie_by_safenet=_platform_ruijie() is not None)
+                           ruijie_by_safenet=_platform_ruijie() is not None, hotspot_kinds=HOTSPOT_KINDS,
+                           tenant_radius_secret=current_tenant().radius_secret if current_user.has_role('admin') else '')
 
 
 @app.route('/sites/add', methods=['POST'])

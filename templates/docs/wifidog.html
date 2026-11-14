@@ -1,0 +1,88 @@
+{% extends "docs/layout.html" %}
+{% block body %}
+{% set host, port = wifidog_host, wifidog_port %}
+<div class="flow" aria-label="How it connects">
+    <div class="box">Guest's phone</div><span class="arr">→</span>
+    <div class="box">Router or access point<small>with WiFiDog</small></div><span class="arr">→</span>
+    <div class="box">Internet</div>
+</div>
+<div class="flow">
+    <div class="box">Router or access point</div><span class="arr">⇄</span>
+    <div class="box hl">SafeNet<small>WiFiDog</small></div>
+</div>
+<p><strong>WiFiDog</strong> is a standard way for a router or access point to ask a server who may use the internet. Many brands have it built in or can install it. Point it at SafeNet and new guests get your SafeNet login page, are let online after they pay or type a voucher, and are checked with SafeNet every minute. SafeNet sees each guest's data usage and cuts them off the moment their time ends or you press <strong>Disconnect</strong>.</p>
+<p>This is the same connection Ruijie RG-AP access points use (see the <a href="{{ url_for('docs', slug='ruijie') }}">Ruijie guide</a> for their commands).</p>
+
+<h2 id="models">Which devices work</h2>
+<div class="table-scroll"><table>
+    <thead><tr><th>Brand</th><th>How</th></tr></thead>
+    <tbody>
+        <tr><td><strong>OpenWrt</strong> (any router that runs it)</td><td>✅ Install a WiFiDog package (below). The most flexible choice.</td></tr>
+        <tr><td><strong>Cudy</strong></td><td>✅ Cudy publishes OpenWrt for many of its routers (for example WR3000, X6, TR3000). Install it, then follow OpenWrt. Cudy's own firmware has no WiFiDog.</td></tr>
+        <tr><td><strong>Comfast</strong></td><td>✅ Business access points, AC controllers and WISP routers that have a <em>Portal</em> or <em>Authentication</em> menu with WiFiDog. Check the menu or ask your seller before buying.</td></tr>
+        <tr><td><strong>Wavlink</strong></td><td>✅ Business and outdoor models with a WiFiDog or external portal setting. Home models usually don't have it.</td></tr>
+        <tr><td><strong>Tenda</strong></td><td>⚠️ Most models have no WiFiDog. Use them as plain access points behind a <a href="{{ url_for('docs', slug='gateway') }}">SafeNet gateway</a> or a <a href="{{ url_for('docs', slug='mikrotik') }}">MikroTik</a>.</td></tr>
+        <tr><td><strong>Ruijie RG-AP, Reyee with WiFiDog</strong></td><td>✅ See the <a href="{{ url_for('docs', slug='ruijie') }}">Ruijie guide</a>.</td></tr>
+        <tr><td><strong>Any other brand</strong></td><td>✅ If its settings mention <strong>WiFiDog</strong>. If not, put a SafeNet gateway or MikroTik in front of it: that works with every brand.</td></tr>
+    </tbody>
+</table></div>
+<div class="note tip"><i class="bi bi-lightbulb"></i><p><strong>Before buying</strong>, search the model's manual or web page for "WiFiDog". "Captive portal" or "guest portal" alone is not enough: many routers only have their own click-through page, which can't check SafeNet codes.</p></div>
+
+<h2 id="safenet">1. Switch it on in SafeNet</h2>
+<ol class="steps">
+    <li><strong>Open your site</strong>In SafeNet open <strong>Sites</strong> and click <strong>WiFiDog</strong> next to the site where the device will be.</li>
+    <li><strong>Switch it on</strong>Click <strong>Switch on WiFiDog</strong>. SafeNet shows the values the device needs. Most devices ask for them as separate fields:
+        <div class="table-scroll"><table>
+            <tbody>
+                <tr><th>Server address (hostname)</th><td><code>{{ host }}</code></td></tr>
+                <tr><th>Port</th><td><code>{{ port }}</code></td></tr>
+                <tr><th>SSL / HTTPS</th><td>Off</td></tr>
+                <tr><th>Path</th><td><code>/wifidog/YOUR-SITE-CODE/</code> (yours is on the Sites page)</td></tr>
+                <tr><th>Gateway ID</th><td>Any name, different on each device (for example <code>shop-1</code>)</td></tr>
+            </tbody>
+        </table></div>
+        Devices that want one address take the <strong>Authentication server URL</strong>: <code>{{ wifidog_base }}/wifidog/YOUR-SITE-CODE/</code>.</li>
+    <li><strong>Add packages</strong>Make sure at least one package is sold at this site (or at "All sites") on the <strong>Packages</strong> page.</li>
+</ol>
+
+<h2 id="openwrt">2a. OpenWrt and Cudy</h2>
+<ol class="steps">
+    <li><strong>Install OpenWrt</strong>On a Cudy, download OpenWrt for your exact model from Cudy's website and upload it in the router's firmware upgrade page. On other brands, check <code>openwrt.org</code> for your model.</li>
+    <li><strong>Make the guest Wi-Fi open</strong>In LuCI (the OpenWrt web page) set the guest Wi-Fi's encryption to <strong>No encryption</strong>.</li>
+    <li><strong>Install WiFiDog</strong>Connect with SSH and run:
+        <pre><code>opkg update
+opkg list | grep -i wifidog
+opkg install apfree-wifidog     # or: opkg install wifidog</code></pre>
+        Install whichever of the two your OpenWrt version lists.</li>
+    <li><strong>Point it at SafeNet</strong>For <code>wifidog</code>, edit <code>/etc/wifidog.conf</code>:
+        <pre><code>GatewayID shop-1
+GatewayInterface br-lan
+AuthServer {
+    Hostname {{ host }}
+    SSLAvailable no
+    HTTPPort {{ port }}
+    Path /wifidog/YOUR-SITE-CODE/
+}
+CheckInterval 60
+ClientTimeout 5</code></pre>
+        <code>br-lan</code> is the network guests are on; use your guest network's interface if it is separate. For <code>apfree-wifidog</code>, enter the same server address, port and path in <code>/etc/config/wifidogx</code> or its LuCI page.</li>
+    <li><strong>Start it</strong><code>/etc/init.d/wifidog enable &amp;&amp; /etc/init.d/wifidog restart</code> (or <code>wifidogx</code> for apfree-wifidog).</li>
+</ol>
+
+<h2 id="comfast">2b. Comfast and Wavlink</h2>
+<ol class="steps">
+    <li><strong>Update the firmware</strong>Newer firmware is more likely to have WiFiDog.</li>
+    <li><strong>Find the portal setting</strong>In the web page, look under <em>Portal</em>, <em>Authentication</em>, <em>Web authentication</em> or <em>WiFiDog</em>. Choose <strong>WiFiDog</strong> (it may be called third-party or external portal).</li>
+    <li><strong>Enter SafeNet's values</strong>Server address, port and path from step 1, SSL off, and a gateway ID if asked.</li>
+    <li><strong>Turn it on for the guest Wi-Fi</strong>Leave that Wi-Fi open (no password). On a Comfast AC controller, apply it to the access points' guest SSID.</li>
+</ol>
+<div class="note warn"><i class="bi bi-exclamation-triangle"></i><p>Menus differ between models and firmware versions. If yours looks different or asks for something not listed here, send support a screenshot.</p></div>
+
+<h2 id="test">3. Test it</h2>
+<ol class="steps">
+    <li><strong>Check it is talking to SafeNet</strong>Within a few minutes the <strong>WiFiDog</strong> box on the Sites page shows <strong>Access point last heard … min ago</strong>.</li>
+    <li><strong>Join the Wi-Fi</strong>With a phone, join the guest Wi-Fi and open any website. Your SafeNet login page appears.</li>
+    <li><strong>Log in</strong>Make a voucher (<strong>Vouchers → Generate</strong>) and type it. The phone gets online and shows on the <strong>Live</strong> page.</li>
+</ol>
+<div class="note tip"><i class="bi bi-lightbulb"></i><p><strong>Login page doesn't appear?</strong> Check the guest Wi-Fi is open, the path ends with <code>/</code>, SSL is off and the port is <code>{{ port }}</code>. More in <a href="{{ url_for('docs', slug='troubleshooting') }}">Troubleshooting</a>.</p></div>
+{% endblock %}

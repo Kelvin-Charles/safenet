@@ -22,7 +22,8 @@
                         <tr>
                             <td><strong>{{ s.name }}</strong>{% if loop.first %} <span class="badge bg-light text-dark border">{{ _('Main') }}</span>{% endif %}
                                 {% if s.omada_ready %}<span class="badge {{ 'bg-danger' if s.omada_error else 'bg-success' }}" title="{{ s.omada_error or _('TP-Link Omada connected') }}">Omada</span>{% endif %}
-                                {% if s.wifidog_enabled %}<span class="badge bg-success">Ruijie</span>{% endif %}
+                                {% if s.wifidog_enabled %}<span class="badge bg-success">WiFiDog</span>{% endif %}
+                                {% if s.hotspot_enabled %}<span class="badge {{ 'bg-warning text-dark' if s.hotspot_problem else 'bg-success' }}" title="{{ _('RADIUS access points') }}">RADIUS</span>{% endif %}
                                 {% if s.ruijie_ready %}<span class="badge {{ 'bg-danger' if s.ruijie_error else 'bg-success' }}" title="{{ s.ruijie_error or _('Ruijie Cloud vouchers') }}">Reyee</span>{% endif %}
                                 {% if s.location %}<small class="d-block text-muted">{{ s.location }}</small>{% endif %}</td>
                             <td>{{ _('{n} gateway', n=r.gateways) if r.gateways == 1 else _('{n} gateways', n=r.gateways) }} · {{ _('{n} router', n=r.routers) if r.routers == 1 else _('{n} routers', n=r.routers) }}</td>
@@ -41,7 +42,8 @@
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ s.id }}" title="{{ _('Rename') }}"><i class="bi bi-pencil"></i></button>
                                 <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('wifi_qr', site_id=s.id) }}" target="_blank" rel="noopener" title="{{ _('Print the scan-to-join Wi-Fi QR code') }}"><i class="bi bi-qr-code"></i> QR</a>
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#omada-{{ s.id }}" title="{{ _('TP-Link Omada access points') }}"><i class="bi bi-wifi"></i> Omada</button>
-                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#wifidog-{{ s.id }}" title="{{ _('Ruijie RG-AP and other WiFiDog access points') }}"><i class="bi bi-broadcast-pin"></i> Ruijie</button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#wifidog-{{ s.id }}" title="{{ _('Ruijie RG-AP, OpenWrt, Cudy, Comfast, Wavlink and other WiFiDog devices') }}"><i class="bi bi-broadcast-pin"></i> WiFiDog</button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#hotspot-{{ s.id }}" title="{{ _('Grandstream, Cambium, CoovaChilli and other RADIUS access points') }}"><i class="bi bi-hdd-rack"></i> RADIUS</button>
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#ruijie-{{ s.id }}" title="{{ _('Reyee access points through Ruijie Cloud vouchers') }}"><i class="bi bi-cloud"></i> Reyee</button>
                                 {% if rows|length > 1 %}
                                 <form method="POST" action="{{ url_for('delete_site', site_id=s.id) }}" style="display:inline;" onsubmit="return confirm('{{ _('Delete {site}? Its devices, packages and sales move to {other}.', site=s.name, other=(rows[1] if loop.first else rows[0]).site.name) }}');">
@@ -146,8 +148,8 @@
                         </td></tr>
                         <tr class="collapse" id="wifidog-{{ s.id }}"><td colspan="7" class="bg-light">
                             <div class="p-2">
-                                <h6 class="mb-1"><i class="bi bi-broadcast-pin"></i> {{ _('Ruijie access points at {site}', site=s.name) }}</h6>
-                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='ruijie') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Step-by-step guide') }}</a> · {{ _("For Ruijie access points (RG-AP820-L, RG-AP840-L, RG-AP880…), Reyee access points on firmware ReyeeOS 2.385 or newer (RG-RAP6262…) and other devices with WiFiDog web authentication. Just the access point and internet: guests get SafeNet's login page with your packages and mobile money.") }}</p>
+                                <h6 class="mb-1"><i class="bi bi-broadcast-pin"></i> {{ _('WiFiDog access points and routers at {site}', site=s.name) }}</h6>
+                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='wifidog') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Step-by-step guide') }}</a> · {{ _("For Ruijie RG-AP access points, Reyee with a WiFiDog setting, OpenWrt and Cudy routers, Comfast, Wavlink and any other device with WiFiDog web authentication. Just the device and internet: guests get SafeNet's login page with your packages and mobile money.") }}</p>
                                 <form method="POST" action="{{ url_for('site_wifidog', site_id=s.id) }}" class="mb-3">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     {% if s.wifidog_enabled %}
@@ -156,31 +158,115 @@
                                     {% else %}<span class="small text-muted me-2">{{ _('No access point has contacted SafeNet yet') }}</span>{% endif %}
                                     <button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="disable">{{ _('Switch off') }}</button>
                                     {% else %}
-                                    <button class="btn btn-primary btn-sm" type="submit" name="action" value="enable"><i class="bi bi-broadcast-pin"></i> {{ _('Switch on Ruijie access points') }}</button>
+                                    <button class="btn btn-primary btn-sm" type="submit" name="action" value="enable"><i class="bi bi-broadcast-pin"></i> {{ _('Switch on WiFiDog') }}</button>
                                     {% endif %}
                                 </form>
                                 {% if s.wifidog_enabled and s.portal_token %}
-                                {% set auth_url = wifidog_base ~ '/wifidog/' ~ s.portal_token ~ '/' %}
+                                {% set auth_path = '/wifidog/' ~ s.portal_token ~ '/' %}
+                                {% set auth_url = wifidog_base ~ auth_path %}
+                                {% set sip = server_ip or 'SAFENET_IP' %}
                                 <div class="small">
-                                    <strong>{{ _('Enter these on the access point') }}</strong>
+                                    <strong>{{ _('Enter these on the device') }}</strong>
                                     <table class="table table-sm table-bordered bg-white mt-1 mb-2" style="max-width: 720px">
-                                        <tr><th style="width: 190px">{{ _('Authentication server URL') }}</th><td><code class="user-select-all">{{ auth_url }}</code></td></tr>
+                                        <tr><th style="width: 210px">{{ _('Authentication server URL') }}</th><td><code class="user-select-all">{{ auth_url }}</code></td></tr>
+                                        <tr><th>{{ _('Or, as separate fields:') }}</th><td>
+                                            {{ _('Server address') }}: <code class="user-select-all">{{ wifidog_host }}</code><br>
+                                            {{ _('Port') }}: <code class="user-select-all">{{ wifidog_port }}</code> · SSL / HTTPS: <strong>{{ _('off') }}</strong><br>
+                                            {{ _('Path') }}: <code class="user-select-all">{{ auth_path }}</code></td></tr>
                                         <tr><th>{{ _('Portal server IP') }}</th><td><code class="user-select-all">{{ server_ip or _('(the IP of {host})', host=request.host) }}</code></td></tr>
-                                        <tr><th>{{ _('Protocol') }}</th><td>WiFiDog</td></tr>
+                                        <tr><th>{{ _('Gateway ID') }}</th><td>{{ _('Any name, for example the site name. Use a different one on each device.') }}</td></tr>
                                         <tr><th>{{ _('Wi-Fi security') }}</th><td>{{ _('Open (no password), web authentication on') }}</td></tr>
                                     </table>
-                                    <p class="mb-1"><strong>{{ _('Reyee (RG-RAP…):') }}</strong> {{ _("in the access point's web page or Ruijie Cloud, open the captive portal settings, choose a third-party WiFiDog server and enter the authentication server URL above.") }}</p>
-                                    <p class="mb-1">{{ _('Ruijie access point command line (replace') }} <code>1</code> {{ _("with your Wi-Fi's WLAN ID):") }}</p>
-<pre class="bg-dark text-light p-2 rounded small mb-0">config
+                                    <p class="mb-1 text-muted">{{ _('Pick your brand for the steps:') }}</p>
+                                    <details class="mb-1"><summary><strong>Ruijie RG-AP</strong> {{ _('(command line)') }}</summary>
+                                        <p class="mb-1 mt-1">{{ _('Ruijie access point command line (replace') }} <code>1</code> {{ _("with your Wi-Fi's WLAN ID):") }}</p>
+<pre class="bg-dark text-light p-2 rounded small mb-2">config
 web-auth template safenet
- ip {{ server_ip or 'SAFENET_IP' }}
+ ip {{ sip }}
  url {{ auth_url }}
  exit
 wlansec 1
  web-auth portal safenet
  webauth
  end
-write</pre>
+write</pre></details>
+                                    <details class="mb-1"><summary><strong>Reyee (RG-RAP…, RG-EG…)</strong></summary>
+                                        <p class="mb-2 mt-1">{{ _("In the access point's web page or Ruijie Cloud, open the captive portal settings, choose a third-party WiFiDog server and enter the authentication server URL above. If Ruijie Cloud shows Unsupported primary device(s), delete that policy at once (the Wi-Fi is open while it is there) and use Reyee (Ruijie Cloud vouchers) instead.") }}</p></details>
+                                    <details class="mb-1"><summary><strong>OpenWrt</strong> · <strong>Cudy</strong> {{ _('(with OpenWrt)') }}</summary>
+                                        <p class="mb-1 mt-1">{{ _('Cudy publishes OpenWrt for many of its routers; install it first. Then, on the router (SSH):') }}</p>
+<pre class="bg-dark text-light p-2 rounded small mb-1">opkg update
+opkg list | grep -i wifidog     # {{ _('install the one your OpenWrt has:') }}
+opkg install apfree-wifidog     # {{ _('or: opkg install wifidog') }}</pre>
+                                        <p class="mb-1">{{ _('For wifidog, put this in /etc/wifidog.conf (br-lan is the guest network), then restart it:') }}</p>
+<pre class="bg-dark text-light p-2 rounded small mb-1">GatewayID {{ s.name|replace(' ', '-')|lower }}
+GatewayInterface br-lan
+AuthServer {
+    Hostname {{ wifidog_host }}
+    SSLAvailable no
+    HTTPPort {{ wifidog_port }}
+    Path {{ auth_path }}
+}
+CheckInterval 60
+ClientTimeout 5</pre>
+                                        <p class="mb-2">{{ _('For apfree-wifidog, enter the same server address, port and path in /etc/config/wifidogx (or its LuCI page).') }}</p></details>
+                                    <details class="mb-1"><summary><strong>Comfast</strong> · <strong>Wavlink</strong></summary>
+                                        <p class="mb-2 mt-1">{{ _("Business and WISP models: in the web page open Portal, Authentication or Web authentication, choose WiFiDog (sometimes called third-party or external portal) and enter the server address, port and path above. Turn it on for the guest Wi-Fi and leave that Wi-Fi open. Home models often have no such menu: then use the device as a plain access point behind a SafeNet gateway or a MikroTik.") }}</p></details>
+                                    <details class="mb-1"><summary><strong>Tenda</strong> · {{ _('other brands') }}</summary>
+                                        <p class="mb-2 mt-1">{{ _("Look for WiFiDog in the device's portal or authentication settings and enter the values above. Most Tenda home routers don't have it: use them as plain access points behind a SafeNet gateway or a MikroTik, which works with any brand.") }}</p></details>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </td></tr>
+                        <tr class="collapse{{ ' show' if request.args.get('open') == 'hotspot-%d'|format(s.id) }}" id="hotspot-{{ s.id }}"><td colspan="7" class="bg-light">
+                            <div class="p-2">
+                                <h6 class="mb-1"><i class="bi bi-hdd-rack"></i> {{ _('RADIUS access points at {site}', site=s.name) }}</h6>
+                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='radius-aps') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Step-by-step guide') }}</a> · {{ _("For Grandstream GWN, Cambium, CoovaChilli (OpenWrt) and other access points with an external login page and RADIUS. Also MikroTik and Meraki, with buying on the login page. Guests get SafeNet's login page with your packages and mobile money; the access point then checks the code with SafeNet.") }}</p>
+                                <form method="POST" action="{{ url_for('site_hotspot', site_id=s.id) }}" class="mb-3">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    {% if s.hotspot_enabled %}
+                                    <span class="me-2"><i class="bi bi-check-circle text-success"></i> {{ _('Switched on') }}</span>
+                                    {% if s.hotspot_seen_at %}<span class="small text-muted me-2">{{ _('Last guest sent by {kind} {n} min ago', kind=hotspot_kinds.get(s.hotspot_kind, s.hotspot_kind or ''), n=((now - s.hotspot_seen_at).total_seconds() // 60)|int) }}</span>
+                                    {% else %}<span class="small text-muted me-2">{{ _('No guest has been sent here yet') }}</span>{% endif %}
+                                    <button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="disable">{{ _('Switch off') }}</button>
+                                    {% else %}
+                                    <button class="btn btn-primary btn-sm" type="submit" name="action" value="enable"><i class="bi bi-hdd-rack"></i> {{ _('Switch on RADIUS access points') }}</button>
+                                    {% endif %}
+                                </form>
+                                {% if s.hotspot_enabled and s.portal_token %}
+                                {% if s.hotspot_problem == 'shared' %}
+                                <div class="alert alert-warning py-2 small" style="max-width: 720px"><i class="bi bi-exclamation-triangle"></i> {{ _("This site's internet address ({ip}) is shared with another SafeNet business, so SafeNet can't tell their access points apart. This happens on 4G/5G lines that share one address. Ask the internet provider for your own (public) IP, or use a SafeNet gateway or MikroTik.", ip=s.hotspot_ip or '') }}</div>
+                                {% elif s.hotspot_problem and s.hotspot_problem.startswith('nas:') %}
+                                <div class="alert alert-warning py-2 small" style="max-width: 720px"><i class="bi bi-exclamation-triangle"></i> {{ _('This internet address is already a RADIUS client ({name}). Use that client\'s secret on the access points, or remove it under RADIUS clients.', name=s.hotspot_problem[4:]) }}</div>
+                                {% endif %}
+                                <div class="small">
+                                    <strong>{{ _('Enter these on the access point or its controller') }}</strong>
+                                    <table class="table table-sm table-bordered bg-white mt-1 mb-2" style="max-width: 720px">
+                                        <tr><th style="width: 210px">{{ _('External login page (splash page) URL') }}</th><td><code class="user-select-all">{{ url_for('hotspot_portal', token=s.portal_token, _external=True) }}</code></td></tr>
+                                        <tr><th>{{ _('RADIUS server') }}</th><td><code class="user-select-all">{{ server_ip or request.host }}</code></td></tr>
+                                        <tr><th>{{ _('Ports') }}</th><td>{{ _('Authentication') }} <code>1812</code> · {{ _('Accounting') }} <code>1813</code> ({{ _('turn accounting on, interim update 60 seconds') }})</td></tr>
+                                        <tr><th>{{ _('RADIUS secret') }}</th><td><code class="user-select-all">{{ tenant_radius_secret }}</code>
+                                            <form method="POST" action="{{ url_for('site_hotspot', site_id=s.id) }}" class="d-inline ms-2" onsubmit="return confirm('{{ _('Make a new secret? Every access point of this business must then get the new one.') }}')">
+                                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-link btn-sm p-0" name="action" value="new-secret">{{ _('Make a new one') }}</button></form></td></tr>
+                                        <tr><th>{{ _('Allow before login (walled garden)') }}</th><td><code class="user-select-all">{{ request.host }}</code>{% if server_ip %} · <code class="user-select-all">{{ server_ip }}</code>{% endif %}</td></tr>
+                                        <tr><th>{{ _('Internet address SafeNet sees') }}</th><td>{% if s.hotspot_ip %}<code>{{ s.hotspot_ip }}</code>{% else %}<span class="text-muted">{{ _('Learned when the first guest opens the login page') }}</span>{% endif %}</td></tr>
+                                    </table>
+                                    {% if s.hotspot_unknown %}<p class="text-warning-emphasis mb-2"><i class="bi bi-question-circle"></i> {{ _('An access point sent guests here in a way SafeNet does not know yet. Send this to support:') }} <code class="user-select-all text-break">{{ s.hotspot_unknown }}</code></p>{% endif %}
+                                    <p class="mb-1 text-muted">{{ _('Pick your brand for the steps:') }}</p>
+                                    <details class="mb-1"><summary><strong>Grandstream GWN</strong> {{ _('(GWN.Cloud, GWN Manager or the master AP)') }}</summary>
+                                        <p class="mb-2 mt-1">{{ _('Captive Portal: add a policy with splash page External, the login page URL above, and RADIUS authentication with the server, ports and secret above (accounting on). Add the walled garden addresses as pre-authentication rules. Then choose this policy on the guest Wi-Fi (open, no password).') }}</p></details>
+                                    <details class="mb-1"><summary><strong>Cambium</strong> {{ _('(cnMaestro or the AP)') }}</summary>
+                                        <p class="mb-2 mt-1">{{ _('WLAN, Guest Access: Portal mode External Hotspot, the login page URL above as the splash page, and the RADIUS server with authentication and accounting. Leave External Portal Post Through cnMaestro off. Add the walled garden addresses.') }}</p></details>
+                                    <details class="mb-1"><summary><strong>CoovaChilli</strong> {{ _('(OpenWrt and others)') }}</summary>
+                                        <p class="mb-1 mt-1">{{ _('In the CoovaChilli settings (for example /etc/config/chilli):') }}</p>
+<pre class="bg-dark text-light p-2 rounded small mb-2">uamserver   {{ url_for('hotspot_portal', token=s.portal_token, _external=True) }}
+uamallowed  {{ request.host }}{% if server_ip %},{{ server_ip }}{% endif %}
+radiusserver1 {{ server_ip or request.host }}
+radiussecret  {{ tenant_radius_secret }}
+# {{ _('leave uamsecret empty') }}</pre></details>
+                                    <details class="mb-1"><summary><strong>MikroTik</strong> · <strong>Meraki</strong></summary>
+                                        <p class="mb-2 mt-1">{{ _('MikroTik: in the hotspot login page (login.html) send guests to the login page URL above with link-login-only, link-orig and mac. Meraki: Splash page Sign-on with my RADIUS server, Custom splash URL = the login page URL above. Both keep their RADIUS clients as they are now.') }}</p></details>
+                                    <details class="mb-1"><summary><strong>Huawei</strong> · <strong>Aruba</strong> · {{ _('other brands') }}</summary>
+                                        <p class="mb-2 mt-1">{{ _("Not tested yet. Set the external portal URL and RADIUS as above and join the Wi-Fi with a phone: if SafeNet doesn't recognise the device, this box shows what it sent. Send that to support and we add it.") }}</p></details>
                                 </div>
                                 {% endif %}
                             </div>
