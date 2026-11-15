@@ -177,8 +177,8 @@
                                     <strong>{{ _('In your UniFi controller, for this site:') }}</strong>
                                     <ol class="mb-1">
                                         <li>{{ _('Make the guest Wi-Fi open (no password) and turn on the hotspot / guest portal for it.') }}</li>
-                                        <li>{{ _('Authentication: External portal server') }} = <code class="user-select-all">{{ unifi_portal_host }}</code>{% if server_ip %} ({{ _('or the IP') }} <code class="user-select-all">{{ server_ip }}</code>){% endif %}.</li>
-                                        <li>{{ _('Pre-authorization access (allowed before login)') }}: <code class="user-select-all">{{ unifi_portal_host }}</code>{% if server_ip %} · <code class="user-select-all">{{ server_ip }}/32</code>{% endif %}</li>
+                                        <li>{{ _('Authentication: External portal server') }} = <code class="user-select-all">{{ unifi_portal_ip or server_ip }}</code></li>
+                                        <li>{{ _('Pre-authorization access (allowed before login)') }}: <code class="user-select-all">{{ unifi_portal_ip or server_ip }}/32</code> · <code class="user-select-all">{{ unifi_portal_host }}</code></li>
                                     </ol>
                                 </div>
                                 {% endif %}

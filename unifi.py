@@ -179,12 +179,11 @@ class Controller:
     def settings(self, site):
         return {s.get('key'): s for s in self._call('GET', f'/api/s/{site}/get/setting')}
 
-    def ensure_portal(self, site, portal_host, allowed):
-        """Guest portal on, sending guests to SafeNet (external portal server), SafeNet reachable before login."""
+    def ensure_portal(self, site, portal_ip, allowed):
+        """Guest portal on, sending guests to SafeNet (external portal server), SafeNet reachable before login.
+        The controller only takes an IP address for the external portal server (checked on 9.5)."""
         guest = self.settings(site).get('guest_access') or {}
-        body = dict(guest)
-        body.update({'portal_enabled': True, 'auth': 'custom', 'custom_ip': portal_host, 'portal_use_hostname': False,
-                     'redirect_enabled': False, 'expire': 1440, 'expire_number': 1, 'expire_unit': 1440})
+        body = {'portal_enabled': True, 'auth': 'custom', 'custom_ip': portal_ip, 'redirect_enabled': False}
         for i, host in enumerate(allowed[:8], start=1):
             body[f'allowed_subnet_{i}'] = host if '/' in host else f'{host}/32'
         if guest.get('_id'):
@@ -193,26 +192,23 @@ class Controller:
         return self._call('POST', f'/api/s/{site}/set/setting/guest_access', body)
 
     def ensure_wlan(self, site, name):
-        """An open guest Wi-Fi with the guest portal. Returns its id."""
+        """An open guest Wi-Fi (the guest portal applies to it) on every access point. Returns its id.
+        Fields as the 9.5 controller accepts them: the site's network and its "All APs" group."""
         for w in self._call('GET', f'/api/s/{site}/rest/wlanconf'):
             if w.get('name') == name:
-                if not w.get('is_guest') or w.get('security') != 'open':
+                if not w.get('is_guest') or w.get('security') != 'open' or not w.get('enabled'):
                     self._call('PUT', f"/api/s/{site}/rest/wlanconf/{w['_id']}", {'is_guest': True, 'security': 'open',
                                                                                    'enabled': True})
                 return w['_id']
-        body = {'name': name, 'enabled': True, 'security': 'open', 'is_guest': True, 'wpa_mode': 'wpa2',
-                'wlan_band': 'both', 'x_passphrase': ''}
+        body = {'name': name, 'enabled': True, 'security': 'open', 'is_guest': True}
         networks = self._call('GET', f'/api/s/{site}/rest/networkconf')
-        lan = next((n for n in networks if n.get('purpose') in ('corporate', 'guest')), None)
+        lan = next((n for n in networks if n.get('purpose') == 'corporate'), networks[0] if networks else None)
         if lan:
             body['networkconf_id'] = lan['_id']
-        groups = [g for g in self._call('GET', f'/api/s/{site}/rest/wlangroup')] if not self.unifi_os else []
-        if groups:
-            body['wlangroup_id'] = groups[0]['_id']
         try:
-            ap_groups = self._raw_v2('GET', f'/v2/api/site/{site}/apgroups')
-            if ap_groups:
-                body['ap_group_ids'] = [g['_id'] for g in ap_groups if g.get('attr_no_delete')] or [ap_groups[0]['_id']]
+            groups = self._raw_v2('GET', f'/v2/api/site/{site}/apgroups')
+            if groups:
+                body['ap_group_ids'] = [g['_id'] for g in groups if g.get('attr_no_delete')] or [groups[0]['_id']]
         except UnifiError:
             pass                       # older controllers have no AP groups
         data = self._call('POST', f'/api/s/{site}/rest/wlanconf', body)

@@ -462,7 +462,7 @@ def docs(slug='start'):
     return render_template(f'docs/{slug}.html', pages=DOC_PAGES, page=DOC_PAGES[i], wifidog_base=Config.WIFIDOG_BASE, sms_price=Config.SMS_PRICE,
                            wifidog_host=urlparse(Config.WIFIDOG_BASE).hostname, wifidog_port=urlparse(Config.WIFIDOG_BASE).port or 80,
                            server_ip=_server_ip(),
-                           unifi_inform_url=Config.UNIFI_INFORM_URL, unifi_portal_host=Config.UNIFI_PORTAL_HOST,
+                           unifi_inform_url=Config.UNIFI_INFORM_URL, unifi_portal_host=Config.UNIFI_PORTAL_HOST, unifi_portal_ip=_unifi_portal_ip(),
                            prev=DOC_PAGES[i - 1] if i > 0 else None,
                            next=DOC_PAGES[i + 1] if i + 1 < len(DOC_PAGES) else None,
                            public_url=public, public_host=urlparse(public).hostname or request.host,
@@ -3747,6 +3747,16 @@ def _unifi_hosted_available():
     return bool(Config.UNIFI_HOSTED_URL and Config.UNIFI_HOSTED_USER and Config.UNIFI_HOSTED_PASSWORD)
 
 
+def _unifi_portal_ip():
+    """UniFi's external portal server is an IP address: SafeNet's (guests arrive at http://<ip>/guest/s/...)."""
+    if Config.UNIFI_PORTAL_IP:
+        return Config.UNIFI_PORTAL_IP
+    try:
+        return socket.gethostbyname(Config.UNIFI_PORTAL_HOST)
+    except (OSError, UnicodeError):
+        return None
+
+
 def _unifi_controller(site):
     """One client per controller login, so its session is reused."""
     if site.unifi_hosted:
@@ -3852,6 +3862,11 @@ def _unifi_let_in(site, tenant, guest, username, password):
 @app.route('/guest/s/<name>/<path:rest>')
 def unifi_guest_redirect(name, rest=''):
     """Where the UniFi controller sends a new guest (its fixed external portal path)."""
+    public = urlparse(Config.PUBLIC_URL)
+    if public.hostname and request.host.split(':')[0] != public.hostname:
+        # UniFi only takes an IP, so guests arrive at http://<ip>/guest/s/...: continue on SafeNet's own address
+        # (HTTPS, where the login session cookie works)
+        return redirect(Config.PUBLIC_URL + request.full_path.rstrip('?'))
     site = _unifi_find_site(name, request.args.get('ap'))
     if site is None:
         log.warning('unifi: no SafeNet site for controller site %r, access point %r', name[:64], request.args.get('ap'))
@@ -4105,8 +4120,10 @@ def site_unifi(site_id):
             api = _unifi_controller(site)
             site.unifi_site = site.unifi_site or api.create_site(_unifi_site_desc(site, tenant))
             api.ensure_wlan(site.unifi_site, wifi)
-            api.ensure_portal(site.unifi_site, Config.UNIFI_PORTAL_HOST,
-                              [x for x in (_server_ip(),) if x])
+            ip = _unifi_portal_ip()
+            if not ip:
+                raise unifi.UnifiError(f"can't find the IP address of {Config.UNIFI_PORTAL_HOST}")
+            api.ensure_portal(site.unifi_site, ip, [ip])
             site.unifi_ssid, site.unifi_error, site.unifi_checked_at = wifi, None, datetime.utcnow()
             flash(tr('UniFi is ready at "{site}". Point your access points at SafeNet, then add them below.', site=site.name), 'success')
         except unifi.UnifiError as e:
@@ -7876,7 +7893,7 @@ def sites_page():
                            omada_openapi=_omada_openapi_available(),
                            server_ip=_server_ip(), now=datetime.utcnow(), ruijie_clouds=ruijie.CLOUDS,
                            ruijie_by_safenet=_platform_ruijie() is not None, hotspot_kinds=HOTSPOT_KINDS,
-                           unifi_hosted=_unifi_hosted_available(), unifi_inform_url=Config.UNIFI_INFORM_URL, unifi_portal_host=Config.UNIFI_PORTAL_HOST,
+                           unifi_hosted=_unifi_hosted_available(), unifi_inform_url=Config.UNIFI_INFORM_URL, unifi_portal_host=Config.UNIFI_PORTAL_HOST, unifi_portal_ip=_unifi_portal_ip(),
                            tenant_radius_secret=current_tenant().radius_secret if current_user.has_role('admin') else '')
 
 

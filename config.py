@@ -91,6 +91,7 @@ class Config:
     UNIFI_HOSTED_PASSWORD = os.getenv('UNIFI_HOSTED_PASSWORD', '')
     UNIFI_INFORM_URL = os.getenv('UNIFI_INFORM_URL', '') or f'http://{WG_ENDPOINT}:8089/inform'
     UNIFI_PORTAL_HOST = os.getenv('UNIFI_PORTAL_HOST', '') or WG_ENDPOINT
+    UNIFI_PORTAL_IP = os.getenv('UNIFI_PORTAL_IP', '')   # UniFi's external portal server must be an IP (default: the host's)
     # The SafeNet app on Google Play: Android guests are sent there once they are online after buying
     PLAY_STORE_URL = os.getenv('PLAY_STORE_URL', 'https://play.google.com/store/apps/details?id=com.safezonetz.safenet_app')
     # WiFiDog access points call SafeNet over plain HTTP (many can't follow the HTTPS redirect of

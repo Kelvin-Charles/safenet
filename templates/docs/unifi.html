@@ -30,8 +30,8 @@
     <li><strong>Make it reachable</strong>SafeNet must reach the controller from the internet (a public IP, or a port forward to port 8443, or 443 on UniFi OS consoles).</li>
     <li><strong>Make a local admin</strong>In UniFi: <em>Admins &amp; Users</em> → add an admin with <strong>local access only</strong> (not a UI.com account, which needs two-step login). Give it full management of this site.</li>
     <li><strong>Connect SafeNet</strong>In SafeNet open <strong>Sites → UniFi → Your UniFi controller</strong>: the controller address (for example <code>https://203.0.113.5:8443</code>), the site short name from the controller's address bar (often <code>default</code>), and the admin's username and password.</li>
-    <li><strong>Turn on the guest portal</strong>In UniFi: make the guest Wi-Fi open, and turn on the <em>Hotspot</em> (guest portal) for it with <strong>External portal server</strong> = <code>{{ unifi_portal_host }}</code>{% if server_ip %} (or the IP <code>{{ server_ip }}</code> if your version only accepts an IP){% endif %}.</li>
-    <li><strong>Pre-authorization access</strong>Allow <code>{{ unifi_portal_host }}</code>{% if server_ip %} and <code>{{ server_ip }}/32</code>{% endif %} before login, so phones can open the login page.</li>
+    <li><strong>Turn on the guest portal</strong>In UniFi: make the guest Wi-Fi open, and turn on the <em>Hotspot</em> (guest portal) for it with <strong>External portal server</strong> = <code>{{ unifi_portal_ip or server_ip }}</code> (UniFi only accepts an IP address here).</li>
+    <li><strong>Pre-authorization access</strong>Allow <code>{{ unifi_portal_ip or server_ip }}/32</code> (and <code>{{ unifi_portal_host }}</code> if it asks for names) before login, so phones can open the login page.</li>
 </ol>
 
 <h2 id="test">Test it</h2>

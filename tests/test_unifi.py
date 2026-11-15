@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlencode
 os.environ.update(DB_PASSWORD='x', SECRET_KEY='k' * 40, CLICKPESA_CLIENT_ID='p', CLICKPESA_API_KEY='k', PAYMENT_NETWORKS='airtel',
                   PUBLIC_URL='https://radius.example.tz', UNIFI_HOSTED_URL='https://127.0.0.1:8445', UNIFI_HOSTED_USER='safenet',
-                  UNIFI_HOSTED_PASSWORD='pw', UNIFI_PORTAL_HOST='radius.example.tz', UNIFI_INFORM_URL='http://radius.example.tz:8089/inform')
+                  UNIFI_HOSTED_PASSWORD='pw', UNIFI_PORTAL_HOST='radius.example.tz', UNIFI_PORTAL_IP='203.0.113.9', UNIFI_INFORM_URL='http://radius.example.tz:8089/inform')
 sys.path.insert(0, os.getcwd())
 import unifi
 
@@ -151,7 +151,7 @@ p = c.get('/sites').text
 assert "Use SafeNet's controller" in html.unescape(p)
 r = c.post(f'/sites/{SID}/unifi', data={'csrf_token': tok(p), 'action': 'hosted', 'wifi_name': 'Zulu Free'}, follow_redirects=True).text
 assert "Connected to SafeNet's UniFi controller" in html.unescape(r) and 'set-inform http://radius.example.tz:8089/inform' in r, r[-2000:]
-assert ('wlan', 'k7x2m9qa', 'Zulu Free') in FakeController.log and ('portal', 'k7x2m9qa', 'radius.example.tz') in FakeController.log
+assert ('wlan', 'k7x2m9qa', 'Zulu Free') in FakeController.log and ('portal', 'k7x2m9qa', '203.0.113.9') in FakeController.log
 with app.app_context():
     s = db.session.get(Site, SID); TOKEN = s.portal_token
     assert s.unifi_hosted and s.unifi_site == 'k7x2m9qa' and s.unifi_ssid == 'Zulu Free' and s.unifi_ready
@@ -162,11 +162,13 @@ assert ('adopt', 'k7x2m9qa', 'f4:92:bf:00:00:01') in FakeController.log and 'Ado
 B = 'https://radius.example.tz'
 g = app.test_client()
 q = urlencode({'ap': 'f4:92:bf:00:00:01', 'id': 'aa:bb:cc:00:00:01', 't': '1700000000', 'url': 'http://example.com/', 'ssid': 'Zulu Free'})
+r = g.get(f'/guest/s/k7x2m9qa/?{q}', base_url='http://203.0.113.9')       # UniFi sends guests to the IP
+assert r.status_code == 302 and r.headers['Location'] == f'https://radius.example.tz/guest/s/k7x2m9qa/?{q}', r.headers.get('Location')
 r = g.get(f'/guest/s/k7x2m9qa/?{q}', base_url='http://radius.example.tz')
 assert r.status_code == 302 and r.headers['Location'].endswith(f'/unifi/{TOKEN}')
 page = g.get(f'/unifi/{TOKEN}', base_url=B).text
 assert 'Zulu Connect' in page and '1 Day' in page and f'action="/unifi/{TOKEN}/login"' in page and f'action="/unifi/{TOKEN}/buy"' in page
-assert app.test_client().get('/guest/s/nosuchsite/?id=aa').status_code == 404
+assert app.test_client().get('/guest/s/nosuchsite/?id=aa', base_url=B).status_code == 404
 assert "isn't valid" in html.unescape(g.post(f'/unifi/{TOKEN}/login', data={'code': '99999999', 'agree': '1'}, base_url=B).text)
 r = g.post(f'/unifi/{TOKEN}/login', data={'code': '1111 0000', 'agree': '1'}, base_url=B).text
 assert "You're online" in r and 'example.com' in r
