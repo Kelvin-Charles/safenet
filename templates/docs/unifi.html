@@ -1,0 +1,43 @@
+{% extends "docs/layout.html" %}
+{% block body %}
+<div class="flow" aria-label="How it connects">
+    <div class="box">Guest's phone</div><span class="arr">→</span>
+    <div class="box">UniFi access point<small>U6, U7, UAP-AC…</small></div><span class="arr">→</span>
+    <div class="box">Your internet router</div><span class="arr">→</span>
+    <div class="box">Internet</div>
+</div>
+<div class="flow">
+    <div class="box">UniFi access point</div><span class="arr">⇄</span>
+    <div class="box">UniFi controller<small>SafeNet's or yours</small></div><span class="arr">⇄</span>
+    <div class="box hl">SafeNet</div>
+</div>
+<p>UniFi access points are managed by a <strong>UniFi controller</strong> (the UniFi Network application). Its guest portal sends new guests to SafeNet's login page; after they pay or type a voucher, SafeNet asks the controller to let the phone online for the time they paid. SafeNet reads each guest's data usage from the controller and sends the phone back to the login page when the time is up.</p>
+<p>You can use <strong>SafeNet's UniFi controller</strong> (nothing else to run) or <strong>your own</strong> (a Cloud Key, a UniFi gateway such as a UDM, or a computer running UniFi Network).</p>
+
+<h2 id="safenet-controller">Option 1: SafeNet's controller (recommended)</h2>
+<ol class="steps">
+    <li><strong>Switch it on</strong>In SafeNet open <strong>Sites</strong>, click <strong>UniFi</strong> next to the site, type the Wi-Fi name guests will see and click <strong>Use SafeNet's controller</strong>. SafeNet makes the site, the open guest Wi-Fi and the login page.</li>
+    <li><strong>Plug in the access points</strong>Connect each one (or its PoE adapter) to your internet router.</li>
+    <li><strong>Point them at SafeNet</strong>Find the access point's address in your router's list of devices, connect with SSH (a new access point's user and password are both <code>ubnt</code>) and type:
+        <pre><code>set-inform {{ unifi_inform_url }}</code></pre>
+        On Windows use PuTTY or <code>ssh ubnt@192.168.1.20</code> in the command prompt; on a phone, an SSH app such as Termius. An access point already used elsewhere must be reset first (hold the reset button about 10 seconds).</li>
+    <li><strong>Add them in SafeNet</strong>Back in the <strong>UniFi</strong> box, enter the MAC address from each access point's label and click <strong>Add access points</strong>. They restart and start broadcasting your Wi-Fi within a few minutes.</li>
+    <li><strong>Add packages</strong>Make sure at least one package is sold at this site on the <strong>Packages</strong> page.</li>
+</ol>
+
+<h2 id="own-controller">Option 2: your own controller</h2>
+<ol class="steps">
+    <li><strong>Make it reachable</strong>SafeNet must reach the controller from the internet (a public IP, or a port forward to port 8443, or 443 on UniFi OS consoles).</li>
+    <li><strong>Make a local admin</strong>In UniFi: <em>Admins &amp; Users</em> → add an admin with <strong>local access only</strong> (not a UI.com account, which needs two-step login). Give it full management of this site.</li>
+    <li><strong>Connect SafeNet</strong>In SafeNet open <strong>Sites → UniFi → Your UniFi controller</strong>: the controller address (for example <code>https://203.0.113.5:8443</code>), the site short name from the controller's address bar (often <code>default</code>), and the admin's username and password.</li>
+    <li><strong>Turn on the guest portal</strong>In UniFi: make the guest Wi-Fi open, and turn on the <em>Hotspot</em> (guest portal) for it with <strong>External portal server</strong> = <code>{{ unifi_portal_host }}</code>{% if server_ip %} (or the IP <code>{{ server_ip }}</code> if your version only accepts an IP){% endif %}.</li>
+    <li><strong>Pre-authorization access</strong>Allow <code>{{ unifi_portal_host }}</code>{% if server_ip %} and <code>{{ server_ip }}/32</code>{% endif %} before login, so phones can open the login page.</li>
+</ol>
+
+<h2 id="test">Test it</h2>
+<ol class="steps">
+    <li><strong>Join the Wi-Fi</strong>With a phone, join the guest Wi-Fi. Your SafeNet login page appears.</li>
+    <li><strong>Log in</strong>Make a voucher (<strong>Vouchers → Generate</strong>) and type it. The phone gets online and shows on the <strong>Live</strong> page with its data usage within a minute; <strong>Disconnect</strong> sends it back to the login page.</li>
+</ol>
+<div class="note tip"><i class="bi bi-lightbulb"></i><p><strong>Login page doesn't appear?</strong> Check the guest Wi-Fi has the hotspot portal on, the external portal server is SafeNet's, and SafeNet's address is allowed before login. <strong>Code accepted but no internet?</strong> The UniFi box on the Sites page shows the controller's error.</p></div>
+{% endblock %}

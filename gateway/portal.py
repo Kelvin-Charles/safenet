@@ -313,6 +313,7 @@ def refresh_branding():
     if data.get('tenant'):
         branding['tenant'] = data['tenant']       # for the link to the guest app
     branding['trial'] = data.get('trial')         # the business's "Try free" button (None: off)
+    branding['play_store'] = data.get('play_store')   # after buying, Android phones go on to the app on Google Play
     branding.update(name=data.get('hotspot_name') or branding['name'],
                     support=data.get('support') or '', terms=data.get('terms') or branding['terms'],
                     **{k: portal.get(k) for k in ('color', 'style', 'title', 'message', 'language',
@@ -799,7 +800,7 @@ def app_url(code):
 def status_page(session, dst='', new_code=None, lang='en'):
     return ui.status_page(_theme(), lang, user=session['user'], remaining=session['expires'] - time.time(),
                           total=session['expires'] - session.get('start', session['expires']), dst=dst, new_code=new_code,
-                          app_url=app_url(session['user']))
+                          app_url=app_url(session['user']), play_url=branding.get('play_store'))
 
 
 def waiting_page(ref, info, timed_out=False, lang='en'):

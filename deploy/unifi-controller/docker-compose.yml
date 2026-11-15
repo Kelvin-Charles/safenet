@@ -1,0 +1,27 @@
+# UniFi Network Application (controller), hosted for SafeNet businesses.
+# Access points anywhere inform to http://radius.safezonetz.com:8089/inform; SafeNet reaches the controller's
+# API on 127.0.0.1:8445 to make sites and let guests online.
+# Ports moved off UniFi's defaults, which other apps on this server already use: 8080 (inform) -> 8089,
+# 8443 (admin) -> 8445, 8843/8880 (built-in portal, unused) -> 8844/8881, 3478 (STUN) -> 3480.
+services:
+  unifi:
+    image: jacobalberty/unifi:v9.5.21
+    container_name: unifi-controller
+    restart: unless-stopped
+    stop_grace_period: 60s
+    init: true
+    network_mode: host   # same as the Omada controller: no free Docker bridge networks on this server
+    environment:
+      TZ: Africa/Dar_es_Salaam
+      UNIFI_HTTP_PORT: "8089"
+      UNIFI_HTTPS_PORT: "8445"
+      PORTAL_HTTP_PORT: "8881"
+      PORTAL_HTTPS_PORT: "8844"
+      UNIFI_STDOUT: "true"
+      JVM_MAX_HEAP_SIZE: 1024M
+    volumes:
+      - unifi-data:/unifi
+    mem_limit: 1600m
+
+volumes:
+  unifi-data:

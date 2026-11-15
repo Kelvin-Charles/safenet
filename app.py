@@ -23,6 +23,7 @@ import math
 import os
 import secretbox
 import omada
+import unifi
 import ruijie
 import migrations
 from mailer import send_mail
@@ -370,7 +371,7 @@ def _site_filters(tid, site):
         q = db.session.query(Gateway.name).filter(Gateway.tenant_id == tid)
         found = [n for (n,) in (q.filter(Gateway.site_id == sid) if sid else q)]
         site_ids = [sid] if sid else [x.id for x in tenant_sites(tid)]
-        return found + [f'{kind}-{i}' for i in site_ids for kind in ('omada', 'wifidog', 'ruijie')]
+        return found + [f'{kind}-{i}' for i in site_ids for kind in ('omada', 'wifidog', 'ruijie', 'unifi')]
 
     def ips(sid):
         q = db.session.query(Nas.nasname).filter(Nas.tenant_id == tid)
@@ -404,10 +405,10 @@ def _session_where(row, tid):
     """Readable place of a session: 'Omada · Mwenge', 'Ruijie · Mwenge', a gateway name or router IP."""
     where = row.calledstationid or row.nasipaddress or ''
     kind, _, sid = where.partition('-')
-    if kind in ('omada', 'wifidog', 'ruijie') and sid.isdigit():
+    if kind in ('omada', 'wifidog', 'ruijie', 'unifi') and sid.isdigit():
         site = db.session.get(Site, int(sid))
         if site is not None and site.tenant_id == tid:
-            return f"{ {'omada': 'Omada', 'wifidog': 'WiFiDog', 'ruijie': 'Reyee'}[kind]} · {site.name}"
+            return f"{ {'omada': 'Omada', 'wifidog': 'WiFiDog', 'ruijie': 'Reyee', 'unifi': 'UniFi'}[kind]} · {site.name}"
     return where
 
 
@@ -424,6 +425,8 @@ DOCS = [
      'Pick the setup that matches the equipment you have, then follow its step-by-step guide.'),
     ('omada', 'TP-Link Omada (EAP)', 'bi-wifi', 'TP-Link Omada access points',
      'EAP225 and other Omada access points: plug in, point them to SafeNet, and sell internet. No extra box needed.'),
+    ('unifi', 'UniFi (Ubiquiti)', 'bi-router', 'Ubiquiti UniFi access points',
+     "UniFi access points with SafeNet's UniFi controller or your own: SafeNet login page, mobile money and vouchers."),
     ('ruijie', 'Ruijie (RG-AP)', 'bi-broadcast-pin', 'Ruijie access points',
      'Ruijie enterprise access points (RG-AP820-L and others) connect straight to SafeNet with WiFiDog. Just the access point and internet.'),
     ('wifidog', 'OpenWrt, Cudy, Comfast…', 'bi-router-fill', 'OpenWrt, Cudy, Comfast, Wavlink and other WiFiDog routers',
@@ -459,6 +462,7 @@ def docs(slug='start'):
     return render_template(f'docs/{slug}.html', pages=DOC_PAGES, page=DOC_PAGES[i], wifidog_base=Config.WIFIDOG_BASE, sms_price=Config.SMS_PRICE,
                            wifidog_host=urlparse(Config.WIFIDOG_BASE).hostname, wifidog_port=urlparse(Config.WIFIDOG_BASE).port or 80,
                            server_ip=_server_ip(),
+                           unifi_inform_url=Config.UNIFI_INFORM_URL, unifi_portal_host=Config.UNIFI_PORTAL_HOST,
                            prev=DOC_PAGES[i - 1] if i > 0 else None,
                            next=DOC_PAGES[i + 1] if i + 1 < len(DOC_PAGES) else None,
                            public_url=public, public_host=urlparse(public).hostname or request.host,
@@ -1439,6 +1443,14 @@ def disconnect_subscriber(tid, username):
             _omada_unauth_async(site, s.callingstationid)
             s.acctstoptime, s.acctterminatecause = datetime.utcnow(), 'Admin-Reset'
 
+    for s in RadAcct.query.filter(RadAcct.username == username, RadAcct.acctstoptime.is_(None),
+                                  RadAcct.calledstationid.like('unifi-%'),
+                                  func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime) >= recent):
+        site = db.session.get(Site, int(s.calledstationid[6:])) if s.calledstationid[6:].isdigit() else None
+        if site is not None and site.tenant_id == tid:
+            _unifi_unauth_async(site, s.callingstationid)
+            s.acctstoptime, s.acctterminatecause = datetime.utcnow(), 'Admin-Reset'
+
     def send():
         for target in targets:
             ok, message = radclient.disconnect(*target)
@@ -1989,7 +2001,7 @@ def _portal_packages(tenant):
 PREVIEW_FIELDS = ('color', 'style', 'title', 'message', 'show_voucher', 'show_packages', 'package_layout')
 # What a guest's equipment shows: Omada and Ruijie use SafeNet's pages, the SafeNet gateway its own copy of them,
 # MikroTik (and other RADIUS routers) SafeNet's page for the code only, then the router's own status page.
-EQUIPMENT = {'omada': 'TP-Link Omada', 'ruijie': 'Ruijie / WiFiDog', 'hotspot': 'Grandstream, Cambium (RADIUS)', 'gateway': 'SafeNet gateway', 'mikrotik': 'MikroTik / other router'}
+EQUIPMENT = {'omada': 'TP-Link Omada', 'unifi': 'UniFi', 'ruijie': 'Ruijie / WiFiDog', 'hotspot': 'Grandstream, Cambium (RADIUS)', 'gateway': 'SafeNet gateway', 'mikrotik': 'MikroTik / other router'}
 
 # In the settings preview: show a logo picked but not saved yet (sent by the settings page)
 PREVIEW_LOGO_JS = """<script>window.addEventListener('message',function(ev){
@@ -2008,6 +2020,8 @@ def _site_equipment(site, main_site_id=None):
         kinds.append('ruijie')
     if Gateway.query.filter(Gateway.tenant_id == site.tenant_id, Gateway.is_active.is_(True), own).count():
         kinds.append('gateway')
+    if site.unifi_ready:
+        kinds.append('unifi')
     if site.hotspot_enabled:
         kinds.append('hotspot')
     if Nas.query.filter(Nas.tenant_id == site.tenant_id, or_(Nas.vendor.is_(None), Nas.vendor != 'hotspot'),
@@ -2126,7 +2140,7 @@ def _portal_preview(tenant, th, lang, here):
         return portal_ui.login_page(th, lang, packages=packages, tab=tab, error=error, preview=True, simulate=True,
                                     buy_enabled=buy_enabled, lang_url=here, networks=networks,
                                     action=url(view='sim-login'), buy_action=url(view='sim-buy'),
-                                    trial=_guest_trial(tenant, site) if equip in ('omada', 'ruijie', 'hotspot', 'mikrotik', 'gateway') else None,
+                                    trial=_guest_trial(tenant, site) if equip in ('omada', 'unifi', 'ruijie', 'hotspot', 'mikrotik', 'gateway') else None,
                                     trial_action=url(view='sim-login'), logo_base=url_for('static', filename='img/'))
 
     def online(user, seconds, new_code=None):
@@ -2270,6 +2284,8 @@ def _hotspot_page(site, tenant, base, *, view='login', error='', tab=None, exter
     wanted = request.args.get('lang')
     lang = wanted if wanted in portal_ui.LANGS else request.cookies.get('sn_lang') if request.cookies.get('sn_lang') in portal_ui.LANGS else th['language']
     if view == 'status':
+        if extra.get('new_code'):          # just bought: Android phones go on to the SafeNet app on Google Play
+            extra.setdefault('play_url', Config.PLAY_STORE_URL or None)
         if extra.get('user') and Voucher.query.filter_by(tenant_id=tenant.id, code=extra['user']).first():
             extra.setdefault('app_url', _guest_app_link(tenant, extra['user']))
         html_out = portal_ui.status_page(th, lang, base=base, logout=False, lang_url=base, **extra)
@@ -2868,6 +2884,7 @@ def start_background_jobs():
     """Run by each gunicorn worker (see the bottom of this file)."""
     if Config.OMADA_OPENAPI_CLIENT_ID and Config.OMADA_HOSTED_URL:
         threading.Thread(target=_omada_sync_loop, name='omada-usage', daemon=True).start()
+    threading.Thread(target=_unifi_sync_loop, name='unifi-usage', daemon=True).start()   # hosted and own controllers
     threading.Thread(target=_daily_summary_loop, name='daily-summary', daemon=True).start()
     threading.Thread(target=_ruijie_loop, name='ruijie-cloud', daemon=True).start()
     threading.Thread(target=_payments_sync_loop, name='payments-sync', daemon=True).start()
@@ -3671,6 +3688,8 @@ def hotspot_wait(token):
     if payment.status == 'paid' and payment.voucher:
         code = payment.voucher.code
         session.pop('hs_ref', None)
+        if Config.PLAY_STORE_URL and _is_android():     # once online, the device sends the phone to the app on Google Play
+            guest = {**guest, 'next': Config.PLAY_STORE_URL}
         resp, error = _hs_let_in(site, tenant, guest, code, code)
         if error:
             return _hotspot_page(site, tenant, base, error=f'Payment received. Your voucher code is {code}. {error}', tab='voucher')
@@ -3710,6 +3729,436 @@ def site_hotspot(site_id):
         flash(tr('New RADIUS secret made. Enter it on every access point of this business.'), 'success')
     db.session.commit()
     return redirect(url_for('sites_page', open=f'hotspot-{site.id}'))
+
+
+# ---------------------------------------------------------------------------
+# UniFi: the controller's guest portal ("External portal server" = SafeNet) sends guests to
+# http://<portal host>/guest/s/<controller site>/?ap=..&id=<phone>&url=..&ssid=.. SafeNet shows the login page at
+# /unifi/<portal_token>, checks the code and asks the controller to let the phone online (authorize-guest).
+# Data usage is read from the controller every minute; when the time is up the phone is sent back to the login page.
+# Controller: SafeNet's own (hosted) or the business's own (Cloud Key, UDM, a PC on the internet).
+# ---------------------------------------------------------------------------
+UNIFI_SYNC_SECONDS = 60
+UNIFI_GONE_MINUTES = 10
+_unifi_clients = {}
+
+
+def _unifi_hosted_available():
+    return bool(Config.UNIFI_HOSTED_URL and Config.UNIFI_HOSTED_USER and Config.UNIFI_HOSTED_PASSWORD)
+
+
+def _unifi_controller(site):
+    """One client per controller login, so its session is reused."""
+    if site.unifi_hosted:
+        if not _unifi_hosted_available():
+            raise unifi.UnifiError("SafeNet's UniFi controller is not set up on this server")
+        key = (Config.UNIFI_HOSTED_URL, Config.UNIFI_HOSTED_USER, Config.UNIFI_HOSTED_PASSWORD, False, False)
+    else:
+        key = (site.unifi_url, site.unifi_user, secretbox.decrypt(site.unifi_password_enc), bool(site.unifi_verify_tls), True)
+    if key not in _unifi_clients:
+        _unifi_clients[key] = unifi.Controller(key[0], key[1], key[2], verify_tls=key[3], public_only=key[4])
+    return _unifi_clients[key]
+
+
+def _unifi_site_desc(site, tenant):
+    many = Site.query.filter_by(tenant_id=tenant.id).count() > 1
+    return (f'{tenant.name} - {site.name}' if many else tenant.name)[:60] + f' #{site.id}'
+
+
+def _unifi_find_site(name, ap_mac):
+    """The SafeNet site a UniFi guest belongs to, from the controller site in the link and the access point.
+    Hosted controller sites are unique; a business's own controller is often "default", so the access point
+    tells those apart (SafeNet keeps each site's access points, read from its controller)."""
+    name = (name or '')[:64]
+    found = [x for x in Site.query.filter_by(unifi_site=name).all() if x.unifi_ready]
+    hosted = [x for x in found if x.unifi_hosted]
+    if hosted:
+        return hosted[0]
+    if len(found) == 1:
+        return found[0]
+    ap = unifi.mac(ap_mac)
+    if not ap:
+        return None
+    for x in found:
+        if ap in (x.unifi_aps or '').split(','):
+            return x
+    for x in found:                     # a new access point: ask each candidate's controller (few, and only once)
+        try:
+            macs = [unifi.mac(d.get('mac')) for d in _unifi_controller(x).devices(x.unifi_site)]
+        except unifi.UnifiError as e:
+            log.warning('unifi: site %s: could not read access points: %s', x.id, e)
+            continue
+        x.unifi_aps = ','.join(m for m in macs if m)[:1000] or None
+        db.session.commit()
+        if ap in macs:
+            return x
+    return None
+
+
+def _unifi_site(token):
+    site = Site.query.filter_by(portal_token=token[:24]).first() if token else None
+    if site is None or not site.unifi_ready:
+        abort(404)
+    tenant = db.session.get(Tenant, site.tenant_id)
+    if tenant is None or tenant_blocked(tenant):
+        abort(404)
+    return site, tenant
+
+
+def _unifi_guest(token):
+    guest = session.get('unifi') or {}
+    return guest if guest.get('token') == token else {}
+
+
+def _unifi_page(site, tenant, **kw):
+    return _hotspot_page(site, tenant, f'/unifi/{site.portal_token}', **kw)
+
+
+def _unifi_let_in(site, tenant, guest, username, password):
+    """Check the code, then ask the controller to let the phone online. Returns (info, error)."""
+    mac = guest.get('id', '')
+    if not unifi.mac(mac):
+        return None, 'Please connect to the Wi-Fi again and open any website to get here.'
+    ok, message, info = _gateway_authenticate(tenant, username, password, mac, site)
+    _log_auth(username, ok)
+    if not ok:
+        db.session.commit()
+        return None, message
+    seconds = info['session_timeout'] or OMADA_DEFAULT_SECONDS
+    try:
+        _unifi_controller(site).authorize(site.unifi_site, mac, -(-seconds // 60), ap_mac=guest.get('ap'),
+                                          up_kbps=ruijie.kbps(info.get('upload') or '') or None,
+                                          down_kbps=ruijie.kbps(info.get('download') or '') or None)
+    except unifi.UnifiError as e:
+        db.session.rollback()
+        log.warning('unifi authorize for site %s failed: %s', site.id, e)
+        site.unifi_error = safetext.clean(str(e))[:255]
+        db.session.commit()
+        return None, "Your code is fine, but the Wi-Fi didn't accept the login. Please try again in a minute."
+    now = datetime.utcnow()
+    sid = secrets.token_hex(8)
+    db.session.add(RadAcct(acctsessionid=sid, acctuniqueid=hashlib.md5(f'unifi:{site.id}:{sid}'.encode()).hexdigest(),
+                           username=username[:64], nasipaddress=(_client_ip() or '')[:15], groupname='',
+                           acctterminatecause='', calledstationid=f'unifi-{site.id}',
+                           callingstationid=unifi.mac(mac).upper().replace(':', '-'), framedipaddress='',
+                           nasporttype='Wireless-802.11', acctstarttime=now, acctupdatetime=now, acctsessiontime=0,
+                           acctinputoctets=0, acctoutputoctets=0))
+    site.unifi_checked_at, site.unifi_error = now, None
+    db.session.commit()
+    return {'seconds': seconds, 'user': username}, None
+
+
+@app.route('/guest/s/<name>/')
+@app.route('/guest/s/<name>/<path:rest>')
+def unifi_guest_redirect(name, rest=''):
+    """Where the UniFi controller sends a new guest (its fixed external portal path)."""
+    site = _unifi_find_site(name, request.args.get('ap'))
+    if site is None:
+        log.warning('unifi: no SafeNet site for controller site %r, access point %r', name[:64], request.args.get('ap'))
+        abort(404)
+    session['unifi'] = {'token': site.portal_token, **{k: (request.args.get(k) or '')[:500] for k in ('ap', 'id', 'url', 'ssid', 't')}}
+    ap = unifi.mac(request.args.get('ap'))
+    if ap and ap not in (site.unifi_aps or '').split(','):
+        site.unifi_aps = ','.join(x for x in [*(site.unifi_aps or '').split(','), ap] if x)[-1000:]
+        db.session.commit()
+    return redirect(url_for('unifi_portal', token=site.portal_token))
+
+
+@app.route('/unifi/<token>')
+def unifi_portal(token):
+    site, tenant = _unifi_site(token)
+    guest = _unifi_guest(site.portal_token)
+    if guest.get('id') and not request.args.get('lang'):
+        code = _returning_code(tenant.id, guest['id'], site)
+        if code:
+            info, error = _unifi_let_in(site, tenant, guest, code, code)
+            if not error:
+                log.info('unifi: %s back online with %s', guest['id'], code)
+                return _unifi_page(site, tenant, view='status', user=code, remaining=info['seconds'], dst=guest.get('url', ''))
+    return _unifi_page(site, tenant)
+
+
+@app.route('/unifi/<token>/login', methods=['POST'])
+def unifi_login(token):
+    site, tenant = _unifi_site(token)
+    guest = _unifi_guest(site.portal_token)
+    err = lambda m: _unifi_page(site, tenant, error=m, tab='voucher')
+    if not guest.get('id'):
+        return err('Please connect to the Wi-Fi again and open any website to get here.')
+    if not request.form.get('agree'):
+        return err('Please accept the terms of use to continue.')
+    key, site_key = f"unifi:{site.id}:{guest['id']}", f'unifi:{site.id}:{_client_ip()}'
+    if _omada_too_many(key, 6) or _omada_too_many(site_key, 60):
+        return err('Too many wrong attempts. Please wait a few minutes and try again.')
+    username = (request.form.get('username') or '').strip()[:64]
+    password = request.form.get('password') or ''
+    if not username:
+        username = password = re.sub(r'\s+', '', request.form.get('code') or '')[:32]
+    if not username:
+        return err('Enter your voucher code.')
+    info, error = _unifi_let_in(site, tenant, guest, username, password)
+    if error:
+        _omada_failures.setdefault(key, []).append(time.time())
+        _omada_failures.setdefault(site_key, []).append(time.time())
+        return err(error)
+    return _unifi_page(site, tenant, view='status', user=info['user'], remaining=info['seconds'], dst=guest.get('url', ''))
+
+
+@app.route('/unifi/<token>/trial', methods=['POST'])
+def unifi_trial(token):
+    site, tenant = _unifi_site(token)
+    guest = _unifi_guest(site.portal_token)
+    problem = _guest_trial_problem(tenant, guest.get('id'), site)
+    if problem:
+        return _unifi_page(site, tenant, error=problem, tab='buy')
+    code = _guest_trial_code(tenant, site, guest['id'])
+    info, error = _unifi_let_in(site, tenant, guest, code, code)
+    if error:
+        return _unifi_page(site, tenant, error=error, tab='buy')
+    return _unifi_page(site, tenant, view='status', user=info['user'], remaining=info['seconds'], dst=guest.get('url', ''))
+
+
+@app.route('/unifi/<token>/buy', methods=['POST'])
+def unifi_buy(token):
+    site, tenant = _unifi_site(token)
+    guest = _unifi_guest(site.portal_token)
+    err = lambda m: _unifi_page(site, tenant, error=m, tab='buy')
+    if not guest.get('id'):
+        return err('Please connect to the Wi-Fi again and open any website to get here.')
+    if not request.form.get('agree'):
+        return err('Please accept the terms of use to continue.')
+    package = _site_packages(Package.query.filter_by(id=request.form.get('package_id', type=int), tenant_id=tenant.id,
+                                                     is_active=True, show_on_portal=True), site.id).first()
+    if not package:
+        return err('Choose a package.')
+    phone = request.form.get('phone', '')
+    network = (request.form.get('network') or '')[:16] or None
+    if payment_networks(tenant) and not network:
+        return err('Choose your mobile-money network.')
+    payment, error, _ = _start_purchase(tenant, site.id, package, phone, network, _wifidog_mac(guest.get('id')),
+                                        None, f'unifi-{site.id}', gift_phone=_gift_phone_field())
+    if error:
+        return err(error)
+    session['unifi_ref'] = payment.reference
+    return redirect(url_for('unifi_wait', token=site.portal_token, ref=payment.reference))
+
+
+@app.route('/unifi/<token>/buy/wait')
+def unifi_wait(token):
+    site, tenant = _unifi_site(token)
+    guest = _unifi_guest(site.portal_token)
+    ref = (request.args.get('ref') or '')[:20]
+    if not guest.get('id') or session.get('unifi_ref') != ref:
+        return redirect(url_for('unifi_portal', token=site.portal_token))
+    payment = _refresh_payment(ref)
+    if payment is None or payment.tenant_id != tenant.id:
+        return redirect(url_for('unifi_portal', token=site.portal_token))
+    if payment.status == 'paid' and payment.voucher and payment.gift_phone:
+        session.pop('unifi_ref', None)
+        return _unifi_page(site, tenant, view='gift', code=payment.voucher.code, friend=payment.gift_phone,
+                           package=payment.package_name)
+    if payment.status == 'paid' and payment.voucher:
+        code = payment.voucher.code
+        session.pop('unifi_ref', None)
+        info, error = _unifi_let_in(site, tenant, guest, code, code)
+        if error:
+            return _unifi_page(site, tenant, error=f'Payment received. Your voucher code is {code}. {error}', tab='voucher')
+        return _unifi_page(site, tenant, view='status', user=code, remaining=info['seconds'], new_code=code,
+                           dst=guest.get('url', ''))
+    if payment.status in ('failed', 'review'):
+        session.pop('unifi_ref', None)
+        return _unifi_page(site, tenant, error=f"Payment not completed: {payment.message or 'The payment was not completed.'}", tab='buy')
+    timed_out = (datetime.utcnow() - payment.created_at).total_seconds() > 120 and not request.args.get('again')
+    return _unifi_page(site, tenant, view='wait', ref=ref, timed_out=timed_out,
+                       info={'amount': f'{payment.charged:.0f}', 'currency': payment.currency, 'phone': payment.phone,
+                             'package': payment.package_name, 'gift_phone': payment.gift_phone or ''})
+
+
+def _unifi_unauth_async(site, mac):
+    if not (site and site.unifi_ready and mac):
+        return
+    api, name = _unifi_controller(site), site.unifi_site
+
+    def run():
+        try:
+            api.unauthorize(name, mac)
+            log.info('unifi unauthorize %s at %s', mac, name)
+        except unifi.UnifiError as e:
+            log.warning('unifi unauthorize %s failed: %s', mac, e)
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _unifi_sync_site(site, api=None, now=None):
+    """Copy each UniFi guest's data usage from the controller into their session, close sessions of phones that
+    left, and send phones whose time is up (or whose code was disabled) back to the login page. Commits."""
+    now = now or datetime.utcnow()
+    api = api or _unifi_controller(site)
+    seen = {}
+    aps = set(x for x in (site.unifi_aps or '').split(',') if x)
+    for c in api.clients(site.unifi_site):
+        m = unifi.mac(c.get('mac'))
+        if m:
+            seen[m.upper().replace(':', '-')] = c
+        if unifi.mac(c.get('ap_mac')):
+            aps.add(unifi.mac(c.get('ap_mac')))
+    site.unifi_aps = ','.join(sorted(aps))[:1000] or None
+    station = f'unifi-{site.id}'
+    rows = RadAcct.query.filter(RadAcct.calledstationid == station, RadAcct.acctstoptime.is_(None)).all()
+    for row in list(rows):
+        voucher = Voucher.query.filter_by(tenant_id=site.tenant_id, code=row.username).first()
+        account = None if voucher else RadUser.query.filter_by(tenant_id=site.tenant_id, username=row.username).first()
+        ended = (voucher is not None and voucher.state in ('expired', 'disabled')) or \
+                (account is not None and (not account.is_active or (account.expires_at and account.expires_at <= now)))
+        if ended:
+            row.acctstoptime = now
+            row.acctterminatecause = 'Session-Timeout' if voucher is not None and voucher.state == 'expired' else 'Admin-Reset'
+            rows.remove(row)
+            if (row.callingstationid or '').upper() in seen:
+                try:
+                    api.unauthorize(site.unifi_site, row.callingstationid)
+                    log.info('unifi: site %s: cut off %s (%s)', site.id, row.callingstationid, row.username)
+                except unifi.UnifiError as e:
+                    log.warning('unifi: site %s: could not cut off %s: %s', site.id, row.callingstationid, e)
+    counters = {c.radacct_id: c for c in OmadaCounter.query.filter(OmadaCounter.radacct_id.in_([r.radacctid for r in rows]))} if rows else {}
+    for row in rows:
+        c = seen.get((row.callingstationid or '').upper())
+        if c is None:
+            last_seen = row.acctupdatetime or row.acctstarttime or now
+            if (now - last_seen).total_seconds() > UNIFI_GONE_MINUTES * 60:
+                row.acctstoptime, row.acctterminatecause = last_seen, 'Lost-Carrier'
+            continue
+        down, up = int(c.get('tx_bytes') or 0), int(c.get('rx_bytes') or 0)       # tx: sent to the phone
+        last = counters.get(row.radacctid)          # (the Omada counter table keeps the controller's last reading)
+        if last is None:
+            last = OmadaCounter(radacct_id=row.radacctid, down=0, up=0)
+            db.session.add(last)
+        row.acctoutputoctets = (row.acctoutputoctets or 0) + (down - last.down if down >= last.down else down)
+        row.acctinputoctets = (row.acctinputoctets or 0) + (up - last.up if up >= last.up else up)
+        last.down, last.up = down, up
+        row.acctupdatetime = now
+        row.acctsessiontime = int((now - row.acctstarttime).total_seconds()) if row.acctstarttime else row.acctsessiontime
+        if c.get('ip'):
+            row.framedipaddress = str(c['ip'])[:15]
+    db.session.commit()
+    return len(rows)
+
+
+def _unifi_sync_due():
+    """Sync every UniFi site, at most once a minute across all web workers."""
+    cutoff = datetime.utcnow() - timedelta(seconds=UNIFI_SYNC_SECONDS)
+    for (sid,) in db.session.query(Site.id).filter(Site.unifi_site.isnot(None), Site.portal_token.isnot(None)).all():
+        claimed = Site.query.filter(Site.id == sid, or_(Site.unifi_synced_at.is_(None), Site.unifi_synced_at < cutoff)) \
+            .update({'unifi_synced_at': datetime.utcnow()}, synchronize_session=False)
+        db.session.commit()
+        if not claimed:
+            continue
+        site = db.session.get(Site, sid)
+        if site is None or not site.unifi_ready:
+            continue
+        try:
+            _unifi_sync_site(site)
+            Site.query.filter_by(id=sid).update({'unifi_checked_at': datetime.utcnow(), 'unifi_error': None})
+            db.session.commit()
+        except Exception as e:              # the controller may be restarting: try again next minute
+            db.session.rollback()
+            log.warning('unifi sync for site %s failed: %s', sid, e)
+            Site.query.filter_by(id=sid).update({'unifi_error': safetext.clean(f'Reading guests from the controller failed: {e}')[:255]})
+            db.session.commit()
+
+
+def _unifi_sync_loop():
+    while True:
+        time.sleep(UNIFI_SYNC_SECONDS)
+        try:
+            with app.app_context():
+                _unifi_sync_due()
+        except Exception:
+            log.exception('unifi sync failed')
+
+
+@app.route('/sites/<int:site_id>/unifi', methods=['POST'])
+@login_required
+@role_required('admin')
+def site_unifi(site_id):
+    """hosted: SafeNet makes a site on its controller (and the guest Wi-Fi and portal); own: the business's
+    controller; adopt: access points that contacted SafeNet's controller; remove."""
+    _check_csrf()
+    site = owned_or_404(Site, site_id)
+    tenant = db.session.get(Tenant, site.tenant_id)
+    action = request.form.get('action')
+    back = redirect(url_for('sites_page', open=f'unifi-{site.id}'))
+    if action == 'remove':
+        site.unifi_hosted, site.unifi_url, site.unifi_user, site.unifi_password_enc = False, None, None, None
+        site.unifi_site = site.unifi_ssid = site.unifi_aps = site.unifi_error = None
+        db.session.commit()
+        flash(tr('UniFi removed from "{site}".', site=site.name), 'success')
+        return back
+    if not site.portal_token:
+        site.portal_token = secrets.token_urlsafe(12)[:16]
+    if action == 'hosted':
+        if not _unifi_hosted_available():
+            flash(tr("SafeNet's UniFi controller isn't available yet. Use your own controller, or try again later."), 'danger')
+            return back
+        wifi = (request.form.get('wifi_name') or '').strip()[:32] or f'{tenant.name} WiFi'[:32]
+        site.unifi_hosted, site.unifi_url, site.unifi_user, site.unifi_password_enc = True, None, None, None
+        try:
+            api = _unifi_controller(site)
+            site.unifi_site = site.unifi_site or api.create_site(_unifi_site_desc(site, tenant))
+            api.ensure_wlan(site.unifi_site, wifi)
+            api.ensure_portal(site.unifi_site, Config.UNIFI_PORTAL_HOST,
+                              [x for x in (_server_ip(),) if x])
+            site.unifi_ssid, site.unifi_error, site.unifi_checked_at = wifi, None, datetime.utcnow()
+            flash(tr('UniFi is ready at "{site}". Point your access points at SafeNet, then add them below.', site=site.name), 'success')
+        except unifi.UnifiError as e:
+            site.unifi_error = safetext.clean(str(e))[:255]
+            flash(tr('UniFi setup did not finish: {error}', error=site.unifi_error), 'danger')
+        db.session.commit()
+        return back
+    if action == 'own':
+        url = (request.form.get('unifi_url') or '').strip().rstrip('/')[:255]
+        user = (request.form.get('unifi_user') or '').strip()[:64]
+        password = request.form.get('unifi_password') or ''
+        name = (request.form.get('unifi_site') or 'default').strip()[:64] or 'default'
+        problem = omada.public_address_problem(url)
+        if problem or not user or not (password or site.unifi_password_enc):
+            flash(tr('Enter the controller address, username and password.') if not problem else tr('UniFi controller: {error}', error=problem), 'danger')
+            return back
+        site.unifi_hosted, site.unifi_url, site.unifi_user, site.unifi_site = False, url, user, name
+        if password:
+            site.unifi_password_enc = secretbox.encrypt(password)
+        site.unifi_verify_tls = request.form.get('unifi_verify_tls') == '1'
+        try:
+            api = _unifi_controller(site)
+            api.check(name)
+            site.unifi_aps = ','.join(m for m in (unifi.mac(d.get('mac')) for d in api.devices(name)) if m)[:1000] or None
+            site.unifi_error, site.unifi_checked_at = None, datetime.utcnow()
+            flash(tr('Connected to your UniFi controller.'), 'success')
+        except unifi.UnifiError as e:
+            site.unifi_error = safetext.clean(str(e))[:255]
+            flash(tr('UniFi controller: {error}', error=site.unifi_error), 'danger')
+        db.session.commit()
+        return back
+    if action == 'adopt' and site.unifi_hosted and site.unifi_site:
+        macs = [m for m in (unifi.mac(x) for x in re.split(r'[\s,;]+', request.form.get('macs') or '')) if m][:20]
+        if not macs:
+            flash(tr('Enter the MAC address from the label of each access point.'), 'danger')
+            return back
+        done, failed = [], []
+        api = _unifi_controller(site)
+        for m in macs:
+            try:
+                api.adopt(site.unifi_site, m)
+                done.append(m)
+            except unifi.UnifiError as e:
+                failed.append(f'{m} ({e})')
+        site.unifi_aps = ','.join(sorted(set([*(site.unifi_aps or '').split(','), *done]) - {''}))[:1000] or None
+        db.session.commit()
+        if done:
+            flash(tr('Adopting {n} access point(s). They restart and appear within a few minutes.', n=len(done)), 'success')
+        if failed:
+            flash(tr('Not adopted: {list}. Check the access point is plugged in and pointed at SafeNet.', list='; '.join(failed)[:400]), 'danger')
+        return back
+    abort(400)
 
 
 # ---------------------------------------------------------------------------
@@ -6754,7 +7203,7 @@ def api_gateway_config():
     t = g.api_tenant
     hotspot = _hotspot_settings(t)
     cfg = portal_config(t)
-    return jsonify(tenant=t.slug, android_app=_android_app_link(), hotspot_name=hotspot['name'], support=hotspot['support'],
+    return jsonify(tenant=t.slug, android_app=_android_app_link(), play_store=Config.PLAY_STORE_URL or None, hotspot_name=hotspot['name'], support=hotspot['support'],
                    terms=hotspot['terms'], currency=hotspot['currency'], acct_interim_seconds=60,
                    block_tethering=t.block_tethering,
                    gateway=g.api_gateway.name if g.api_gateway else None,
@@ -7427,6 +7876,7 @@ def sites_page():
                            omada_openapi=_omada_openapi_available(),
                            server_ip=_server_ip(), now=datetime.utcnow(), ruijie_clouds=ruijie.CLOUDS,
                            ruijie_by_safenet=_platform_ruijie() is not None, hotspot_kinds=HOTSPOT_KINDS,
+                           unifi_hosted=_unifi_hosted_available(), unifi_inform_url=Config.UNIFI_INFORM_URL, unifi_portal_host=Config.UNIFI_PORTAL_HOST,
                            tenant_radius_secret=current_tenant().radius_secret if current_user.has_role('admin') else '')
 
 
@@ -9966,6 +10416,10 @@ def _android_apk_info():
         pass
     st = os.stat(path)
     return {'size': st.st_size, 'at': datetime.utcfromtimestamp(st.st_mtime), 'version': meta.get('version') or ''}
+
+
+def _is_android():
+    return 'android' in (request.user_agent.string or '').lower()
 
 
 def _android_app_link():

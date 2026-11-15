@@ -22,6 +22,7 @@
                         <tr>
                             <td><strong>{{ s.name }}</strong>{% if loop.first %} <span class="badge bg-light text-dark border">{{ _('Main') }}</span>{% endif %}
                                 {% if s.omada_ready %}<span class="badge {{ 'bg-danger' if s.omada_error else 'bg-success' }}" title="{{ s.omada_error or _('TP-Link Omada connected') }}">Omada</span>{% endif %}
+                                {% if s.unifi_ready %}<span class="badge {{ 'bg-danger' if s.unifi_error else 'bg-success' }}" title="{{ s.unifi_error or _('UniFi connected') }}">UniFi</span>{% endif %}
                                 {% if s.wifidog_enabled %}<span class="badge bg-success">WiFiDog</span>{% endif %}
                                 {% if s.hotspot_enabled %}<span class="badge {{ 'bg-warning text-dark' if s.hotspot_problem else 'bg-success' }}" title="{{ _('RADIUS access points') }}">RADIUS</span>{% endif %}
                                 {% if s.ruijie_ready %}<span class="badge {{ 'bg-danger' if s.ruijie_error else 'bg-success' }}" title="{{ s.ruijie_error or _('Ruijie Cloud vouchers') }}">Reyee</span>{% endif %}
@@ -42,6 +43,7 @@
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#edit-{{ s.id }}" title="{{ _('Rename') }}"><i class="bi bi-pencil"></i></button>
                                 <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('wifi_qr', site_id=s.id) }}" target="_blank" rel="noopener" title="{{ _('Print the scan-to-join Wi-Fi QR code') }}"><i class="bi bi-qr-code"></i> QR</a>
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#omada-{{ s.id }}" title="{{ _('TP-Link Omada access points') }}"><i class="bi bi-wifi"></i> Omada</button>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#unifi-{{ s.id }}" title="{{ _('Ubiquiti UniFi access points') }}"><i class="bi bi-router"></i> UniFi</button>
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#wifidog-{{ s.id }}" title="{{ _('Ruijie RG-AP, OpenWrt, Cudy, Comfast, Wavlink and other WiFiDog devices') }}"><i class="bi bi-broadcast-pin"></i> WiFiDog</button>
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#hotspot-{{ s.id }}" title="{{ _('Grandstream, Cambium, CoovaChilli and other RADIUS access points') }}"><i class="bi bi-hdd-rack"></i> RADIUS</button>
                                 <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#ruijie-{{ s.id }}" title="{{ _('Reyee access points through Ruijie Cloud vouchers') }}"><i class="bi bi-cloud"></i> Reyee</button>
@@ -142,6 +144,76 @@
                                     </ol>
                                 </div>
                                 {% endif %}
+                                </details>
+                                {% endif %}
+                            </div>
+                        </td></tr>
+                        <tr class="collapse{{ ' show' if request.args.get('open') == 'unifi-%d'|format(s.id) }}" id="unifi-{{ s.id }}"><td colspan="7" class="bg-light">
+                            <div class="p-2">
+                                <h6 class="mb-1"><i class="bi bi-router"></i> {{ _('UniFi access points at {site}', site=s.name) }}</h6>
+                                <p class="small text-muted mb-3"><a href="{{ url_for('docs', slug='unifi') }}" target="_blank" rel="noopener"><i class="bi bi-journal-text"></i> {{ _('Step-by-step guide') }}</a> · {{ _("For Ubiquiti UniFi access points (U6, U7, UAP-AC…). Guests get SafeNet's login page with your packages and mobile money; SafeNet then lets them online through the UniFi controller: SafeNet's, or your own.") }}</p>
+                                {% if s.unifi_error %}<div class="alert alert-danger py-2 small mb-2" style="max-width: 720px">{{ s.unifi_error }}</div>{% endif %}
+                                {% if s.unifi_ready %}
+                                <div class="border rounded bg-white p-2 mb-2 small" style="max-width: 720px">
+                                    <strong><i class="bi bi-check-circle text-success"></i> {{ _("Connected to SafeNet's UniFi controller") if s.unifi_hosted else _('Connected to your UniFi controller') }}</strong>
+                                    <div>{{ _('Controller site') }}: <code>{{ s.unifi_site }}</code>{% if s.unifi_ssid %} · {{ _('Wi-Fi: {name}', name=s.unifi_ssid) }}{% endif %}
+                                        {% if s.unifi_aps %} · {{ _('Access points: {n}', n=s.unifi_aps.split(',')|length) }}{% endif %}
+                                        {% if s.unifi_checked_at %} · {{ _('Last checked {time} UTC', time=s.unifi_checked_at.strftime('%d %b %H:%M')) }}{% endif %}</div>
+                                </div>
+                                {% if s.unifi_hosted %}
+                                <ol class="small mb-2" style="max-width: 720px">
+                                    <li>{{ _('Plug each access point into your internet router (with its PoE adapter).') }}</li>
+                                    <li>{{ _("Point it at SafeNet: open the access point's address with SSH (user and password ubnt for a new one) and type:") }} <code class="user-select-all">set-inform {{ unifi_inform_url }}</code></li>
+                                    <li>{{ _('Add it here with the MAC address from its label:') }}</li>
+                                </ol>
+                                <form method="POST" action="{{ url_for('site_unifi', site_id=s.id) }}" class="row g-2 mb-2" style="max-width: 720px">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <div class="col-md-8"><textarea name="macs" class="form-control form-control-sm" rows="2" placeholder="F4:92:BF:12:34:56" required></textarea>
+                                        <small class="text-muted">{{ _('Several access points: one per line.') }}</small></div>
+                                    <div class="col-md-4"><button class="btn btn-primary btn-sm" type="submit" name="action" value="adopt"><i class="bi bi-plus-circle"></i> {{ _('Add access points') }}</button></div>
+                                </form>
+                                {% else %}
+                                <div class="small mb-2" style="max-width: 720px">
+                                    <strong>{{ _('In your UniFi controller, for this site:') }}</strong>
+                                    <ol class="mb-1">
+                                        <li>{{ _('Make the guest Wi-Fi open (no password) and turn on the hotspot / guest portal for it.') }}</li>
+                                        <li>{{ _('Authentication: External portal server') }} = <code class="user-select-all">{{ unifi_portal_host }}</code>{% if server_ip %} ({{ _('or the IP') }} <code class="user-select-all">{{ server_ip }}</code>){% endif %}.</li>
+                                        <li>{{ _('Pre-authorization access (allowed before login)') }}: <code class="user-select-all">{{ unifi_portal_host }}</code>{% if server_ip %} · <code class="user-select-all">{{ server_ip }}/32</code>{% endif %}</li>
+                                    </ol>
+                                </div>
+                                {% endif %}
+                                <form method="POST" action="{{ url_for('site_unifi', site_id=s.id) }}" class="mb-1" onsubmit="return confirm('{{ _('Stop using UniFi at {site}?', site=s.name) }}')">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="remove">{{ _('Remove') }}</button>
+                                </form>
+                                {% else %}
+                                {% if unifi_hosted %}
+                                <form method="POST" action="{{ url_for('site_unifi', site_id=s.id) }}" class="border rounded bg-white p-2 mb-3" style="max-width: 720px">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <strong><i class="bi bi-stars"></i> {{ _("Recommended: use SafeNet's UniFi controller") }}</strong>
+                                    <p class="small text-muted mb-2">{{ _('Nothing else to buy or run. SafeNet makes the site, the guest Wi-Fi and the login page; you point the access points at SafeNet and add them by MAC address.') }}</p>
+                                    <div class="row g-2">
+                                        <div class="col-md-6"><label class="form-label small mb-1">{{ _('Wi-Fi name guests will see') }}</label>
+                                            <input name="wifi_name" class="form-control form-control-sm" maxlength="32" placeholder="{{ _('e.g. Zulu Free WiFi') }}"></div>
+                                        <div class="col-md-6 d-flex align-items-end"><button class="btn btn-primary btn-sm" type="submit" name="action" value="hosted"><i class="bi bi-cloud-check"></i> {{ _("Use SafeNet's controller") }}</button></div>
+                                    </div>
+                                </form>
+                                {% endif %}
+                                <details {{ 'open' if not unifi_hosted }}>
+                                <summary class="small mb-2">{{ _('Or use your own UniFi controller') if unifi_hosted else _('Your UniFi controller') }}</summary>
+                                <form method="POST" action="{{ url_for('site_unifi', site_id=s.id) }}" class="row g-2 mb-3" style="max-width: 720px" autocomplete="off">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <div class="col-md-6"><label class="form-label small mb-1">{{ _('Controller address (reachable from the internet)') }}</label>
+                                        <input name="unifi_url" class="form-control form-control-sm" value="{{ s.unifi_url or '' }}" placeholder="https://203.0.113.5:8443" required></div>
+                                    <div class="col-md-6"><label class="form-label small mb-1">{{ _('Site short name (from the address bar, often default)') }}</label>
+                                        <input name="unifi_site" class="form-control form-control-sm" value="{{ s.unifi_site or 'default' }}"></div>
+                                    <div class="col-md-6"><label class="form-label small mb-1">{{ _('Username (a local admin, not a UI.com account)') }}</label>
+                                        <input name="unifi_user" class="form-control form-control-sm" value="{{ s.unifi_user or '' }}" autocomplete="off" required></div>
+                                    <div class="col-md-6"><label class="form-label small mb-1">{{ _('Password') }}</label>
+                                        <input name="unifi_password" type="password" class="form-control form-control-sm" autocomplete="new-password" placeholder="{{ _('Saved: leave empty to keep') if s.unifi_password_enc else '' }}"></div>
+                                    <div class="col-12"><label class="form-check small mb-0"><input type="checkbox" name="unifi_verify_tls" value="1" class="form-check-input" {{ 'checked' if s.unifi_verify_tls }}> {{ _('Controller has a trusted certificate') }}</label></div>
+                                    <div class="col-12"><button class="btn btn-primary btn-sm" type="submit" name="action" value="own">{{ _('Connect') }}</button></div>
+                                </form>
                                 </details>
                                 {% endif %}
                             </div>

@@ -132,6 +132,7 @@ T = {
         'gift_again': 'Back to packages',
         'app_cta': 'Get the Wi-Fi app', 'app_cta_lead': 'See your time and data, buy more, buy for a friend.',
         'android_cta': 'Get the SafeNet app', 'android_lead': 'For Android: buy packages and see your time left, faster.',
+        'play_cta': 'Get the SafeNet app on Google Play', 'play_go': 'Opening Google Play so you can get the SafeNet app…',
     },
     'sw': {
         'wifi': 'Wi-Fi ya Wageni', 'switch': 'English', 'welcome': 'Karibu {name}',
@@ -176,6 +177,7 @@ T = {
         'gift_again': 'Rudi kwenye vifurushi',
         'app_cta': 'Pata app ya Wi-Fi', 'app_cta_lead': 'Ona muda na data yako, nunua zaidi, nunulia rafiki.',
         'android_cta': 'Pakua app ya SafeNet', 'android_lead': 'Kwa Android: nunua vifurushi na uone muda uliobaki, kwa haraka.',
+        'play_cta': 'Pakua app ya SafeNet kwenye Google Play', 'play_go': 'Tunafungua Google Play upate app ya SafeNet…',
     },
 }
 
@@ -625,7 +627,9 @@ def _android_card(lang, url):
 
 
 def status_page(th, lang, *, user, remaining, total=None, dst='', new_code=None, preview=False, base='', logout=True,
-                lang_url='/', app_url=None):
+                lang_url='/', app_url=None, play_url=None):
+    """play_url: after a purchase, Android phones are sent to the SafeNet app on Google Play (a few seconds after
+    the page shows, so the guest sees the code first)."""
     remaining = max(0, int(remaining))
     bar = ''
     if total and total > 0:
@@ -651,7 +655,7 @@ def status_page(th, lang, *, user, remaining, total=None, dst='', new_code=None,
       {bar}
       {bought}
       <div style="margin-top:18px">{go}</div>
-      {_app_card(lang, app_url)}
+      {_play_card(lang, play_url) if new_code and play_url and not preview else _app_card(lang, app_url)}
       {f'<form method="post" action="{e(base)}/logout"><button class="btn ghost" type="{"button" if preview else "submit"}">{icon("logout", 18)} {t(lang, "disconnect")}</button></form>' if logout else ''}
       <script>
       function copyCode(b){{var c=document.getElementById('vcode').textContent,s=b.querySelector('span');
@@ -660,6 +664,15 @@ def status_page(th, lang, *, user, remaining, total=None, dst='', new_code=None,
         var i=document.createElement('input');i.value=c;document.body.appendChild(i);i.select();try{{document.execCommand('copy');done();}}catch(x){{}}i.remove();}}
       </script>"""
     return page(th, lang, body, hero_extra=False, preview=preview, lang_url=lang_url)
+
+
+def _play_card(lang, url):
+    """After buying, on Android: the SafeNet app on Google Play, opened by itself after a few seconds."""
+    return (f'<a class="appcard" id="play-card" href="{e(url)}" hidden>'
+            f'<span class="ic">{icon("phone", 22)}</span><span><b>{t(lang, "play_cta")}</b>'
+            f'<small>{t(lang, "play_go")}</small></span>{icon("arrow", 18)}</a>'
+            f'<script>(function(){{if(!/Android/i.test(navigator.userAgent))return;var a=document.getElementById("play-card");'
+            f'a.hidden=false;setTimeout(function(){{location.href=a.href;}},4000);}})();</script>')
 
 
 def _app_card(lang, app_url):

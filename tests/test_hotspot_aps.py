@@ -120,8 +120,20 @@ with app.app_context():
     ref = wait.split('ref=')[1]; pm = Payment.query.filter_by(reference=ref).one()
     assert pm.site_id == SID and pm.client_mac == 'AA-BB-CC-00-00-07'
     pm.checked_at = None; db.session.commit()
-r = g.get(wait, base_url=B)
+ANDROID = {'User-Agent': 'Mozilla/5.0 (Linux; Android 14; SM-A155F) AppleWebKit/537.36 Chrome/130 Mobile Safari/537.36'}
+r = g.get(wait, base_url=B, headers=ANDROID)
 assert r.status_code == 302 and r.headers['Location'].startswith('http://192.168.80.1:8080/login?username='), r.headers.get('Location')
+# once online, the access point sends this Android phone on to the SafeNet app on Google Play
+assert parse_qs(urlparse(r.headers['Location']).query)['redirect'] == ['https://play.google.com/store/apps/details?id=com.safezonetz.safenet_app']
+# an iPhone keeps going where it was going
+g3, _ = arrive(dict(login_url='http://192.168.80.1:8080/login', client_mac='AA:BB:CC:00:00:09', orig_url='http://example.com/'))
+r = g3.post(f'/hs/{TOKEN}/buy', data={'package_id': PID, 'phone': '684000111', 'network': 'airtel', 'agree': '1'}, base_url=B,
+            environ_overrides=SITE_IP)
+w3 = r.headers['Location'].replace(B, '')
+with app.app_context():
+    Payment.query.filter_by(reference=w3.split('ref=')[1]).update({'checked_at': None}); db.session.commit()
+r = g3.get(w3, base_url=B, headers={'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148'})
+assert parse_qs(urlparse(r.headers['Location']).query)['redirect'] == ['http://example.com/'], r.headers.get('Location')
 
 # an unknown device: shown on Sites for support
 app.test_client().get(f'/hs/{TOKEN}?usermac=aa&ac-ip=1.2.3.4', base_url=B, environ_overrides=SITE_IP)

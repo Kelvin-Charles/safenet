@@ -123,6 +123,19 @@ class Site(db.Model):
     hotspot_ip = db.Column(db.String(45))               # the site's public IP, learned from guests (RADIUS comes from it)
     hotspot_problem = db.Column(db.String(200))         # why that IP could not be used, shown on Sites
     hotspot_unknown = db.Column(db.String(500))         # last redirect SafeNet did not recognise (for support)
+    # UniFi: the controller's guest portal sends guests to /guest/s/<unifi_site>/ on SafeNet, which lets them
+    # online through the controller (authorize-guest). SafeNet's hosted controller, or the business's own.
+    unifi_hosted = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    unifi_url = db.Column(db.String(255))               # the business's own controller, e.g. https://203.0.113.5:8443
+    unifi_user = db.Column(db.String(64))
+    unifi_password_enc = db.Column(db.Text)             # secretbox
+    unifi_verify_tls = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    unifi_site = db.Column(db.String(64), index=True)   # the controller's short site name ("default", "x7k2m9qa")
+    unifi_ssid = db.Column(db.String(32))               # guest Wi-Fi SafeNet made on the hosted controller
+    unifi_aps = db.Column(db.String(1000))              # access point MACs seen at this site (tells sites apart)
+    unifi_checked_at = db.Column(db.DateTime)
+    unifi_synced_at = db.Column(db.DateTime)
+    unifi_error = db.Column(db.String(255))
     omada_checked_at = db.Column(db.DateTime)          # last successful connection
     omada_synced_at = db.Column(db.DateTime)           # guests' data usage last read from SafeNet's controller
     omada_scanned_at = db.Column(db.DateTime)          # access points last asked to look for guests' own hotspots
@@ -155,6 +168,10 @@ class Site(db.Model):
     @property
     def join_ssid(self):
         return self.wifi_ssid or self.omada_ssid or ''
+
+    @property
+    def unifi_ready(self):
+        return bool(self.portal_token and self.unifi_site and (self.unifi_hosted or (self.unifi_url and self.unifi_user and self.unifi_password_enc)))
 
     @property
     def omada_ready(self):

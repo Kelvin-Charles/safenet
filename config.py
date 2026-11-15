@@ -84,6 +84,15 @@ class Config:
     # Open API app on SafeNet's controller: lets tenants add access points from SafeNet alone
     OMADA_OPENAPI_CLIENT_ID = os.getenv('OMADA_OPENAPI_CLIENT_ID', '')
     OMADA_OPENAPI_CLIENT_SECRET = os.getenv('OMADA_OPENAPI_CLIENT_SECRET', '')
+    # UniFi Network controller hosted by SafeNet (deploy/unifi-controller); access points are told to inform at
+    # UNIFI_INFORM_URL, and the controller's guest portal sends guests to UNIFI_PORTAL_HOST/guest/s/<site>/
+    UNIFI_HOSTED_URL = os.getenv('UNIFI_HOSTED_URL', '').rstrip('/')          # e.g. https://127.0.0.1:8445
+    UNIFI_HOSTED_USER = os.getenv('UNIFI_HOSTED_USER', '')
+    UNIFI_HOSTED_PASSWORD = os.getenv('UNIFI_HOSTED_PASSWORD', '')
+    UNIFI_INFORM_URL = os.getenv('UNIFI_INFORM_URL', '') or f'http://{WG_ENDPOINT}:8089/inform'
+    UNIFI_PORTAL_HOST = os.getenv('UNIFI_PORTAL_HOST', '') or WG_ENDPOINT
+    # The SafeNet app on Google Play: Android guests are sent there once they are online after buying
+    PLAY_STORE_URL = os.getenv('PLAY_STORE_URL', 'https://play.google.com/store/apps/details?id=com.safezonetz.safenet_app')
     # WiFiDog access points call SafeNet over plain HTTP (many can't follow the HTTPS redirect of
     # the public site), so they use the app port directly; guests' browsers move to HTTPS.
     WIFIDOG_BASE = os.getenv('WIFIDOG_BASE', f'http://{WG_ENDPOINT}:5001').rstrip('/')

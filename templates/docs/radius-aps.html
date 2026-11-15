@@ -23,7 +23,7 @@
         <tr><td><strong>CoovaChilli</strong> (OpenWrt and other Linux routers)</td><td>✅ Supported.</td></tr>
         <tr><td><strong>MikroTik</strong>, <strong>Meraki</strong></td><td>✅ Supported, now with buying on the login page.</td></tr>
         <tr><td><strong>Huawei</strong>, <strong>Aruba</strong>, others</td><td>🧪 Not tested yet. Follow the steps; if SafeNet doesn't recognise the device, the Sites page shows what it sent. Send that to support.</td></tr>
-        <tr><td><strong>UniFi</strong></td><td>Coming: UniFi lets guests online through its controller, which needs its own setup.</td></tr>
+        <tr><td><strong>UniFi</strong></td><td>✅ Through the UniFi controller: see the <a href="{{ url_for('docs', slug='unifi') }}">UniFi guide</a>.</td></tr>
     </tbody>
 </table></div>
 <div class="note warn"><i class="bi bi-exclamation-triangle"></i><p><strong>Your own internet address.</strong> The access point's RADIUS requests reach SafeNet from the site's internet address. SafeNet learns it by itself when the first guest opens the login page, so a changing address is fine. But some 4G/5G lines share one address between many customers. If SafeNet finds the address is shared with another SafeNet business, the Sites page tells you; then ask the provider for your own (public) IP, or use a <a href="{{ url_for('docs', slug='gateway') }}">SafeNet gateway</a> or <a href="{{ url_for('docs', slug='mikrotik') }}">MikroTik</a>.</p></div>
