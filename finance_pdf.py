@@ -393,7 +393,9 @@ def build(rep, tr, logo=None, color='#051D60'):
     rows = [[tr('Date'), tr('What'), tr('Category')] + ([tr('Site')] if all_sites else []) + [tr('Amount ({currency})', currency=cur)]]
     for e in rep['items']:
         what = escape(e.description) + (f'<br/><font size="7" color="#6B7280">{escape(tr("to {name}", name=e.paid_to))}</font>' if e.paid_to else '')
-        rows.append([e.spent_on.strftime('%d %b %Y'), Paragraph(what, S['cell']), rep['categories'].get(e.category, e.category)]
+        kind = rep.get('kind_of', {}).get(e.id)
+        cat = escape(rep['categories'].get(e.category, e.category)) + (f'<br/><font size="7" color="#6B7280">{escape(kind)}</font>' if kind else '')
+        rows.append([e.spent_on.strftime('%d %b %Y'), Paragraph(what, S['cell']), Paragraph(cat, S['cell'])]
                     + ([e.site.name if e.site else tr('Whole business')] if all_sites else []) + [_money(e.amount)])
     if rep['items']:
         rows.append([tr('Total'), '', ''] + ([''] if all_sites else []) + [_money(sum((Decimal(str(e.amount)) for e in rep['items']), Decimal(0)))])

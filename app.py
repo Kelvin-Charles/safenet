@@ -19,6 +19,7 @@ from i18n import tr
 from models import format_minutes
 import radclient
 import threading
+import calendar
 import math
 import os
 import secretbox
@@ -8335,11 +8336,93 @@ def platform_switch_back():
 # Expenses: what a business spent on its sites, against what they earned (money in, money out, paid back)
 # ---------------------------------------------------------------------------
 def _expense_categories():
+    """Every category (key, name): the general ones, then the maintenance ones."""
+    return _expense_general() + _expense_maintenance()
+
+
+def _expense_general():
     return [('equipment', tr('Equipment (routers, access points)')), ('installation', tr('Installation and labour')),
             ('materials', tr('Cables and materials')), ('printing', tr('Posters and printing')),
             ('internet', tr('Internet bill')), ('power', tr('Electricity')), ('rent', tr('Rent and site fees')),
-            ('transport', tr('Transport')), ('repairs', tr('Repairs')), ('salaries', tr('Salaries and commissions')),
+            ('transport', tr('Transport')), ('salaries', tr('Salaries and commissions')),
             ('marketing', tr('Advertising')), ('other', tr('Other'))]
+
+
+def _expense_maintenance():
+    return [('fix_internet', tr('Internet problem (line, provider, modem)')), ('fix_ap', tr('Access point or router problem')),
+            ('fix_power', tr('Power problem (UPS, battery, wiring)')), ('parts', tr('Materials and spare parts')),
+            ('technician', tr('Technician charges')), ('repairs', tr('Other repair'))]
+
+
+def _expense_kinds():
+    return [('one_time', tr('One time')), ('recurring', tr('Recurring')), ('maintenance', tr('Maintenance'))]
+
+
+def _expense_repeats():
+    return [('month', tr('Every month')), ('year', tr('Every year'))]
+
+
+EXPENSE_KIND_ICONS = {'one_time': 'bi-bag', 'recurring': 'bi-arrow-repeat', 'maintenance': 'bi-tools'}
+
+
+def _expense_kind_name(e):
+    names = dict(_expense_kinds())
+    if e.kind == 'recurring' and e.repeat_every and not e.repeat_of_id:
+        return f"{names['recurring']} ({dict(_expense_repeats()).get(e.repeat_every, '').lower()})"
+    return names.get(e.kind, names['one_time'])
+
+
+def _add_months(day, months):
+    """The same day `months` later (the 31st becomes the month's last day)."""
+    y, m = divmod(day.month - 1 + months, 12)
+    y, m = day.year + y, m + 1
+    return day.replace(year=y, month=m, day=min(day.day, calendar.monthrange(y, m)[1]))
+
+
+def _next_repeat(e, after):
+    """The first payment day of recurring expense e that is later than `after`."""
+    step = 12 if e.repeat_every == 'year' else 1
+    for n in range(1, 1201):
+        day = _add_months(e.spent_on, n * step)
+        if day > after:
+            return day
+    return None
+
+
+def _set_repeat_next(e):
+    """After the repeating expense is saved: carry on after the last payment already added (or the first one)."""
+    if e.kind != 'recurring' or not e.repeat_every or e.repeat_of_id:
+        e.repeat_next = None
+        return
+    last = db.session.query(func.max(Expense.spent_on)).filter(Expense.repeat_of_id == e.id).scalar() if e.id else None
+    e.repeat_next = _next_repeat(e, max(e.spent_on, last) if last else e.spent_on)
+
+
+def _add_expense_repeats(tid):
+    """Add the payments of recurring expenses that have come due. Each payment is added once: deleting one doesn't
+    bring it back (repeat_next moves on), and two workers can't add the same one (unique repeat_of_id + date)."""
+    done = g.setdefault('expense_repeats', set()) if has_request_context() else set()
+    if tid in done:
+        return
+    done.add(tid)
+    today = (datetime.utcnow() + _local_offset()).date()
+    rules = Expense.query.filter(Expense.tenant_id == tid, Expense.kind == 'recurring', Expense.repeat_of_id.is_(None),
+                                 Expense.repeat_every.in_(('month', 'year')), Expense.repeat_next <= today).all()
+    for e in rules:
+        for _ in range(120):                        # at most 10 years of months at once
+            day = e.repeat_next
+            if not day or day > today or (e.repeat_ends and day > e.repeat_ends):
+                break
+            try:
+                with db.session.begin_nested():
+                    db.session.add(Expense(tenant_id=e.tenant_id, site_id=e.site_id, spent_on=day, category=e.category,
+                                           description=e.description, paid_to=e.paid_to, amount=e.amount, kind='recurring',
+                                           repeat_of_id=e.id, created_by_id=e.created_by_id))
+            except IntegrityError:                  # another worker added it first
+                pass
+            e.repeat_next = _next_repeat(e, day)
+    if rules:
+        db.session.commit()
 
 
 def _can_see_expenses():
@@ -8353,6 +8436,7 @@ def _money_by_month(tid, site):
     """{'YYYY-MM': {sales, fees, sms, plan, spent}} for one site (None = the whole business), in local months.
     sales: what customers paid (mobile money + cash vouchers first used); fees, sms, plan: what SafeNet charged;
     spent: expenses recorded by hand (a site's own; the whole business: every expense)."""
+    _add_expense_repeats(tid)
     offset = _local_offset()
     months = {}
     row = lambda when: months.setdefault((when + offset).strftime('%Y-%m'), dict.fromkeys(_MONEY_KEYS, Decimal(0)))
@@ -8448,7 +8532,15 @@ def _expense_report(tid, site, period):
     names = dict(_expense_categories())
     by_cat = sorted(((names.get(k, k), v) for k, v in cats.items()), key=lambda x: -x[1])
     return {'rows': rows, 'shown': list(reversed(shown)), 'totals': period_totals, 'payback': payback,
-            'items': items, 'by_cat': by_cat, 'start': start, 'end': end}
+            'items': items, 'by_cat': by_cat, 'by_kind': _expense_by_kind(items), 'start': start, 'end': end}
+
+
+def _expense_by_kind(items):
+    """[(key, name, total)] for one-time, recurring and maintenance, in that order (kinds with nothing left out)."""
+    sums = {}
+    for e in items:
+        sums[e.kind or 'one_time'] = sums.get(e.kind or 'one_time', Decimal(0)) + Decimal(str(e.amount))
+    return [(k, n, sums[k]) for k, n in _expense_kinds() if k in sums]
 
 
 @app.route('/expenses')
@@ -8468,6 +8560,8 @@ def expenses():
                              .filter(Expense.tenant_id == tid, Expense.site_id.is_(None)).scalar()))
     return render_template('expenses/list.html', r=report, site=site, period=period, shared=shared,
                            categories=dict(_expense_categories()), can_edit=current_user.has_role('admin'),
+                           kind_name=_expense_kind_name, kind_icons=EXPENSE_KIND_ICONS,
+                           kind_badges={'one_time': 'text-bg-light', 'recurring': 'text-bg-info', 'maintenance': 'text-bg-warning'},
                            many_sites=len(tenant_sites()) > 1)
 
 
@@ -8477,14 +8571,15 @@ def expenses_csv():
     if not _can_see_expenses():
         abort(403)
     site = current_site()
+    _add_expense_repeats(tenant_id())
     q = scoped(Expense)
     q = q.filter(Expense.site_id == site.id) if site else q
     names = dict(_expense_categories())
     out = io.StringIO()
     w = csv.writer(out)
-    w.writerow([tr('Date'), tr('Site'), tr('Category'), tr('What'), tr('Paid to'), tr('Amount')])
+    w.writerow([tr('Date'), tr('Site'), tr('Type'), tr('Category'), tr('What'), tr('Paid to'), tr('Amount')])
     for e in q.order_by(Expense.spent_on, Expense.id):
-        w.writerow([e.spent_on.isoformat(), e.site.name if e.site else tr('Whole business'), names.get(e.category, e.category),
+        w.writerow([e.spent_on.isoformat(), e.site.name if e.site else tr('Whole business'), _expense_kind_name(e), names.get(e.category, e.category),
                     e.description, e.paid_to or '', f'{e.amount:.0f}'])
     name = re.sub(r'[^\w-]+', '-', (site.name if site else current_tenant().name)).strip('-').lower() or 'business'
     return Response(out.getvalue(), mimetype='text/csv',
@@ -8513,13 +8608,38 @@ def _expense_from_form(e, f):
     if day > (datetime.utcnow() + _local_offset()).date() + timedelta(days=1):
         return tr('The date cannot be in the future.')
     e.amount, e.spent_on, e.description, e.site_id = amount.quantize(Decimal('0.01')), day, description, site_id
-    e.category = category if category in dict(_expense_categories()) else 'other'
+    before = (e.kind, e.repeat_every, e.spent_on)
+    kind = f.get('kind') or ('maintenance' if category in dict(_expense_maintenance()) else e.kind) or 'one_time'
+    kind = kind if kind in dict(_expense_kinds()) else 'one_time'
+    group = dict(_expense_maintenance() if kind == 'maintenance' else _expense_general())
+    if category not in group:
+        category = 'repairs' if kind == 'maintenance' else 'other'
+    repeat_ends = None
+    if kind == 'recurring' and not e.repeat_of_id and f.get('repeat_ends'):
+        try:
+            repeat_ends = datetime.strptime(f.get('repeat_ends'), '%Y-%m-%d').date()
+        except ValueError:
+            return tr('Enter the date of the last payment, or leave it empty.')
+        if repeat_ends < day:
+            return tr('The last payment cannot be before the first one.')
+    e.kind, e.category = kind, category
+    if kind == 'recurring' and not e.repeat_of_id and 'repeat_every' not in f:
+        pass                                             # an older app: keeps how it repeats
+    elif kind == 'recurring' and not e.repeat_of_id:     # the expense that repeats (the ones SafeNet added don't)
+        repeat = f.get('repeat_every')
+        e.repeat_every = repeat if repeat in dict(_expense_repeats()) else None
+        e.repeat_ends = repeat_ends if e.repeat_every else None
+    else:
+        e.repeat_every, e.repeat_ends = None, None
+    if (e.kind, e.repeat_every, e.spent_on) != before or (e.repeat_every and not e.repeat_next):
+        _set_repeat_next(e)
     e.paid_to = (f.get('paid_to') or '').strip()[:100] or None
     return None
 
 
 def _expense_page(e, title):
-    return render_template('expenses/form.html', e=e, title=title, sites=tenant_sites(), categories=_expense_categories(),
+    return render_template('expenses/form.html', e=e, title=title, sites=tenant_sites(), general=_expense_general(),
+                           maintenance=_expense_maintenance(), kinds=_expense_kinds(), repeats=_expense_repeats(),
                            currency=current_tenant().currency)
 
 
@@ -8529,7 +8649,9 @@ def _expense_page(e, title):
 def add_expense():
     site = current_site()
     e = Expense(tenant_id=tenant_id(), site_id=site.id if site else (tenant_sites()[0].id if len(tenant_sites()) == 1 else None),
-                spent_on=(datetime.utcnow() + _local_offset()).date(), category=request.args.get('category') or 'equipment')
+                spent_on=(datetime.utcnow() + _local_offset()).date(), category=request.args.get('category') or 'equipment',
+                kind=request.args.get('kind') if request.args.get('kind') in dict(_expense_kinds()) else 'one_time',
+                repeat_every='month' if request.args.get('kind') == 'recurring' else None)
     if request.method == 'POST':
         _check_csrf()
         problem = _expense_from_form(e, request.form)
@@ -8541,7 +8663,7 @@ def add_expense():
             db.session.commit()
             flash(tr('Expense saved: {amount}.', amount=f'{current_tenant().currency} {e.amount:,.0f}'), 'success')
             if request.form.get('again'):
-                return redirect(url_for('add_expense', category=e.category))
+                return redirect(url_for('add_expense', kind=e.kind, category=e.category))
             return redirect(url_for('expenses'))
     return _expense_page(e, tr('Add an expense'))
 
@@ -8571,10 +8693,16 @@ def edit_expense(expense_id):
 def delete_expense(expense_id):
     _check_csrf()
     e = owned_or_404(Expense, expense_id)
-    db.session.delete(e)
+    _delete_expense(e)
     db.session.commit()
     flash(tr('Expense deleted.'), 'success')
     return redirect(url_for('expenses'))
+
+
+def _delete_expense(e):
+    """Delete an expense. The payments a recurring expense already added stay (they were paid); no more are added."""
+    Expense.query.filter(Expense.repeat_of_id == e.id).update({'repeat_of_id': None}, synchronize_session=False)
+    db.session.delete(e)
 
 
 # ---------------------------------------------------------------------------
@@ -8699,6 +8827,7 @@ def _finance_report(tid, site, period, first=None, last=None):
             'site_name': site.name if site else (tr('All sites') if len(tenant_sites(tid)) > 1 else None),
             'all_sites': site is None and len(tenant_sites(tid)) > 1,
             'business': tenant.name, 'currency': tenant.currency, 'categories': names,
+            'by_kind': _expense_by_kind(items), 'kind_of': {e.id: _expense_kind_name(e) for e in items},
             'generated': (datetime.utcnow() + _local_offset()).strftime('%d %b %Y, %H:%M'),
             'by': current_user.username if current_user.is_authenticated else ''}
 

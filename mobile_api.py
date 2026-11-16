@@ -1494,7 +1494,9 @@ def _need_expenses():
 def _expense_json(e):
     return {'id': e.id, 'amount': _money(e.amount), 'date': e.spent_on.isoformat(), 'category': e.category,
             'category_name': dict(A._expense_categories()).get(e.category, e.category), 'description': e.description,
-            'paid_to': e.paid_to, 'site_id': e.site_id, 'site': e.site.name if e.site else None}
+            'paid_to': e.paid_to, 'site_id': e.site_id, 'site': e.site.name if e.site else None,
+            'kind': e.kind or 'one_time', 'kind_name': A._expense_kind_name(e), 'repeat_every': e.repeat_every,
+            'repeat_ends': e.repeat_ends.isoformat() if e.repeat_ends else None, 'added_by_safenet': bool(e.repeat_of_id)}
 
 
 def _money_rows(rows, keys):
@@ -1525,7 +1527,11 @@ def expenses():
         months=_money_rows(r['shown'], ('sales', 'out', 'net', 'running')),
         by_category=[{'name': n, 'amount': _money(a)} for n, a in r['by_cat']],
         items=[_expense_json(e) for e in r['items']],
-        categories=[{'id': k, 'name': v} for k, v in A._expense_categories()],
+        categories=[{'id': k, 'name': v, 'kind': 'general'} for k, v in A._expense_general()]
+        + [{'id': k, 'name': v, 'kind': 'maintenance'} for k, v in A._expense_maintenance()],
+        kinds=[{'id': k, 'name': v} for k, v in A._expense_kinds()],
+        repeats=[{'id': k, 'name': v} for k, v in A._expense_repeats()],
+        by_kind=[{'kind': k, 'name': n, 'amount': _money(a)} for k, n, a in r['by_kind']],
         sites=[{'id': s.id, 'name': s.name} for s in A.tenant_sites()], site=site.name if site else None, shared=shared)
 
 
@@ -1536,7 +1542,8 @@ def expense_save(eid=None):
     e = A.owned_or_404(A.Expense, eid) if eid else A.Expense(tenant_id=A.tenant_id())
     d = request.get_json(silent=True) or {}
     problem = A._expense_from_form(e, _f({'amount': d.get('amount'), 'spent_on': d.get('date'), 'description': d.get('description'),
-                                         'category': d.get('category'), 'site_id': d.get('site_id'), 'paid_to': d.get('paid_to')}))
+                                         'category': d.get('category'), 'site_id': d.get('site_id'), 'paid_to': d.get('paid_to'),
+                                         **{k: d[k] for k in ('kind', 'repeat_every', 'repeat_ends') if k in d}}))   # older apps send none
     if problem:
         db.session.rollback()
         return _err(problem, 400)
@@ -1550,7 +1557,7 @@ def expense_save(eid=None):
 @bp.route('/api/m/expenses/<int:eid>', methods=['DELETE'])
 def expense_delete(eid):
     _need_login('admin')
-    db.session.delete(A.owned_or_404(A.Expense, eid))
+    A._delete_expense(A.owned_or_404(A.Expense, eid))
     db.session.commit()
     return jsonify(ok=True)
 

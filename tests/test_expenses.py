@@ -109,6 +109,54 @@ p = login('partner'); page = p.get('/expenses').text
 assert '50 posters' not in page and 'Shop' in page
 assert p.get('/expenses.csv').text.count('\n') == 1
 st = login('staff'); assert st.get('/expenses').status_code == 302 and st.get('/expenses.csv').status_code == 403
+# kinds: one time, recurring (SafeNet adds each month's payment), maintenance
+f = c.get('/expenses/add').text
+assert 'Type of expense' in f and 'Technician charges' in f and 'Every month' in f
+start = date.today().replace(day=1) - timedelta(days=1)
+start = start.replace(day=min(start.day, 28))
+y, m = (start.year, start.month - 2) if start.month > 2 else (start.year - 1, start.month + 10)
+start = start.replace(year=y, month=m)                                   # about three months ago
+r = c.post('/expenses/add', data={'csrf_token': tok(f), 'amount': '50000', 'spent_on': start.isoformat(), 'description': 'Fibre bill',
+                                  'kind': 'recurring', 'repeat_every': 'month', 'category': 'internet', 'site_id': S1})
+assert r.status_code == 302
+r = c.post('/expenses/add', data={'csrf_token': tok(f), 'amount': '15000', 'spent_on': date.today().isoformat(), 'description': 'Fix AP',
+                                  'kind': 'maintenance', 'category': 'fix_ap', 'site_id': S1})
+assert r.status_code == 302
+r = c.post('/expenses/add', data={'csrf_token': tok(f), 'amount': '9000', 'spent_on': date.today().isoformat(), 'description': 'Wrong cat',
+                                  'kind': 'maintenance', 'category': 'equipment', 'site_id': S1})   # a general category: becomes Other repair
+r = c.post('/expenses/add', data={'csrf_token': tok(f), 'amount': '1', 'spent_on': start.isoformat(), 'description': 'Bad end',
+                                  'kind': 'recurring', 'repeat_every': 'month', 'repeat_ends': (start - timedelta(days=3)).isoformat(),
+                                  'category': 'rent', 'site_id': S1})
+assert r.status_code == 200 and 'cannot be before' in r.text
+with app.app_context():
+    assert Expense.query.filter_by(description='Fix AP').one().kind == 'maintenance'
+    w = Expense.query.filter_by(description='Wrong cat').one(); assert (w.kind, w.category) == ('maintenance', 'repairs')
+    rule = Expense.query.filter_by(description='Fibre bill', repeat_of_id=None).one()
+    assert rule.repeat_every == 'month' and rule.repeat_next and rule.repeat_next > start
+    RULE = rule.id
+page = c.get('/expenses').text                                           # adds the payments that came due
+assert 'Maintenance' in page and 'Recurring (every month)' in page
+with app.app_context():
+    copies = Expense.query.filter_by(repeat_of_id=RULE).order_by(Expense.spent_on).all()
+    assert len(copies) >= 2 and all(x.amount == Decimal(50000) and x.kind == "recurring" and x.spent_on.day == start.day for x in copies), [x.spent_on for x in copies]
+    n, last = len(copies), copies[-1].id
+c.get('/expenses'); c.get('/expenses.csv')
+with app.app_context(): assert Expense.query.filter_by(repeat_of_id=RULE).count() == n   # added once only
+# deleting an added payment doesn't bring it back
+assert c.post(f'/expenses/{last}/delete', data={'csrf_token': tok(f)}).status_code == 302
+c.get('/expenses')
+with app.app_context(): assert Expense.query.filter_by(repeat_of_id=RULE).count() == n - 1
+f2 = c.get(f'/expenses/{last - 1}/edit').text
+assert 'SafeNet added this payment' in f2
+# switching the rule to one time stops it; deleting it keeps the payments already made
+f2 = c.get(f'/expenses/{RULE}/edit').text
+r = c.post(f'/expenses/{RULE}/edit', data={'csrf_token': tok(f2), 'amount': '50000', 'spent_on': start.isoformat(), 'description': 'Fibre bill',
+                                           'kind': 'one_time', 'category': 'internet', 'site_id': S1}); assert r.status_code == 302
+with app.app_context():
+    rule = db.session.get(Expense, RULE); assert rule.repeat_every is None and rule.repeat_next is None
+assert c.post(f'/expenses/{RULE}/delete', data={'csrf_token': tok(f2)}).status_code == 302
+with app.app_context(): assert Expense.query.filter_by(description='Fibre bill').count() == n - 1
+assert 'Type' in c.get('/expenses.csv').text.splitlines()[0]
 # Kiswahili
 c.post('/language', data={'csrf_token': tok(c.get('/dashboard').text), 'lang': 'sw'})
 assert c.get('/expenses').status_code == 200 and c.get('/expenses/add').status_code == 200

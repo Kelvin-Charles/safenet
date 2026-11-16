@@ -138,7 +138,7 @@
             {% if rep['items'] %}
             <div class="table-responsive"><table class="table table-sm mb-0 small">
                 <thead><tr><th>{{ _('Date') }}</th><th>{{ _('What') }}</th>{% if rep.all_sites %}<th>{{ _('Site') }}</th>{% endif %}<th class="text-end">{{ _('Amount ({currency})', currency=cur) }}</th></tr></thead>
-                {% for e in rep['items'] %}<tr><td class="text-nowrap">{{ e.spent_on.strftime('%Y-%m-%d') }}</td><td>{{ e.description }}<span class="d-block text-muted">{{ rep.categories.get(e.category, e.category) }}{% if e.paid_to %} · {{ _('to {name}', name=e.paid_to) }}{% endif %}</span></td>
+                {% for e in rep['items'] %}<tr><td class="text-nowrap">{{ e.spent_on.strftime('%Y-%m-%d') }}</td><td>{{ e.description }}<span class="d-block text-muted">{{ rep.kind_of.get(e.id, '') }} · {{ rep.categories.get(e.category, e.category) }}{% if e.paid_to %} · {{ _('to {name}', name=e.paid_to) }}{% endif %}</span></td>
                     {% if rep.all_sites %}<td>{{ e.site.name if e.site else _('Whole business') }}</td>{% endif %}<td class="text-end text-nowrap">{{ money.format(e.amount) }}</td></tr>{% endfor %}
             </table></div>
             {% else %}<p class="text-muted mb-0">{{ _('No expenses in this period.') }}{% if current_user.has_role('admin') %} <a href="{{ url_for('add_expense') }}">{{ _('Add an expense') }}</a>{% endif %}</p>{% endif %}

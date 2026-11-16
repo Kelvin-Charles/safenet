@@ -64,6 +64,13 @@
         <div class="card">
             <div class="card-header"><i class="bi bi-pie-chart"></i> {{ _('Where the money went') }}</div>
             <div class="card-body">
+                {% if r.by_kind %}
+                <div class="row g-2 mb-3 text-center">
+                    {% for key, name, amount in r.by_kind %}
+                    <div class="col"><div class="border rounded p-2 h-100"><div class="small text-muted"><i class="bi {{ kind_icons[key] }}"></i> {{ name }}</div><strong>{{ cur }} {{ money.format(amount) }}</strong></div></div>
+                    {% endfor %}
+                </div>
+                {% endif %}
                 {% set biggest = (r.by_cat[0][1] if r.by_cat else 0) or 1 %}
                 {% for name, amount in r.by_cat %}
                 <div class="mb-2">
@@ -119,7 +126,7 @@
                             {% for e in r['items'] %}
                             <tr>
                                 <td class="text-nowrap"><small>{{ e.spent_on.strftime('%Y-%m-%d') }}</small></td>
-                                <td>{{ e.description }}<small class="d-block text-muted">{{ categories.get(e.category, e.category) }}{% if e.paid_to %} · {{ _('to {name}', name=e.paid_to) }}{% endif %}</small></td>
+                                <td>{{ e.description }}<small class="d-block text-muted"><span class="badge {{ kind_badges[e.kind or 'one_time'] }}"><i class="bi {{ kind_icons[e.kind or 'one_time'] }}"></i> {{ kind_name(e) }}</span> {{ categories.get(e.category, e.category) }}{% if e.paid_to %} · {{ _('to {name}', name=e.paid_to) }}{% endif %}</small></td>
                                 {% if many_sites and not site %}<td><small>{{ e.site.name if e.site else _('Whole business') }}</small></td>{% endif %}
                                 <td class="text-end text-nowrap">{{ cur }} {{ money.format(e.amount) }}</td>
                                 {% if can_edit %}

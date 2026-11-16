@@ -283,8 +283,23 @@ def run():
     _add_column('tenants', 'guest_trial_every', "VARCHAR(8) NOT NULL DEFAULT 'once'")
     _add_column('payments', 'customer_fee', 'DECIMAL(10,2) DEFAULT 0')
     _add_index('sites', 'uq_sites_portal_token', 'portal_token', unique=True)
+    if _add_column('expenses', 'kind', "VARCHAR(12) NOT NULL DEFAULT 'one_time'"):
+        _expense_kinds()
+    _add_column('expenses', 'repeat_every', 'VARCHAR(8)')
+    _add_column('expenses', 'repeat_ends', 'DATE')
+    _add_column('expenses', 'repeat_next', 'DATE')
+    _add_column('expenses', 'repeat_of_id', 'INTEGER')
+    _add_index('expenses', 'uq_expenses_repeat', 'repeat_of_id, spent_on', unique=True)
     _ensure_sites()
     _scrub_provider_messages()
+
+
+
+def _expense_kinds():
+    """Once, when kinds arrive: bills paid again and again become recurring, repairs become maintenance."""
+    db.session.execute(text("UPDATE expenses SET kind = 'recurring' WHERE category IN ('internet', 'power', 'rent', 'salaries')"))
+    db.session.execute(text("UPDATE expenses SET kind = 'maintenance' WHERE category = 'repairs'"))
+    db.session.commit()
 
 
 STARTER_PLANS = (

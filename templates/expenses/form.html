@@ -11,6 +11,17 @@
             <div class="card-body">
                 <form method="POST" novalidate>
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3"><label class="form-label d-block">{{ _('Type of expense') }}</label>
+                        <div class="btn-group flex-wrap w-100" role="group">
+                            {% for key, label in kinds %}
+                            <input type="radio" class="btn-check" name="kind" id="kind-{{ key }}" value="{{ key }}" {{ 'checked' if (e.kind or 'one_time') == key }}>
+                            <label class="btn btn-outline-primary" for="kind-{{ key }}"><i class="bi {{ {'one_time': 'bi-bag', 'recurring': 'bi-arrow-repeat', 'maintenance': 'bi-tools'}[key] }}"></i> {{ label }}</label>
+                            {% endfor %}
+                        </div>
+                        <div class="form-text" data-kind-help="one_time">{{ _('Paid once: equipment, installation, posters.') }}</div>
+                        <div class="form-text" data-kind-help="recurring">{{ _('Paid again and again: internet bill, rent, electricity, salaries.') }}</div>
+                        <div class="form-text" data-kind-help="maintenance">{{ _('Fixing problems: internet or access point issues, spare parts, technician charges.') }}</div>
+                    </div>
                     <div class="row">
                         <div class="col-md-6 mb-3"><label class="form-label">{{ _('Amount paid') }}</label>
                             <div class="input-group"><span class="input-group-text">{{ currency }}</span>
@@ -22,8 +33,13 @@
                         <input name="description" class="form-control" maxlength="200" value="{{ e.description or '' }}" placeholder="{{ _('e.g. 2 access points, 50 posters, installation') }}" required></div>
                     <div class="row">
                         <div class="col-md-6 mb-3"><label class="form-label">{{ _('Category') }}</label>
-                            <select name="category" class="form-select">
-                                {% for key, label in categories %}<option value="{{ key }}" {{ 'selected' if e.category == key }}>{{ label }}</option>{% endfor %}
+                            <select name="category" class="form-select" id="category">
+                                <optgroup label="{{ _('Expense') }}" data-group="general">
+                                {% for key, label in general %}<option value="{{ key }}" {{ 'selected' if e.category == key }}>{{ label }}</option>{% endfor %}
+                                </optgroup>
+                                <optgroup label="{{ _('Maintenance') }}" data-group="maintenance">
+                                {% for key, label in maintenance %}<option value="{{ key }}" {{ 'selected' if e.category == key }}>{{ label }}</option>{% endfor %}
+                                </optgroup>
                             </select></div>
                         <div class="col-md-6 mb-3"><label class="form-label">{{ _('Site') }}</label>
                             <select name="site_id" class="form-select">
@@ -31,6 +47,22 @@
                                 <option value="0" {{ 'selected' if not e.site_id }}>{{ _('Whole business (shared by all sites)') }}</option>
                             </select></div>
                     </div>
+                    {% if e.repeat_of_id %}
+                    <div class="alert alert-light border small" data-kind-show="recurring"><i class="bi bi-arrow-repeat"></i> {{ _('SafeNet added this payment from a recurring expense. Change that one to change the payments still to come.') }}
+                        {% if e.repeat_of %}<a href="{{ url_for('edit_expense', expense_id=e.repeat_of_id) }}">{{ e.repeat_of.description }}</a>{% endif %}</div>
+                    {% else %}
+                    <div class="row" data-kind-show="recurring">
+                        <div class="col-md-6 mb-3"><label class="form-label">{{ _('Repeats') }}</label>
+                            <select name="repeat_every" class="form-select">
+                                {% for key, label in repeats %}<option value="{{ key }}" {{ 'selected' if (e.repeat_every or 'month') == key }}>{{ label }}</option>{% endfor %}
+                                <option value="" {{ 'selected' if e.id and e.kind == 'recurring' and not e.repeat_every }}>{{ _("Don't add it for me") }}</option>
+                            </select>
+                            <div class="form-text">{{ _('SafeNet adds the next payment on the same day each time, with the same amount.') }}</div></div>
+                        <div class="col-md-6 mb-3"><label class="form-label">{{ _('Last payment') }} <span class="text-muted">({{ _('optional') }})</span></label>
+                            <input type="date" name="repeat_ends" class="form-control" value="{{ e.repeat_ends.strftime('%Y-%m-%d') if e.repeat_ends else '' }}">
+                            <div class="form-text">{{ _('Leave empty to keep repeating until you change it.') }}</div></div>
+                    </div>
+                    {% endif %}
                     <div class="mb-3"><label class="form-label">{{ _('Paid to') }} <span class="text-muted">({{ _('optional') }})</span></label>
                         <input name="paid_to" class="form-control" maxlength="100" value="{{ e.paid_to or '' }}" placeholder="{{ _('Shop, technician or printer') }}"></div>
                     <div class="d-flex flex-wrap gap-2 justify-content-between">
@@ -45,4 +77,27 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    var cat = document.getElementById('category');
+    var groups = {general: cat.querySelector('[data-group="general"]'), maintenance: cat.querySelector('[data-group="maintenance"]')};
+    function show() {
+        var kind = (document.querySelector('input[name="kind"]:checked') || {}).value || 'one_time';
+        document.querySelectorAll('[data-kind-help]').forEach(function (el) { el.hidden = el.dataset.kindHelp !== kind; });
+        document.querySelectorAll('[data-kind-show]').forEach(function (el) { el.hidden = el.dataset.kindShow !== kind; });
+        var want = kind === 'maintenance' ? 'maintenance' : 'general', other = want === 'general' ? 'maintenance' : 'general';
+        groups[want].hidden = false; groups[want].disabled = false;
+        groups[other].hidden = true; groups[other].disabled = true;
+        if (cat.selectedOptions[0] && cat.selectedOptions[0].parentNode !== groups[want]) {
+            var pick = want === 'maintenance' ? 'repairs' : (kind === 'recurring' ? 'internet' : 'equipment');
+            cat.value = pick;
+        }
+    }
+    document.querySelectorAll('input[name="kind"]').forEach(function (el) { el.addEventListener('change', show); });
+    show();
+})();
+</script>
 {% endblock %}

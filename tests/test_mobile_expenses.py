@@ -33,7 +33,8 @@ H = token('owner1')
 me = c.get('/api/m/me', headers=H).get_json(); assert me['can']['expenses'] is True
 
 d = c.get('/api/m/expenses', headers=H).get_json()
-assert d['can_edit'] and d['items'] == [] and d['totals']['sales'] == 30000 and {'id': 'printing', 'name': 'Posters and printing'} in d['categories']
+assert d['can_edit'] and d['items'] == [] and d['totals']['sales'] == 30000 and {'id': 'printing', 'name': 'Posters and printing', 'kind': 'general'} in d['categories']
+assert [k['id'] for k in d['kinds']] == ['one_time', 'recurring', 'maintenance'] and any(c['id'] == 'technician' and c['kind'] == 'maintenance' for c in d['categories'])
 r = c.post('/api/m/expenses', headers=H, json={'amount': '45,000', 'date': date.today().isoformat(), 'description': '20 posters',
                                                'category': 'printing', 'site_id': S1, 'paid_to': 'Mzizima'})
 assert r.status_code == 200, r.text
@@ -43,6 +44,15 @@ assert r.status_code == 400 and 'amount' in r.get_json()['error']
 r = c.post('/api/m/expenses', headers=H, json={'amount': 5000, 'date': date.today().isoformat(), 'description': 'Domain', 'site_id': None})
 assert r.status_code == 200 and r.get_json()['site'] is None
 r = c.post(f"/api/m/expenses/{E['id']}", headers=H, json={**E, 'amount': 40000}); assert r.get_json()['amount'] == 40000
+# kinds from the app; an older app (no kind) picking a maintenance category gets maintenance, and keeps how a bill repeats
+r = c.post('/api/m/expenses', headers=H, json={'amount': 30000, 'date': date.today().isoformat(), 'description': 'Rent', 'category': 'rent',
+                                               'site_id': S1, 'kind': 'recurring', 'repeat_every': 'month'})
+R = r.get_json(); assert R['kind'] == 'recurring' and R['repeat_every'] == 'month' and R['kind_name'] == 'Recurring (every month)'
+r = c.post(f"/api/m/expenses/{R['id']}", headers=H, json={'amount': 31000, 'date': R['date'], 'description': 'Rent', 'category': 'rent', 'site_id': S1})
+assert r.get_json()['repeat_every'] == 'month' and r.get_json()['amount'] == 31000
+r = c.post('/api/m/expenses', headers=H, json={'amount': 8000, 'date': date.today().isoformat(), 'description': 'Fundi', 'category': 'technician', 'site_id': S1})
+assert r.get_json()['kind'] == 'maintenance'
+for x in (R['id'], r.get_json()['id']): assert c.delete(f'/api/m/expenses/{x}', headers=H).status_code == 200
 d = c.get('/api/m/expenses?period=month', headers=H).get_json()
 assert d['totals']['spent'] == 45000 and len(d['items']) == 2 and d['payback']['invested'] == 45000 and d['by_category']
 assert d['months'] and d['months'][0]['running'] == d['totals']['net']
@@ -78,5 +88,5 @@ assert c.get('/api/m/me', headers=ST).get_json()['can']['expenses'] is False
 assert c.get('/api/m/expenses', headers=ST).status_code == 403 and c.get('/api/m/reports/finance', headers=ST).status_code == 403
 # Kiswahili from the server
 d = c.get('/api/m/expenses', headers={**H, 'Accept-Language': 'sw'}).get_json()
-assert {'id': 'printing', 'name': 'Mabango na uchapishaji'} in d['categories']
+assert {'id': 'printing', 'name': 'Mabango na uchapishaji', 'kind': 'general'} in d['categories']
 print('MOBILE EXPENSES OK')

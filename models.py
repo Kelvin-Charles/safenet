@@ -1100,12 +1100,22 @@ class Expense(db.Model):
     description = db.Column(db.String(200), nullable=False)
     paid_to = db.Column(db.String(100))
     amount = db.Column(db.Numeric(12, 2), nullable=False)
+    # one_time (bought once: equipment, installation), recurring (paid again and again: internet, rent, salaries),
+    # maintenance (fixing things: internet or access point problems, spare parts, technician charges)
+    kind = db.Column(db.String(12), nullable=False, default='one_time')
+    repeat_every = db.Column(db.String(8))             # recurring: 'month' or 'year' (SafeNet adds each one when due)
+    repeat_ends = db.Column(db.Date)                   # recurring: last payment (None: until changed)
+    repeat_next = db.Column(db.Date)                   # recurring: the next payment SafeNet adds (deleted ones stay deleted)
+    repeat_of_id = db.Column(db.Integer, db.ForeignKey('expenses.id', ondelete='SET NULL'), index=True)  # added from this one
     created_by_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='SET NULL'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     site = db.relationship('Site')
     created_by = db.relationship('Admin')
+    repeat_of = db.relationship('Expense', remote_side=[id])
+
+    __table_args__ = (db.UniqueConstraint('repeat_of_id', 'spent_on', name='uq_expenses_repeat'),)
 
     def __repr__(self):
         return f'<Expense {self.tenant_id} {self.amount}>'

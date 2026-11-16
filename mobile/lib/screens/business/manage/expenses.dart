@@ -102,6 +102,25 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                   child: Padding(
                     padding: const EdgeInsets.all(14),
                     child: Column(children: [
+                      if ((d['by_kind'] as List? ?? []).isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: Row(children: [
+                            for (final k in d['by_kind'] as List)
+                              Expanded(
+                                child: Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                                  decoration: BoxDecoration(color: Sn.sunken(context), borderRadius: BorderRadius.circular(Sn.r1)),
+                                  child: Column(children: [
+                                    Icon(kindIcon(k['kind'] as String?), size: 18, color: Sn.muted(context)),
+                                    Text('${k['name']}', style: TextStyle(fontSize: 11.5, color: Sn.muted(context)), textAlign: TextAlign.center),
+                                    Text(compactMoney(k['amount'] as num), style: const TextStyle(fontWeight: FontWeight.w800)),
+                                  ]),
+                                ),
+                              ),
+                          ]),
+                        ),
                       for (final c in cats)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 10),
@@ -166,6 +185,7 @@ class ExpenseTile extends StatelessWidget {
         title: Text('${e['description']}', style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text([
           DateFormat('d MMM yyyy').format(DateTime.parse(e['date'] as String)),
+          if (e['kind_name'] != null) e['kind_name'],
           e['category_name'],
           if (e['site'] != null) e['site'] else S.t('Whole business'),
           if (e['paid_to'] != null) S.t('to {name}', {'name': e['paid_to']}),
@@ -182,12 +202,22 @@ class ExpenseTile extends StatelessWidget {
         'power' => Icons.bolt_rounded,
         'rent' => Icons.home_work_rounded,
         'transport' => Icons.local_shipping_rounded,
-        'repairs' => Icons.build_rounded,
+        'repairs' || 'technician' => Icons.build_rounded,
+        'fix_internet' => Icons.wifi_off_rounded,
+        'fix_ap' => Icons.router_outlined,
+        'fix_power' => Icons.battery_alert_rounded,
+        'parts' => Icons.handyman_rounded,
         'salaries' => Icons.badge_rounded,
         'marketing' => Icons.campaign_rounded,
         _ => Icons.receipt_rounded,
       };
 }
+
+IconData kindIcon(String? kind) => switch (kind) {
+      'recurring' => Icons.autorenew_rounded,
+      'maintenance' => Icons.build_circle_outlined,
+      _ => Icons.shopping_bag_outlined,
+    };
 
 /// How much of what went in has come back (all time).
 class PaybackCard extends StatelessWidget {
@@ -267,6 +297,24 @@ class _ExpenseFormState extends State<ExpenseForm> {
   late final paidTo = TextEditingController(text: e?['paid_to'] as String? ?? '');
   late DateTime date = e != null ? DateTime.parse(e!['date'] as String) : DateTime.now();
   late String category = e?['category'] as String? ?? 'equipment';
+  late String kind = e?['kind'] as String? ?? 'one_time';
+  late String repeat = e == null ? 'month' : (e!['repeat_every'] as String? ?? '');
+  late DateTime? repeatEnds = e?['repeat_ends'] != null ? DateTime.parse(e!['repeat_ends'] as String) : null;
+  late final bool addedBySafenet = e?['added_by_safenet'] == true;
+
+  List<Map> _cats() {
+    final group = kind == 'maintenance' ? 'maintenance' : 'general';
+    return [for (final c in widget.data['categories'] as List) if ((c['kind'] ?? 'general') == group) c as Map];
+  }
+
+  void setKind(String k) => setState(() {
+        kind = k;
+        final cats = _cats();
+        if (!cats.any((c) => c['id'] == category)) {
+          final want = k == 'maintenance' ? 'repairs' : (k == 'recurring' ? 'internet' : 'equipment');
+          category = cats.any((c) => c['id'] == want) ? want : cats.first['id'] as String;
+        }
+      });
   late int? siteId = e != null ? e!['site_id'] as int? : _defaultSite();
   bool busy = false;
 
@@ -282,7 +330,9 @@ class _ExpenseFormState extends State<ExpenseForm> {
     final api = context.read<Session>().api;
     final body = {
       'amount': amount.text.replaceAll(',', '').trim(), 'date': DateFormat('yyyy-MM-dd').format(date), 'description': description.text,
-      'category': category, 'site_id': siteId, 'paid_to': paidTo.text,
+      'category': category, 'site_id': siteId, 'paid_to': paidTo.text, 'kind': kind,
+      if (!addedBySafenet) 'repeat_every': kind == 'recurring' ? repeat : null,
+      if (!addedBySafenet) 'repeat_ends': kind == 'recurring' && repeatEnds != null ? DateFormat('yyyy-MM-dd').format(repeatEnds!) : null,
     };
     final r = await attempt(context, () => api.post(e == null ? '/api/m/expenses' : '/api/m/expenses/${e!['id']}', body));
     if (!mounted) return;
@@ -310,12 +360,34 @@ class _ExpenseFormState extends State<ExpenseForm> {
   @override
   Widget build(BuildContext context) {
     final d = widget.data;
-    final cats = d['categories'] as List;
+    final cats = _cats();
+    if (!cats.any((c) => c['id'] == category)) category = cats.first['id'] as String;
+    final kinds = (d['kinds'] as List?) ?? const [];
+    final repeats = (d['repeats'] as List?) ?? const [];
     final sites = d['sites'] as List;
     return Scaffold(
       appBar: SnAppBar(title: Text(e == null ? S.t('Add an expense') : S.t('Change an expense'))),
       bottomNavigationBar: SaveBar(busy: busy, onSave: () => save(), onDelete: e != null ? delete : null),
       body: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
+        if (kinds.isNotEmpty)
+          FieldGroup(title: S.t('Type of expense'), children: [
+            SnSegmented<String>(
+              segments: [for (final k in kinds) ButtonSegment(value: k['id'] as String, label: Text('${k['name']}', overflow: TextOverflow.ellipsis))],
+              selected: {kind},
+              onSelectionChanged: (v) => setKind(v.first),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Text(
+                switch (kind) {
+                  'recurring' => S.t('Paid again and again: internet bill, rent, electricity, salaries.'),
+                  'maintenance' => S.t('Fixing problems: internet or access point issues, spare parts, technician charges.'),
+                  _ => S.t('Paid once: equipment, installation, posters.'),
+                },
+                style: TextStyle(color: Sn.muted(context), fontSize: 12),
+              ),
+            ),
+          ]),
         FieldGroup(title: S.t('Expense'), children: [
           SnField(
             controller: amount,
@@ -336,6 +408,34 @@ class _ExpenseFormState extends State<ExpenseForm> {
             items: {for (final c in cats) c['id'] as String: '${c['name']}'},
             onChanged: (v) => setState(() => category = v),
           ),
+          if (kind == 'recurring' && addedBySafenet)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Text(S.t('SafeNet added this payment from a recurring expense. Change that one to change the payments still to come.'),
+                  style: TextStyle(color: Sn.muted(context), fontSize: 12)),
+            ),
+          if (kind == 'recurring' && !addedBySafenet && repeats.isNotEmpty) ...[
+            SnSelect<String>(
+              label: S.t('Repeats'),
+              icon: Icons.autorenew_rounded,
+              value: repeat,
+              items: {for (final r in repeats) r['id'] as String: '${r['name']}', '': S.t("Don't add it for me")},
+              onChanged: (v) => setState(() => repeat = v),
+            ),
+            if (repeat.isNotEmpty)
+              SnTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.event_busy_rounded),
+                title: Text('${S.t('Last payment')} (${S.t('optional')})'),
+                subtitle: Text(repeatEnds == null ? S.t('Leave empty to keep repeating until you change it.') : DateFormat('d MMMM yyyy').format(repeatEnds!)),
+                trailing: repeatEnds == null ? null : IconButton(icon: const Icon(Icons.close_rounded), onPressed: () => setState(() => repeatEnds = null)),
+                onTap: () async {
+                  final v = await showDatePicker(context: context, initialDate: repeatEnds ?? date.add(const Duration(days: 365)),
+                      firstDate: date, lastDate: DateTime(2100));
+                  if (v != null) setState(() => repeatEnds = v);
+                },
+              ),
+          ],
           SnTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.event_rounded),
