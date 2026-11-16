@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SafeNet · Wi-Fi billing and hotspot management</title>
-    <meta name="description" content="Sell Wi-Fi with vouchers and mobile money, brand your login page and watch every guest live. Works with MikroTik, TP-Link and the SafeNet gateway. {{ trial_days }}-day free trial.">
+    <meta name="description" content="Sell Wi-Fi with vouchers and mobile money, brand your login page and watch every guest live. Works with MikroTik, TP-Link Omada, Ubiquiti UniFi, Ruijie, Reyee, Grandstream, Cambium, Meraki, OpenWrt and more. {{ trial_days }}-day free trial.">
     <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -51,9 +51,26 @@
         .hero .note { font-size: 13px; color: var(--muted); margin-top: 22px; }
         .hero svg { width: 100%; height: auto; }
 
-        .works-with { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 18px 32px; padding-top: 34px; padding-bottom: 60px; color: #475569; }
+        .works-with { padding-top: 34px; padding-bottom: 60px; color: #475569; }
+        .works-with .row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 30px; padding: 10px 0; }
+        .works-with .row + .row { border-top: 1px solid var(--line); }
+        .works-with small { flex-basis: 150px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
         .works-with span { display: inline-flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 600; letter-spacing: -.3px; }
         .works-with i { font-size: 22px; }
+        .works-with a { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: #0072DB; }
+
+        /* Equipment */
+        .equipment { padding-top: 10px; padding-bottom: 90px; }
+        .equipment h2 { font-size: clamp(26px, 3.4vw, 38px); font-weight: 600; margin: 12px 0 10px; }
+        .equipment .lead { color: var(--ink-2); max-width: 640px; margin: 0 auto 36px; font-size: 15px; }
+        .equipment h3 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 28px 0 12px; }
+        .brands { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+        .brands a { display: flex; gap: 12px; align-items: flex-start; padding: 16px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); transition: border-color .15s, transform .15s; }
+        .brands a:hover { border-color: var(--ink); transform: translateY(-2px); }
+        .brands i { font-size: 22px; line-height: 1; margin-top: 2px; }
+        .brands strong { display: block; font-weight: 600; font-size: 16px; }
+        .brands small { display: block; color: var(--muted); font-size: 13px; line-height: 1.4; margin-top: 2px; }
+        .brands a.any { background: var(--soft); }
 
         /* Features (dark) */
         .features { background: var(--ink); color: #fff; padding: 72px 0 80px; text-align: center; }
@@ -140,13 +157,16 @@
             .how, .faq { padding-top: 64px; padding-bottom: 64px; }
             .how svg { order: 2; }
             .grid { grid-template-columns: 1fr 1fr; }
+            .brands { grid-template-columns: 1fr 1fr; }
             footer .cols { grid-template-columns: 1fr 1fr; }
         }
         @media (max-width: 760px) { .swipe { display: block; } }
         @media (max-width: 560px) {
             .grid { grid-template-columns: 1fr; }
+            .brands { grid-template-columns: 1fr; }
             .actions .btn { padding: 8px 14px; font-size: 13px; }
-            .works-with { justify-content: center; }
+            .works-with .row { justify-content: center; }
+            .works-with small { flex-basis: 100%; text-align: center; }
             .works-with span { font-size: 16px; }
         }
     </style>
@@ -159,6 +179,7 @@
             <a href="#top" class="active">Home</a>
             <a href="#features">Features</a>
             <a href="#how">How it works</a>
+            <a href="#equipment">Equipment</a>
             <a href="#pricing">Pricing</a>
             <a href="#faq">FAQ</a>
             <a href="{{ url_for('docs') }}">Guides</a>
@@ -179,7 +200,7 @@
     <section class="wrap hero">
         <div>
             <h1>The Smart Way to Sell Wi-Fi to Your Customers</h1>
-            <p>SafeNet gives cafés, hostels, shops and internet providers a branded login page, vouchers and mobile-money packages, and a live view of every guest. It works with MikroTik routers and TP-Link Omada or Ruijie access points.</p>
+            <p>SafeNet gives cafés, hostels, shops and internet providers a branded login page, vouchers and mobile-money packages, and a live view of every guest. It works with MikroTik, TP-Link Omada, Ubiquiti UniFi, Ruijie and Reyee, Grandstream, Cambium, OpenWrt and <a href="#equipment">more</a>.</p>
             <div class="cta">
                 {% if signup_enabled %}<a href="{{ url_for('signup') }}" class="btn btn-dark">Get started</a>{% endif %}
                 <a href="#pricing" class="btn btn-light">See pricing</a>
@@ -227,11 +248,20 @@
         </svg>
     </section>
 
-    <div class="wrap works-with" aria-label="Works with">
-        {% for n in networks %}<span><i class="bi bi-phone"></i>{{ n }}</span>{% endfor %}
-        <span><i class="bi bi-router"></i>MikroTik</span>
-        <span><i class="bi bi-wifi"></i>TP-Link Omada</span>
-        <span><i class="bi bi-broadcast-pin"></i>Ruijie</span>
+    <div class="wrap works-with">
+        <div class="row" aria-label="Guests pay with">
+            <small>Guests pay with</small>
+            {% for n in networks %}<span><i class="bi bi-phone"></i>{{ n }}</span>{% endfor %}
+        </div>
+        <div class="row" aria-label="Works with">
+            <small>Works with</small>
+            <span><i class="bi bi-router"></i>MikroTik</span>
+            <span><i class="bi bi-wifi"></i>TP-Link Omada</span>
+            <span><i class="bi bi-router-fill"></i>UniFi</span>
+            <span><i class="bi bi-broadcast-pin"></i>Ruijie</span>
+            <span><i class="bi bi-cloud"></i>Reyee</span>
+            <a href="#equipment">+ more brands</a>
+        </div>
     </div>
 
     <section class="features" id="features">
@@ -247,7 +277,7 @@
                 <div class="card"><i class="bi bi-speedometer2"></i><h3>Control and speed limits</h3><p>Disable a code or press Disconnect and the guest is cut off. Give each package its own speed, like 5 Mb/s or 20 Mb/s.</p></div>
                 <div class="card"><i class="bi bi-arrow-repeat"></i><h3>Automatic reconnect</h3><p>A phone with paid time left gets back online without typing the code again. Each code works on one phone at a time unless you allow more, so codes can't be passed around.</p></div>
                 <div class="card"><i class="bi bi-geo-alt"></i><h3>Several locations</h3><p>Run many sites from one account, each with its own access points and sales, or see the whole business together.</p></div>
-                <div class="card"><i class="bi bi-hdd-network"></i><h3>Your equipment</h3><p>MikroTik over a private VPN. TP-Link Omada and Ruijie access points connect straight to SafeNet, no extra box. Anything else works through the SafeNet gateway.</p></div>
+                <div class="card"><i class="bi bi-hdd-network"></i><h3>Your equipment</h3><p>MikroTik, TP-Link Omada, UniFi, Ruijie, Reyee, Grandstream, Cambium, Meraki and OpenWrt routers connect straight to SafeNet, no extra box. Anything else works through the SafeNet gateway.</p></div>
                 <div class="card"><i class="bi bi-people"></i><h3>Team and partners</h3><p>Add staff and admins, and view-only accounts so partners or shareholders can follow sales and usage for the whole business or one site.</p></div>
             </div>
         </div>
@@ -285,13 +315,41 @@
             <h2 style="margin-top: 12px">Up and Running in an Afternoon</h2>
             <ol class="steps">
                 <li><strong>Create your account</strong><span>{{ trial_days }} days free. Add your business name, support number and prices.</span></li>
-                <li><strong>Connect your equipment</strong><span>Paste one script into a MikroTik, or add your TP-Link Omada or Ruijie access points in SafeNet. Other access points go behind the SafeNet gateway. Our step-by-step guides show how.</span></li>
+                <li><strong>Connect your equipment</strong><span>Paste one script into a MikroTik, add your TP-Link Omada or UniFi access points by MAC address, or point Ruijie, Reyee, Grandstream, Cambium or OpenWrt equipment to SafeNet. Anything else goes behind the SafeNet gateway. Our step-by-step guides show how.</span></li>
                 <li><strong>Start selling</strong><span>Print vouchers for the counter and let guests buy packages with mobile money. Money goes to your own ClickPesa or Snippe account, or SafeNet collects it for you.</span></li>
             </ol>
             <div class="cta" style="display:flex; gap:22px; flex-wrap:wrap">
                 {% if signup_enabled %}<a href="{{ url_for('signup') }}" class="btn btn-dark btn-sm">Join now</a>{% endif %}
                 <a href="#faq" class="btn btn-light btn-sm">Learn more</a>
             </div>
+        </div>
+    </section>
+
+    <section class="wrap equipment" id="equipment">
+        <div class="center">
+            <div class="eyebrow">Equipment</div>
+            <h2>Works With the Wi-Fi You Have</h2>
+            <p class="lead">Connect the routers and access points you already own. Each brand has a step-by-step guide.</p>
+        </div>
+        <h3>Connect straight to SafeNet</h3>
+        <div class="brands">
+                <a href="{{ url_for('docs', slug='mikrotik') }}"><i class="bi bi-router"></i><span><strong>MikroTik</strong><small>Routers with RouterOS 7: paste one script</small></span></a>
+                <a href="{{ url_for('docs', slug='omada') }}"><i class="bi bi-wifi"></i><span><strong>TP-Link Omada</strong><small>EAP access points on SafeNet's controller</small></span></a>
+                <a href="{{ url_for('docs', slug='unifi') }}"><i class="bi bi-router-fill"></i><span><strong>Ubiquiti UniFi</strong><small>SafeNet's UniFi controller or your own</small></span></a>
+                <a href="{{ url_for('docs', slug='ruijie') }}"><i class="bi bi-broadcast-pin"></i><span><strong>Ruijie</strong><small>RG-AP access points, straight to SafeNet</small></span></a>
+                <a href="{{ url_for('docs', slug='reyee') }}"><i class="bi bi-cloud"></i><span><strong>Reyee</strong><small>Access points managed in Ruijie Cloud</small></span></a>
+                <a href="{{ url_for('docs', slug='radius-aps') }}"><i class="bi bi-hdd-rack"></i><span><strong>Grandstream</strong><small>GWN access points</small></span></a>
+                <a href="{{ url_for('docs', slug='radius-aps') }}"><i class="bi bi-hdd-rack"></i><span><strong>Cambium Networks</strong><small>cnPilot and other Cambium access points</small></span></a>
+                <a href="{{ url_for('docs', slug='radius-aps') }}"><i class="bi bi-cloud-check"></i><span><strong>Cisco Meraki</strong><small>Splash page with SafeNet login</small></span></a>
+                <a href="{{ url_for('docs', slug='wifidog') }}"><i class="bi bi-router-fill"></i><span><strong>OpenWrt</strong><small>Any OpenWrt router or access point</small></span></a>
+                <a href="{{ url_for('docs', slug='wifidog') }}"><i class="bi bi-router-fill"></i><span><strong>Cudy, Comfast, Wavlink</strong><small>Models with WiFiDog or OpenWrt</small></span></a>
+                <a href="{{ url_for('docs', slug='radius-aps') }}"><i class="bi bi-hdd-rack"></i><span><strong>CoovaChilli</strong><small>Hotspot routers running CoovaChilli</small></span></a>
+                <a href="{{ url_for('docs', slug='other-routers') }}"><i class="bi bi-diagram-3"></i><span><strong>Any RADIUS router</strong><small>Routers and controllers that check logins with RADIUS</small></span></a>
+        </div>
+        <h3>Any other brand</h3>
+        <div class="brands">
+                <a class="any" href="{{ url_for('docs', slug='gateway') }}"><i class="bi bi-hdd-network"></i><span><strong>SafeNet gateway box</strong><small>Tenda, D-Link, home routers and any other access point: a small box between it and the internet</small></span></a>
+                <a class="any" href="{{ url_for('docs', slug='start') }}"><i class="bi bi-signpost-split"></i><span><strong>Not sure?</strong><small>Find the right setup for the equipment you have</small></span></a>
         </div>
     </section>
 
@@ -366,7 +424,7 @@
         <div id="faq-list">
             <details open>
                 <summary>What equipment do I need?</summary>
-                <p>Any one of these: a <strong>MikroTik</strong> router (RouterOS 7), set up by pasting the script we give you. <strong>TP-Link Omada</strong> access points such as the EAP225, added in SafeNet by their MAC address; they use SafeNet's hosted controller, so you don't need your own. <strong>Ruijie</strong> access points with web authentication, pointed to SafeNet. For any other access point or router, a small Linux computer runs the SafeNet gateway between it and your internet line.</p>
+                <p>Any one of these: a <strong>MikroTik</strong> router (RouterOS 7), set up by pasting the script we give you. <strong>TP-Link Omada</strong> or <strong>Ubiquiti UniFi</strong> access points, added in SafeNet by their MAC address; they use SafeNet's hosted controller, so you don't need your own (a UniFi controller you already run works too). <strong>Ruijie</strong> and <strong>Reyee</strong> access points, <strong>Grandstream</strong>, <strong>Cambium</strong> and <strong>Cisco Meraki</strong> access points, and <strong>OpenWrt</strong> routers (including many Cudy, Comfast and Wavlink models), pointed to SafeNet. For any other access point or router, a small Linux computer runs the SafeNet gateway between it and your internet line. <a href="#equipment">See every brand and its guide</a>.</p>
             </details>
             <details>
                 <summary>How do my customers pay?</summary>
@@ -422,7 +480,7 @@
             </div>
             <div>
                 <h4>Product</h4>
-                <ul><li><a href="#features">Features</a></li><li><a href="#how">How it works</a></li><li><a href="#pricing">Pricing</a></li><li><a href="#faq">FAQ</a></li><li><a href="{{ url_for('docs') }}">Setup guides</a></li><li><a href="{{ url_for('privacy') }}">Privacy policy</a></li><li><a href="{{ url_for('delete_account') }}">Delete your account</a></li></ul>
+                <ul><li><a href="#features">Features</a></li><li><a href="#how">How it works</a></li><li><a href="#equipment">Equipment</a></li><li><a href="#pricing">Pricing</a></li><li><a href="#faq">FAQ</a></li><li><a href="{{ url_for('docs') }}">Setup guides</a></li><li><a href="{{ url_for('privacy') }}">Privacy policy</a></li><li><a href="{{ url_for('delete_account') }}">Delete your account</a></li></ul>
             </div>
             <div>
                 <h4>Account</h4>
