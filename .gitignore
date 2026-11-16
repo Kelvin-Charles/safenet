@@ -89,3 +89,5 @@ seed_users.json
 
 # the Flutter app keeps its code in mobile/lib (not a Python lib folder)
 !mobile/lib/
+
+*.pem
