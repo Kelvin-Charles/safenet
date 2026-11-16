@@ -787,7 +787,7 @@ def login_page(dst='', error='', lang='en', tab=None):
     return ui.login_page(_theme(), lang, packages=portal_packages(), dst=dst, error=error, tab=tab,
                          buy_enabled=bool(SAFENET_API_URL), networks=portal_networks(), logo_base='/img/',
                          trial=branding.get('trial') if SAFENET_API_URL else None, trial_action='/trial',
-                         android_app=_apk_link())
+                         android_app=branding.get('play_store') or _apk_link())   # Google Play when SafeNet has a link
 
 
 def app_url(code):

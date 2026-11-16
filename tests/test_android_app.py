@@ -6,6 +6,7 @@ os.environ.update(DB_PASSWORD='x', SECRET_KEY='k' * 40, PUBLIC_URL='https://radi
                   APP_FILES_DIR=tempfile.mkdtemp())
 sys.path.insert(0, os.getcwd())
 import config; config.Config.SQLALCHEMY_DATABASE_URI = 'sqlite://'
+config.Config.PLAY_STORE_URL = ''          # first the uploaded .apk; Google Play at the end
 import app as appmod
 from app import app, db
 import migrations
@@ -71,4 +72,15 @@ with app.test_request_context('/'):
     pages = appmod._ruijie_portal_pages(db.session.get(appmod.Site, SID), db.session.get(Tenant, TID),
                                         appmod.portal_ui.theme(appmod.portal_config(db.session.get(Tenant, TID))))
 assert 'appcard android-app' in str(pages)
+# with the app on Google Play, the card opens Play (no download); gateway boxes still fetch the .apk for old versions
+PLAY = 'https://play.google.com/store/apps/details?id=com.safezonetz.safenet_app'
+config.Config.PLAY_STORE_URL = PLAY
+h = login_page()
+assert f'<a class="appcard android-app" href="{PLAY.replace("&", "&amp;")}" hidden>' in h, re.findall(r'<a class="appcard[^>]+>', h)
+with app.test_request_context('/'):
+    pages = appmod._ruijie_portal_pages(db.session.get(appmod.Site, SID), db.session.get(Tenant, TID),
+                                        appmod.portal_ui.theme(appmod.portal_config(db.session.get(Tenant, TID))))
+assert PLAY in str(pages) and '/app/android' not in str(pages)
+cfg = app.test_client().get('/api/gateway/config', headers={'X-SafeNet-Key': 'sgw_k'}).get_json()
+assert cfg['android_app'].startswith('https://radius.example.tz/app/android?v=') and cfg['play_store'] == PLAY
 print('ok')

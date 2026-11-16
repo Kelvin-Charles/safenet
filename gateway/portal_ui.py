@@ -621,7 +621,8 @@ def _android_card(lang, url):
     """'Get the SafeNet app' under the login forms: hidden, and shown by the page script on Android only."""
     if not url:
         return ''
-    return (f'<a class="appcard android-app" href="{e(url)}" download hidden>'
+    download = '' if url.startswith('https://play.google.com/') else ' download'      # Google Play opens; an .apk downloads
+    return (f'<a class="appcard android-app" href="{e(url)}"{download} hidden>'
             f'<span class="ic">{icon("phone", 22)}</span><span><b>{t(lang, "android_cta")}</b>'
             f'<small>{t(lang, "android_lead")}</small></span>{icon("arrow", 18)}</a>')
 

@@ -58,5 +58,10 @@ for _ in range(100):
     if os.path.isfile(portal.APK_FILE): break
     time.sleep(.05)
 assert status() == 200
+# with the app on Google Play, the card opens Play instead of this box's copy
+PLAY = 'https://play.google.com/store/apps/details?id=com.safezonetz.safenet_app'
+portal.safenet_api = lambda method, path, body=None, timeout=25: {'android_app': URL + '/two', 'play_store': PLAY, 'tenant': 't', 'portal': {}}
+portal.refresh_branding()
+assert f'href="{PLAY}" hidden' in page() and '/app/android' not in page()
 srv.shutdown(); cloud.shutdown()
 print('GATEWAY ANDROID OK')

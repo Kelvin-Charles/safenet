@@ -7221,7 +7221,7 @@ def api_gateway_config():
     t = g.api_tenant
     hotspot = _hotspot_settings(t)
     cfg = portal_config(t)
-    return jsonify(tenant=t.slug, android_app=_android_app_link(), play_store=Config.PLAY_STORE_URL or None, hotspot_name=hotspot['name'], support=hotspot['support'],
+    return jsonify(tenant=t.slug, android_app=_android_apk_link(), play_store=Config.PLAY_STORE_URL or None, hotspot_name=hotspot['name'], support=hotspot['support'],
                    terms=hotspot['terms'], currency=hotspot['currency'], acct_interim_seconds=60,
                    block_tethering=t.block_tethering,
                    gateway=g.api_gateway.name if g.api_gateway else None,
@@ -10569,7 +10569,13 @@ def _is_android():
 
 
 def _android_app_link():
-    """Download link for the login pages (absolute: Ruijie and router-hosted pages are not on our site)."""
+    """The app link for the login pages: Google Play (people get updates there), or the uploaded .apk when no Play
+    link is set (absolute: Ruijie and router-hosted pages are not on our site)."""
+    return Config.PLAY_STORE_URL or _android_apk_link()
+
+
+def _android_apk_link():
+    """Download link of the uploaded .apk (gateway boxes still fetch it), or None."""
     info = _android_apk_info()
     return _link('android_app', v=int(info['at'].timestamp())) if info else None
 
@@ -10611,7 +10617,7 @@ def platform_app():
             json.dump({'version': version}, fh)
         flash(f'Android app uploaded ({size / 1048576:.1f} MB). The Wi-Fi login pages offer it on Android phones now.', 'success')
         return redirect(url_for('platform_app'))
-    return render_template('platform/app.html', info=_android_apk_info(), link=_android_app_link())
+    return render_template('platform/app.html', info=_android_apk_info(), link=_android_apk_link(), play=Config.PLAY_STORE_URL)
 
 
 @app.route('/platform/provider-fields')

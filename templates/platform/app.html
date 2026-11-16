@@ -7,6 +7,9 @@
 <div class="card">
     <div class="card-header"><i class="bi bi-android2"></i> The SafeNet app on the Wi-Fi login pages</div>
     <div class="card-body">
+        {% if play %}
+        <div class="alert alert-info py-2 small"><i class="bi bi-google-play"></i> The login pages' <strong>Get the SafeNet app</strong> button opens the app on <a href="{{ play }}" target="_blank" rel="noopener">Google Play</a> (PLAY_STORE_URL). The file below is only used when that link is empty, and by gateway boxes not yet updated.</div>
+        {% endif %}
         <p class="small text-muted">Every business's Wi-Fi login page shows <strong>Get the SafeNet app</strong> on Android phones (not on iPhones or computers) once an app is uploaded here. Phones download it from SafeNet's own address, which every gateway already lets through before paying.</p>
         {% if info %}
         <div class="alert alert-success py-2 small">
