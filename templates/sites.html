@@ -82,7 +82,7 @@
                                 <div class="d-flex flex-wrap gap-3 align-items-center mb-2">
                                     <span><i class="bi bi-cloud-check text-success"></i> {{ _('Using') }} <strong>{{ _("SafeNet's Omada Controller") }}</strong></span>
                                     {% if s.omada_error %}<span class="small text-danger"><i class="bi bi-x-circle"></i> {{ s.omada_error }}</span>
-                                    {% elif s.omada_checked_at %}<span class="small text-muted"><i class="bi bi-arrow-repeat"></i> {{ _('Guests and data read from the controller: {time} UTC', time=s.omada_checked_at.strftime('%d %b %H:%M')) }}</span>{% endif %}
+                                    {% elif s.omada_checked_at %}<span class="small text-muted"><i class="bi bi-arrow-repeat"></i> {{ _('Guests and data read from the controller: {time}', time=s.omada_checked_at|local('%d %b %H:%M')) }}</span>{% endif %}
                                     <form method="POST" action="{{ url_for('site_omada', site_id=s.id) }}" class="m-0" onsubmit="return confirm('{{ _('Stop using Omada at {site}?', site=s.name) }}')">
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button class="btn btn-outline-danger btn-sm" type="submit" name="action" value="remove">{{ _('Remove') }}</button>
@@ -158,7 +158,7 @@
                                     <strong><i class="bi bi-check-circle text-success"></i> {{ _("Connected to SafeNet's UniFi controller") if s.unifi_hosted else _('Connected to your UniFi controller') }}</strong>
                                     <div>{{ _('Controller site') }}: <code>{{ s.unifi_site }}</code>{% if s.unifi_ssid %} · {{ _('Wi-Fi: {name}', name=s.unifi_ssid) }}{% endif %}
                                         {% if s.unifi_aps %} · {{ _('Access points: {n}', n=s.unifi_aps.split(',')|length) }}{% endif %}
-                                        {% if s.unifi_checked_at %} · {{ _('Last checked {time} UTC', time=s.unifi_checked_at.strftime('%d %b %H:%M')) }}{% endif %}</div>
+                                        {% if s.unifi_checked_at %} · {{ _('Last checked {time}', time=s.unifi_checked_at|local('%d %b %H:%M')) }}{% endif %}</div>
                                 </div>
                                 {% if s.unifi_hosted %}
                                 <ol class="small mb-2" style="max-width: 720px">

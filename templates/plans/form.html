@@ -102,7 +102,7 @@
                         <i class="bi bi-info-circle"></i> 
                         <strong>{{ _('Data Cap Status:') }}</strong> 
                         {% if plan.last_reset %}
-                            {{ _('Last reset: {date}', date=plan.last_reset.strftime('%Y-%m-%d %H:%M:%S')) }}
+                            {{ _('Last reset: {date}', date=plan.last_reset|local('%Y-%m-%d %H:%M:%S')) }}
                         {% else %}
                             {{ _('Not yet reset') }}
                         {% endif %}

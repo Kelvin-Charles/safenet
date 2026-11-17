@@ -145,6 +145,7 @@ SW = {
     'VPN address': 'Anwani ya VPN',
     'Traffic': 'Matumizi ya data',
     'last seen {date} UTC': 'ilionekana mwisho {date} UTC',
+    'last seen {date}': 'ilionekana mwisho {date}',
     'Waiting for first connection': 'Inasubiri muunganisho wa kwanza',
     '{mb} MB in': 'MB {mb} zilizoingia',
     '{mb} MB out': 'MB {mb} zilizotoka',

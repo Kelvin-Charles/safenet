@@ -247,6 +247,7 @@
     </style>
     {% endif %}
     {% block extra_css %}{% endblock %}
+    <script>/* the viewer's timezone, so times are shown in their local time */(function(){try{var z=Intl.DateTimeFormat().resolvedOptions().timeZone;if(z&&!/^[A-Za-z][\w+\-\/]*$/.test(z))z='';if(z&&document.cookie.split('; ').indexOf('sn_tz='+z)<0){document.cookie='sn_tz='+z+';path=/;max-age=31536000;samesite=lax'+(location.protocol==='https:'?';secure':'');}}catch(e){}})();</script>
 </head>
 <body class="{{ 'view-only' if current_user.is_authenticated and current_user.is_viewer }} {{ 'in-app' if session.get('in_app') }}">
     {% if current_user.is_authenticated %}
@@ -381,7 +382,7 @@
         {% elif bs == 'active' and billing.days_left is not none and billing.days_left <= 3 %}
         <div class="alert alert-warning"><i class="bi bi-hourglass-split"></i> {{ _('Your subscription ends in {n} day.', n=billing.days_left) if billing.days_left == 1 else _('Your subscription ends in {n} days.', n=billing.days_left) }} <a href="{{ url_for('billing') }}">{{ _('Renew now') }}</a></div>
         {% elif bs == 'grace' %}
-        <div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> {{ (_('Your trial has ended.') if not tenant.paid_until else _('Your subscription has ended.')) }} {{ _('Your Wi-Fi stops on {date} unless you renew.', date=billing.service_until.strftime('%d %b %Y')) }} <a href="{{ url_for('billing') }}">{{ _('Renew now') }}</a></div>
+        <div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> {{ (_('Your trial has ended.') if not tenant.paid_until else _('Your subscription has ended.')) }} {{ _('Your Wi-Fi stops on {date} unless you renew.', date=billing.service_until|local('%d %b %Y')) }} <a href="{{ url_for('billing') }}">{{ _('Renew now') }}</a></div>
         {% endif %}
         {% endif %}
 

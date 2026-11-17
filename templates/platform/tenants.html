@@ -38,7 +38,7 @@
             <tbody>
             {% for t in asking %}
             <tr><td>{{ t.name }}</td><td>{{ t.phone }}</td><td><strong>{{ t.phone_pending }}</strong></td>
-                <td class="small text-muted">{{ t.phone_pending_at.strftime('%d %b %H:%M') if t.phone_pending_at }}</td>
+                <td class="small text-muted">{{ t.phone_pending_at|local('%d %b %H:%M') if t.phone_pending_at }}</td>
                 <td class="text-nowrap"><form method="POST" action="{{ url_for('platform_phone_change', tid=t.id) }}" class="d-inline">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-sm btn-success" name="action" value="approve">Approve</button>
@@ -59,14 +59,14 @@
                     {% for t in tenants %}
                     {% set owner = owners.get(t.id) %}
                     <tr>
-                        <td><strong>{{ t.name }}</strong><small class="text-muted d-block">{{ t.slug }} · since {{ t.created_at.strftime('%Y-%m-%d') }}{% if t.phone %} · {{ t.phone }}{% endif %}</small></td>
+                        <td><strong>{{ t.name }}</strong><small class="text-muted d-block">{{ t.slug }} · since {{ t.created_at|local('%Y-%m-%d') }}{% if t.phone %} · {{ t.phone }}{% endif %}</small></td>
                         <td>{% if owner %}{{ owner.username }}<small class="text-muted d-block">{{ owner.email }}{% if not owner.email_verified_at %} · <span class="text-warning">unverified</span>{% endif %}</small>{% else %}<span class="text-muted">–</span>{% endif %}</td>
                         <td>
                             {% set b = billing_of(t) %}
                             {% if b.state == 'complimentary' %}<span class="badge bg-success">Free</span>
-                            {% elif b.state == 'active' %}<span class="badge bg-success">Paid</span><small class="text-muted d-block">until {{ b.end.strftime('%d %b %Y') }}{% if t.billing_plan %} · {{ t.billing_plan.name }}{% endif %}</small>
+                            {% elif b.state == 'active' %}<span class="badge bg-success">Paid</span><small class="text-muted d-block">until {{ b.end|local('%d %b %Y') }}{% if t.billing_plan %} · {{ t.billing_plan.name }}{% endif %}</small>
                             {% elif b.state == 'trial' %}<span class="badge bg-info">Trial</span><small class="text-muted d-block">{{ b.days_left }} days left</small>
-                            {% elif b.state == 'grace' %}<span class="badge bg-warning text-dark">Payment due</span><small class="text-muted d-block">stops {{ b.service_until.strftime('%d %b') }}</small>
+                            {% elif b.state == 'grace' %}<span class="badge bg-warning text-dark">Payment due</span><small class="text-muted d-block">stops {{ b.service_until|local('%d %b') }}</small>
                             {% elif b.state == 'expired' %}<span class="badge bg-danger">Expired</span>
                             {% else %}<span class="badge bg-danger">Suspended</span>{% endif %}
                         </td>

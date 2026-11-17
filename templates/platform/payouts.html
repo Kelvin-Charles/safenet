@@ -30,7 +30,7 @@
                         <td><strong>{{ w.tenant.name }}</strong><small class="d-block text-muted">balance {{ '{:,.0f}'.format(owed.get(w.tenant_id, 0)) }}</small></td>
                         <td>{{ w.tenant.currency }} {{ '{:,.0f}'.format(w.amount) }}</td>
                         <td>{{ w.destination }}{% if w.account_name %}<small class="d-block text-muted">{{ w.account_name }}</small>{% endif %}{% if w.method != 'mobile' %}<small class="d-block text-muted">SMS {{ w.phone }}</small>{% endif %}</td>
-                        <td><small>{{ w.created_at.strftime('%Y-%m-%d %H:%M') }}{% if w.requested_by %}<span class="d-block text-muted">by {{ w.requested_by.username }}</span>{% endif %}</small></td>
+                        <td><small>{{ w.created_at|local('%Y-%m-%d %H:%M') }}{% if w.requested_by %}<span class="d-block text-muted">by {{ w.requested_by.username }}</span>{% endif %}</small></td>
                         <td>
                             {% if w.status == 'requested' %}
                             {% if w.payout_error %}<small class="d-block text-danger mb-1"><i class="bi bi-exclamation-triangle"></i> {{ w.payout_error }}</small>{% endif %}
@@ -50,7 +50,7 @@
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button class="btn btn-sm btn-outline-secondary" type="submit">Check now</button>
                             </form>
-                            {% elif w.status == 'paid' %}<span class="badge bg-success">Paid</span> <small class="text-muted">ref {{ w.reference }} · {{ w.processed_at.strftime('%Y-%m-%d') }}</small>
+                            {% elif w.status == 'paid' %}<span class="badge bg-success">Paid</span> <small class="text-muted">ref {{ w.reference }} · {{ w.processed_at|local('%Y-%m-%d') }}</small>
                             {% else %}<span class="badge bg-danger">Rejected</span> <small class="text-muted">{{ w.note or '' }}</small>{% endif %}
                         </td>
                     </tr>

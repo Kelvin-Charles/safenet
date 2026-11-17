@@ -14,7 +14,7 @@
         {% if info %}
         <div class="alert alert-success py-2 small">
             Now offered: <strong>{{ 'version ' ~ info.version if info.version else 'SafeNet.apk' }}</strong>
-            · {{ '%.1f'|format(info.size / 1048576) }} MB · uploaded {{ info.at.strftime('%Y-%m-%d %H:%M') }} UTC
+            · {{ '%.1f'|format(info.size / 1048576) }} MB · uploaded {{ info.at|local('%Y-%m-%d %H:%M') }}
             · <a href="{{ link }}">download</a>
         </div>
         {% else %}

@@ -21,7 +21,7 @@
                             <small class="d-block text-muted">{% if m.site_id %}{% for x in sites if x.id == m.site_id %}{{ _('Only {site}', site=x.name) }}{% endfor %}{% else %}{{ _('Whole business') }}{% endif %}</small>
                             {% else %}<span class="badge bg-{{ 'dark' if m.role == 'owner' else 'primary' if m.role == 'admin' else 'secondary' }}">{{ {'owner': _('Owner'), 'admin': _('Admin'), 'staff': _('Staff')}.get(m.role, m.role|capitalize) }}</span>{% endif %}</td>
                         <td>{% if m.is_active %}<span class="badge bg-success">{{ _('Active') }}</span>{% else %}<span class="badge bg-danger">{{ _('Disabled') }}</span>{% endif %}</td>
-                        <td><small>{{ m.last_login.strftime('%Y-%m-%d %H:%M') if m.last_login else _('Never') }}</small></td>
+                        <td><small>{{ m.last_login|local('%Y-%m-%d %H:%M') if m.last_login else _('Never') }}</small></td>
                         <td class="text-nowrap">
                             {% if manageable(m) %}
                             <form method="POST" action="{{ url_for('toggle_team_member', member_id=m.id) }}" style="display:inline;">

@@ -59,7 +59,7 @@
             <div class="card-header"><i class="bi bi-chat-dots"></i> {{ _('Voucher code by SMS') }}</div>
             <div class="card-body">
                 <p class="mb-2">{{ _('SMS to paying guests is') }} <strong class="{{ 'text-success' if tenant.sms_to_guests else 'text-danger' }}">{{ _('ON') if tenant.sms_to_guests else _('OFF') }}</strong>{% if tenant.sms_changed_at %}
-                    <span class="small text-muted">({{ _('since {date}', date=tenant.sms_changed_at.strftime('%d %b %Y %H:%M')) }})</span>{% endif %}.</p>
+                    <span class="small text-muted">({{ _('since {date}', date=tenant.sms_changed_at|local('%d %b %Y %H:%M')) }})</span>{% endif %}.</p>
                 <p class="small text-muted mb-1"><strong>{{ _('Each SMS costs TZS {price}', price=sms_price) }}</strong>{{ _(', paid by you: taken from your balance with SafeNet Pay, or added to your monthly SafeNet bill with your own account.') }}
                     {{ _('A paying guest gets 1 SMS; "Buy for a friend" sends 2 (the friend\'s code and a receipt to the payer).') }}</p>
                 <p class="small text-muted mb-2">{{ _('Turned off, SafeNet sends no SMS and charges nothing: guests see their code on screen after paying (they should write it down) and "Buy for a friend" is not offered.') }}

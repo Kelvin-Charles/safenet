@@ -70,11 +70,11 @@
                         <table class="table table-sm">
                             <tr>
                                 <th width="40%">{{ _('Start Time') }}:</th>
-                                <td>{{ session.acctstarttime.strftime('%Y-%m-%d %H:%M:%S') if session.acctstarttime else _('N/A') }}</td>
+                                <td>{{ session.acctstarttime|local('%Y-%m-%d %H:%M:%S') if session.acctstarttime else _('N/A') }}</td>
                             </tr>
                             <tr>
                                 <th>{{ _('Stop Time') }}:</th>
-                                <td>{{ session.acctstoptime.strftime('%Y-%m-%d %H:%M:%S') if session.acctstoptime else _('Still Active') }}</td>
+                                <td>{{ session.acctstoptime|local('%Y-%m-%d %H:%M:%S') if session.acctstoptime else _('Still Active') }}</td>
                             </tr>
                             <tr>
                                 <th>{{ _('Duration') }}:</th>

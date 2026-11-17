@@ -37,6 +37,7 @@ class Api {
         'Content-Type': 'application/json',
         if (token != null) 'Authorization': 'Bearer $token',
         if (siteId != null) 'X-Site-Id': '$siteId',
+        'X-UTC-Offset': '${DateTime.now().timeZoneOffset.inMinutes}',   // times the server formats, in the phone's local time
         'Accept-Language': S.lang,
         if (here != null) 'X-Here': here!,
       };

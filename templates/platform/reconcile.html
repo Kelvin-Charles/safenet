@@ -14,7 +14,7 @@
         {% endfor %}
     </div>
     <div class="small text-muted">
-        {% if report %}Read from Snippe at {{ report.at.strftime('%H:%M') }} UTC ·{% endif %}
+        {% if report %}Read from Snippe at {{ report.at|local('%H:%M') }} ·{% endif %}
         <a href="{{ url_for('platform_reconcile', period=period, refresh=1) }}"><i class="bi bi-arrow-clockwise"></i> Read again</a>
     </div>
 </div>

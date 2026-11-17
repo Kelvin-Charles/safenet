@@ -159,11 +159,11 @@
                 <tbody>
                     {% for p in payments %}
                     <tr>
-                        <td><small>{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</small><small class="d-block text-muted font-monospace">{{ p.reference }}</small></td>
+                        <td><small>{{ p.created_at|local('%Y-%m-%d %H:%M') }}</small><small class="d-block text-muted font-monospace">{{ p.reference }}</small></td>
                         <td>{{ p.tenant.name }}<small class="d-block text-muted">{{ p.phone or ('manual' if p.method == 'manual') }}</small></td>
                         <td>{{ p.plan_name or '-' }} × {{ p.months }}</td>
                         <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}</td>
-                        <td><small>{{ p.period_end.strftime('%d %b %Y') if p.period_end else '-' }}</small></td>
+                        <td><small>{{ p.period_end|local('%d %b %Y') if p.period_end else '-' }}</small></td>
                         <td>{% if p.status == 'paid' %}<span class="badge bg-success">Paid</span>{% elif p.status == 'pending' %}<span class="badge bg-warning text-dark">Pending</span>{% else %}<span class="badge bg-danger">{{ p.status|capitalize }}</span><small class="d-block text-muted">{{ p.message or '' }}</small>{% endif %}</td>
                     </tr>
                     {% endfor %}

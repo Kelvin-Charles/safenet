@@ -22,12 +22,12 @@
                 <tbody>
                     {% for gw in gateways %}
                     <tr>
-                        <td><strong>{{ gw.name }}</strong><small class="text-muted d-block">{{ _('added {date}', date=gw.created_at.strftime('%Y-%m-%d')) }}</small></td>
+                        <td><strong>{{ gw.name }}</strong><small class="text-muted d-block">{{ _('added {date}', date=gw.created_at|local('%Y-%m-%d')) }}</small></td>
                         <td>{{ site_select('gateway', gw) }}</td>
                         <td><code>{{ gw.key_prefix }}…</code></td>
                         <td>{% if gw.last_seen_at %}
                                 {% set mins = ((now - gw.last_seen_at).total_seconds() // 60)|int %}
-                                <span class="{{ 'text-success' if mins < 10 else 'text-muted' }}">{{ _('just now') if mins < 2 else (_('{n} min ago', n=mins) if mins < 120 else gw.last_seen_at.strftime('%Y-%m-%d %H:%M')) }}</span>
+                                <span class="{{ 'text-success' if mins < 10 else 'text-muted' }}">{{ _('just now') if mins < 2 else (_('{n} min ago', n=mins) if mins < 120 else gw.last_seen_at|local('%Y-%m-%d %H:%M')) }}</span>
                                 <small class="text-muted d-block">{{ gw.last_ip }}</small>
                             {% else %}<span class="text-muted">{{ _('Never') }}</span>{% endif %}</td>
                         <td>{% if gw.is_active %}<span class="badge bg-success">{{ _('Active') }}</span>{% else %}<span class="badge bg-secondary">{{ _('Disabled') }}</span>{% endif %}</td>
