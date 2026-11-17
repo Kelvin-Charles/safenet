@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/session.dart';
+import 'core/updates.dart';
 import 'screens/business/shell.dart';
 import 'screens/guest/guest_home.dart';
 import 'screens/login.dart';
@@ -24,6 +25,7 @@ class _SafeNetAppState extends State<SafeNetApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => AppUpdates.check());     // a new version in the store?
   }
 
   @override
@@ -34,7 +36,10 @@ class _SafeNetAppState extends State<SafeNetApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) context.read<Session>().checkHere(force: true);   // maybe on another Wi-Fi now
+    if (state == AppLifecycleState.resumed) {
+      context.read<Session>().checkHere(force: true);   // maybe on another Wi-Fi now
+      AppUpdates.check();
+    }
   }
 
   @override
@@ -42,6 +47,7 @@ class _SafeNetAppState extends State<SafeNetApp> with WidgetsBindingObserver {
     final s = context.watch<Session>();
     return MaterialApp(
       title: 'SafeNet',
+      navigatorKey: AppUpdates.navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: buildTheme(Brightness.light),
       darkTheme: buildTheme(Brightness.dark),

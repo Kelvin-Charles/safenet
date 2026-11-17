@@ -481,5 +481,7 @@ class S {
     "This phone gets a notification for the alerts turned on. All of them also show in Alerts.": "Simu hii inapata arifa kwa taarifa zilizowashwa. Zote pia zinaonekana kwenye Taarifa.",
     "Allow notifications for SafeNet in the phone settings to get them on this phone.": "Ruhusu arifa za SafeNet kwenye mipangilio ya simu ili uzipate kwenye simu hii.",
     "Alerts show in the app for now. Notifications on the phone are coming soon.": "Taarifa zinaonekana ndani ya programu kwa sasa. Arifa kwenye simu zinakuja hivi karibuni.",
+    "A new version of SafeNet ({v}) is ready. Update now?": "Toleo jipya la SafeNet ({v}) lipo tayari. Sasisha sasa?",
+    "Update": "Sasisha",
 };
 }
