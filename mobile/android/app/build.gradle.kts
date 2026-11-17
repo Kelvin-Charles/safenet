@@ -16,12 +16,15 @@ val hasReleaseKey = keyProps.getProperty("storeFile") != null
 
 android {
     namespace = "com.safezonetz.safenet_app"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk {                                         // flutter_local_notifications needs 37 (installed as API 37.0)
+        version = release(37) { minorApiLevel = 0 }
+    }
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true                 // flutter_local_notifications
     }
 
     defaultConfig {
@@ -60,4 +63,8 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

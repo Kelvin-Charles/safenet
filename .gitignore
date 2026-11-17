@@ -91,3 +91,9 @@ seed_users.json
 !mobile/lib/
 
 *.pem
+
+# Firebase (push notifications): the service account key is a secret; the app configs are uploaded on
+# Platform: Notifications, not built into the app
+*firebase-adminsdk*.json
+google-services.json
+GoogleService-Info.plist

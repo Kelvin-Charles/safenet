@@ -8,6 +8,7 @@ import '../../core/session.dart';
 import '../../core/strings.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
+import 'alerts.dart';
 import 'manage/expenses.dart';
 import 'manage/finance_report.dart';
 import 'manage/offers.dart';
@@ -61,6 +62,7 @@ class MoreScreen extends StatelessWidget {
         if (admin) _Tile(Icons.groups_rounded, S.t('Team'), Colors.brown, () => push(const TeamScreen())),
         if (admin) _Tile(Icons.tune_rounded, S.t('Settings'), Colors.blueGrey, () => push(const SettingsScreen())),
         if (s.can('withdraw')) _Tile(Icons.workspace_premium_rounded, S.t('SafeNet plan'), Sn.brand(context), () => web(S.t('SafeNet plan'), '/billing')),
+        _Tile(Icons.notifications_rounded, S.t('Notifications'), kAccent, () => push(const AlertSettingsScreen())),
         _Tile(Icons.menu_book_rounded, S.t('Setup guides'), Colors.teal.shade700, () => web(S.t('Setup guides'), '/docs')),
       ]),
     ];

@@ -8,6 +8,7 @@ import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api.dart';
+import 'push.dart';
 import 'strings.dart';
 
 enum Kind { none, business, guest }
@@ -43,6 +44,7 @@ class Session extends ChangeNotifier {
         try {
           me = await api.get('/api/m/me');
           _fixSite();
+          unawaited(Push.start(api));
         } on ApiError catch (e) {
           if (e.signedOut) await _clear();
         }
@@ -64,6 +66,7 @@ class Session extends ChangeNotifier {
     await _store.write(key: 'kind', value: 'business');
     await _store.write(key: 'lang', value: S.lang);
     notifyListeners();
+    unawaited(Push.start(api));
   }
 
   /// What the sign-in screen offers (registering, SMS sign-in); fetched once.
@@ -221,6 +224,7 @@ class Session extends ChangeNotifier {
   }
 
   Future<void> _clear() async {
+    if (kind == Kind.business) await Push.stop(api);
     api.token = null;
     api.siteId = null;
     me = null;

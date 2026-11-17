@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import DeletionRequest, Expense, SiteAddress, voucher_sites, Outage, OutageCredit, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
+from models import Notification, PushDevice, DeletionRequest, Expense, SiteAddress, voucher_sites, Outage, OutageCredit, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -27,6 +27,7 @@ import omada
 import unifi
 import ruijie
 import migrations
+import push
 from mailer import send_mail
 from tenancy import (current_tenant, tenant_id, scoped, owned_or_404, tenant_usernames, role_required, superadmin_required,
                      tenant_sites, current_site, site_for_new_things)
@@ -2892,6 +2893,7 @@ def start_background_jobs():
     threading.Thread(target=_daily_summary_loop, name='daily-summary', daemon=True).start()
     threading.Thread(target=_ruijie_loop, name='ruijie-cloud', daemon=True).start()
     threading.Thread(target=_payments_sync_loop, name='payments-sync', daemon=True).start()
+    threading.Thread(target=_alerts_loop, name='alerts', daemon=True).start()
 
 
 def _openapi_admin():
@@ -6670,17 +6672,102 @@ def _gb(n):
     return f'{n / 1e9:.1f} GB' if n >= 1e8 else f'{n / 1e6:.0f} MB'
 
 
+# ---------------------------------------------------------------- app notifications (push + the app's alerts list)
+PUSH_KINDS = ('sale', 'daily', 'device', 'withdrawal', 'billing', 'news', 'platform')
+PUSH_KIND_NAMES = {
+    'sale': ('New sales', 'Each payment a guest makes'),
+    'daily': ("Today's summary", 'Sales, guests and data at 9 pm'),
+    'device': ('Devices offline', 'A gateway, router or access points stops answering, and when it is back'),
+    'withdrawal': ('Withdrawals', 'When your money is sent, or a withdrawal is not approved'),
+    'billing': ('SafeNet plan', 'Renewals, and reminders before your plan ends'),
+    'news': ('News from SafeNet', 'Announcements and important notices'),
+    'platform': ('Platform: to handle', 'Withdrawals to pay and deletion requests (platform team)'),
+}
+
+
+def _push_allowed(admin, kind):
+    """Whether this person's role gets this kind of alert at all."""
+    if kind == 'platform':
+        return admin.is_superadmin
+    if kind == 'sale':
+        return admin.has_role('admin') or admin.is_viewer
+    if kind == 'daily':
+        return admin.has_role('admin') or (admin.is_viewer and not admin.site_id)
+    if kind == 'withdrawal':
+        return admin.has_role('owner')
+    if kind == 'billing':
+        return admin.has_role('admin')
+    return kind in PUSH_KINDS
+
+
+def _push_wants(admin, kind, site_id=None):
+    if not admin.is_active or not _push_allowed(admin, kind) or kind in (admin.push_off or '').split(','):
+        return False
+    return not (site_id and admin.site_id and not admin.is_superadmin and admin.site_id != site_id)   # partner of one site
+
+
+def notify(tenant_id, kind, texts, link=None, site_id=None, people=None):
+    """Alert the people of a business who get this kind of alert (or `people`): a row in each one's alerts list in the
+    app, and a push notification to their phones. texts: (title, body), or {'en': (title, body), 'sw': (title, body)}.
+    Caller commits. Never raises: an alert must not break what triggered it."""
+    try:
+        if people is None:
+            people = Admin.query.filter_by(tenant_id=tenant_id, is_active=True).all() if tenant_id else []
+        sends = []
+        for admin in people:
+            if not _push_wants(admin, kind, site_id):
+                continue
+            title, body = (texts.get(admin.language) or texts['en']) if isinstance(texts, dict) else texts
+            db.session.add(Notification(admin_id=admin.id, tenant_id=tenant_id or admin.tenant_id, kind=kind, title=title[:140],
+                                        body=(body or '')[:500], link=link))
+            sends.append((admin.id, title, body or ''))
+        if sends and push.can_send():
+            _push_async(sends, {'kind': kind, 'link': link or ''})
+        return len(sends)
+    except Exception:
+        log.exception('notification %s for tenant %s failed', kind, tenant_id)
+        return 0
+
+
+def _push_deliver(sends, data):
+    """Send to every phone of each person; forget phones Firebase says are gone."""
+    with app.app_context():
+        try:
+            for admin_id, title, body in sends:
+                for device in PushDevice.query.filter_by(admin_id=admin_id).all():
+                    if push.send(device.token, title, body, data) == 'gone':
+                        db.session.delete(device)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            log.exception('push delivery failed')
+
+
+def _push_async(sends, data):
+    threading.Thread(target=_push_deliver, args=(sends, data), daemon=True).start()
+
+
+def _superadmins():
+    return Admin.query.filter_by(is_superadmin=True, is_active=True).all()
+
+
 def _sale_alert(payment):
-    """'New sale' SMS to the owner, if they asked for it. Caller commits."""
+    """A guest paid: a push to the business's phones, and the 'New sale' SMS to the owner if they asked for it. Caller commits."""
     tenant = payment.tenant
-    if not tenant or not tenant.notify_sale_sms:
+    if not tenant:
         return
-    owner = _owner(tenant)
-    sw = owner is not None and owner.language == 'sw'
     site = db.session.get(Site, payment.site_id) if payment.site_id else None
     where = site.name if site and Site.query.filter_by(tenant_id=tenant.id).count() > 1 else ''
     detail = ', '.join(x for x in (payment.package_name, where) if x)
     total = _day_stats(tenant)['total']
+    money = f'{payment.currency} {payment.amount:,.0f}'
+    notify(tenant.id, 'sale', {'en': (f'New sale: {money}', f'{detail} · {_masked(payment.phone)}. Today: {payment.currency} {total:,.0f}'),
+                               'sw': (f'Mauzo mapya: {money}', f'{detail} · {_masked(payment.phone)}. Leo jumla: {payment.currency} {total:,.0f}')},
+           link='payments', site_id=payment.site_id)
+    if not tenant.notify_sale_sms:
+        return
+    owner = _owner(tenant)
+    sw = owner is not None and owner.language == 'sw'
     text = (f'SafeNet: Mauzo {payment.currency} {payment.amount:,.0f} ({detail}) {_masked(payment.phone)}. Leo jumla: {payment.currency} {total:,.0f}.'
             if sw else
             f'SafeNet: Sale {payment.currency} {payment.amount:,.0f} ({detail}) from {_masked(payment.phone)}. Today: {payment.currency} {total:,.0f}.')
@@ -6710,7 +6797,9 @@ def _send_daily_summaries(now_local=None):
         return 0
     today = now_local.date()
     sent = 0
-    wanted = Tenant.query.filter(or_(Tenant.notify_daily_sms.is_(True), Tenant.notify_daily_email.is_(True)),
+    in_app = db.session.query(Admin.tenant_id).join(PushDevice, PushDevice.admin_id == Admin.id)
+    wanted = Tenant.query.filter(or_(Tenant.notify_daily_sms.is_(True), Tenant.notify_daily_email.is_(True), Tenant.id.in_(in_app)),
+                                 Tenant.status != 'suspended',
                                  or_(Tenant.summary_sent_on.is_(None), Tenant.summary_sent_on < today)).all()
     for tenant in wanted:
         claimed = Tenant.query.filter(Tenant.id == tenant.id, or_(Tenant.summary_sent_on.is_(None), Tenant.summary_sent_on < today)) \
@@ -6721,7 +6810,11 @@ def _send_daily_summaries(now_local=None):
         try:
             owner = _owner(tenant)
             sw = owner is not None and owner.language == 'sw'
-            text = _daily_summary_text(tenant, _day_stats(tenant), sw)
+            stats = _day_stats(tenant)
+            text = _daily_summary_text(tenant, stats, sw)
+            notify(tenant.id, 'daily', {'en': ("Today's summary", _daily_summary_text(tenant, stats, False).split(': ', 1)[-1]),
+                                        'sw': ('Muhtasari wa leo', _daily_summary_text(tenant, stats, True).split(': ', 1)[-1])},
+                   link='dashboard')
             if tenant.notify_daily_sms:
                 _owner_sms(tenant, text, 'daily')
             if tenant.notify_daily_email and owner and owner.email:
@@ -6744,6 +6837,69 @@ def _daily_summary_loop():
                 _send_daily_summaries()
         except Exception:
             log.exception('daily summaries failed')
+
+
+DEVICE_DOWN_SECONDS = 900       # no contact this long: "offline" alert (the dashboard shows it offline too)
+DEVICE_UP_SECONDS = 180
+_STARTED = time.time()
+
+
+def _device_alert(tenant_id, site_id, name, down):
+    name, name_sw = name if isinstance(name, tuple) else (name, name)
+    if down:
+        texts = {'en': (f'{name} is offline', 'No contact for 15 minutes. Guests there may not be able to connect: check its power and internet.'),
+                 'sw': (f'{name_sw} haipo mtandaoni', 'Haijawasiliana kwa dakika 15. Wateja huenda wasiweze kuunganishwa: angalia umeme na intaneti yake.')}
+    else:
+        texts = {'en': (f'{name} is back online', 'Guests can connect again.'),
+                 'sw': (f'{name_sw} imerudi mtandaoni', 'Wateja wanaweza kuunganishwa tena.')}
+    notify(tenant_id, 'device', texts, link='sites', site_id=site_id)
+
+
+def check_devices(now=None):
+    """Alert a business when a gateway, VPN router or its WiFiDog access points stop answering, and when they are back.
+    Once each way (is_down remembers the alert). Returns how many alerts were sent."""
+    now = now or datetime.utcnow()
+    down_before, up_after = now - timedelta(seconds=DEVICE_DOWN_SECONDS), now - timedelta(seconds=DEVICE_UP_SECONDS)
+    sent = 0
+    kinds = ((Gateway, Gateway.last_seen_at, Gateway.is_down, lambda d: d.name),
+             (Router, Router.last_handshake_at, Router.is_down, lambda d: d.name),
+             (Site, Site.wifidog_seen_at, Site.wifidog_down, lambda d: (f'{d.name} access points', f'Access points za {d.name}')))
+    for model, seen, flag, name in kinds:
+        active = model.wifidog_enabled.is_(True) if model is Site else model.is_active.is_(True)
+        base = model.query.join(Tenant, Tenant.id == model.tenant_id).filter(active, Tenant.status != 'suspended', seen.isnot(None))
+        # every one silent at once (several of them): SafeNet's own side is down (e.g. the VPN watcher), not theirs
+        if base.count() > 3 and not base.filter(seen >= down_before).count():
+            continue
+        for d in base.filter(flag.is_(False), seen < down_before).all():
+            setattr(d, flag.key, True)
+            _device_alert(d.tenant_id, d.id if model is Site else d.site_id, name(d), True)
+            sent += 1
+        for d in base.filter(flag.is_(True), seen >= up_after).all():
+            setattr(d, flag.key, False)
+            _device_alert(d.tenant_id, d.id if model is Site else d.site_id, name(d), False)
+            sent += 1
+        db.session.commit()
+    return sent
+
+
+def _alerts_loop():
+    """Every 5 minutes, one worker at a time: device alerts, and old alerts cleared from the app's list."""
+    while True:
+        time.sleep(300)
+        if time.time() - _STARTED < DEVICE_DOWN_SECONDS:          # just restarted: devices haven't checked in yet
+            continue
+        with app.app_context():
+            try:
+                if db.session.execute(text("SELECT GET_LOCK('safenet_alerts', 0)")).scalar():
+                    try:
+                        check_devices()
+                        Notification.query.filter(Notification.created_at < datetime.utcnow() - timedelta(days=90)).delete(synchronize_session=False)
+                        db.session.commit()
+                    finally:
+                        db.session.execute(text("SELECT RELEASE_LOCK('safenet_alerts')"))
+            except Exception:
+                db.session.rollback()
+                log.exception('alerts check failed')
 
 
 def _month_start():
@@ -8943,6 +9099,8 @@ def _new_deletion_request(kind, account, contact=None, reason=None, source='web'
     for admin_ in Admin.query.filter_by(is_superadmin=True, is_active=True):
         if admin_.email:
             send_mail(admin_.email, f'Account deletion request: {account}', body)
+    notify(None, 'platform', ('Account deletion request', f'{kind}: {account}'), people=_superadmins())
+    db.session.commit()
     return req
 
 
@@ -9102,6 +9260,8 @@ def request_withdrawal():
         return redirect(url_for('confirm_withdrawal', wid=w.id))
     db.session.add(w)                  # no business phone (or no SMS): the platform admin checks and pays it
     db.session.commit()
+    notify(None, 'platform', (f'Withdrawal to pay: {tenant.name}', f'{tenant.currency} {amount:,.0f} to {w.destination}'), people=_superadmins())
+    db.session.commit()
     for admin in Admin.query.filter_by(is_superadmin=True, is_active=True):
         send_mail(admin.email, f'Withdrawal request: {tenant.name} {tenant.currency} {amount:,.0f}',
                   f'{tenant.name} asked to withdraw {tenant.currency} {amount:,.0f} to {w.destination}'
@@ -9185,6 +9345,9 @@ def confirm_withdrawal(wid):
         error = _send_payout_now(w, options[0]) if options else 'No payout service is set up for this kind of withdrawal.'
         if error:
             log.warning('withdrawal %s left for the platform admin: %s', wid, error)
+            notify(None, 'platform', (f'Withdrawal to pay by hand: {tenant.name}', f'{tenant.currency} {w.amount:,.0f} to {w.destination}: {error}'[:300]),
+                   people=_superadmins())
+            db.session.commit()
             for admin in Admin.query.filter_by(is_superadmin=True, is_active=True):
                 send_mail(admin.email, f'Withdrawal to pay by hand: {tenant.name} {tenant.currency} {w.amount:,.0f}',
                           f'{tenant.name} confirmed a withdrawal of {tenant.currency} {w.amount:,.0f} to {w.destination} with the '
@@ -9337,6 +9500,18 @@ def _finish_withdrawal(w, status, reference=None, note=None):
                 f'Your withdrawal of {amount} was not approved{": " + note if note else ""}. '
                 f'The amount is back in your balance.\n')
         send_mail(owner.email, f'Withdrawal {status}', body)
+    cur = w.tenant.currency
+    if status == 'paid':
+        fee = f' (fee {w.fee_charged:,.0f})' if w.fee_charged else ''
+        fee_sw = f' (ada {w.fee_charged:,.0f})' if w.fee_charged else ''
+        notify(w.tenant_id, 'withdrawal', {'en': (f'Withdrawal sent: {cur} {w.sent_amount:,.0f}', f'Sent to {w.destination}{fee}. Ref {w.reference}.'),
+                                           'sw': (f'Pesa imetumwa: {cur} {w.sent_amount:,.0f}', f'Imetumwa kwa {w.destination}{fee_sw}. Kumb. {w.reference}.')},
+               link='earnings')
+    else:
+        why = f': {note}' if note else ''
+        notify(w.tenant_id, 'withdrawal', {'en': ('Withdrawal not approved', f'{amount}{why}. It is back in your balance.'),
+                                           'sw': ('Utoaji haukuidhinishwa', f'{amount}{why}. Imerudi kwenye salio lako.')},
+               link='earnings')
     if status == 'paid':
         send_sms_async(w.phone, f'SafeNet: {w.tenant.currency} {w.sent_amount:,.0f} has been sent to {"this number" if w.method == "mobile" else w.destination}'
                                 f'{f" (fee {w.fee_charged:,.0f})" if w.fee_charged else ""}. Ref {w.reference}.')
@@ -10239,6 +10414,9 @@ def _fulfil_subscription(sp):
     sp.period_start, sp.period_end = extend_subscription(sp.tenant, sp.months, sp.billing_plan)
     sp.status, sp.paid_at = 'paid', datetime.utcnow()
     owner = Admin.query.filter_by(tenant_id=sp.tenant_id, role='owner').first()
+    notify(sp.tenant_id, 'billing', {'en': ('SafeNet plan renewed', f'{sp.currency} {sp.amount:,.0f} received. Paid until {sp.period_end:%d %b %Y}.'),
+                                     'sw': ('Kifurushi cha SafeNet kimelipiwa', f'{sp.currency} {sp.amount:,.0f} imepokelewa. Hadi {sp.period_end:%d %b %Y}.')},
+           link='billing')
     if owner:
         send_mail(owner.email, 'SafeNet subscription renewed',
                   f'Thank you! We received {sp.currency} {sp.amount:,.0f} for {sp.months} month(s) of '
@@ -10401,6 +10579,14 @@ def send_billing_reminders(now=None):
             continue
         if tenant.billing_notice == key:
             continue
+        ended = key.startswith('exp:')
+        notify(tenant.id, 'billing', {
+            'en': ('Your SafeNet plan has ended' if ended else 'Your SafeNet plan ends soon',
+                   f'Renew before {tenant.service_until:%d %b %Y} so your Wi-Fi keeps working.' if ended and tenant.service_until
+                   else f'It ends on {end:%d %b %Y}. Renew to keep your Wi-Fi running.'),
+            'sw': ('Kifurushi chako cha SafeNet kimeisha' if ended else 'Kifurushi chako cha SafeNet kinaisha karibuni',
+                   f'Lipia kabla ya {tenant.service_until:%d %b %Y} ili Wi-Fi iendelee kufanya kazi.' if ended and tenant.service_until
+                   else f'Kinaisha {end:%d %b %Y}. Lipia ili Wi-Fi iendelee.')}, link='billing')
         owner = Admin.query.filter_by(tenant_id=tenant.id, role='owner').first()
         if owner and send_mail(owner.email, subject, body):
             sent += 1
@@ -10646,6 +10832,7 @@ def _remember_fields(key, message):
 # (/platform/app); it is kept outside the code (APP_FILES_DIR, a Docker volume) so deploys keep it.
 # ---------------------------------------------------------------------------
 APP_FILES_DIR = os.environ.get('APP_FILES_DIR') or os.path.join(app.instance_path, 'app_files')
+push.folder = APP_FILES_DIR          # Firebase files for push notifications (Platform: Notifications)
 ANDROID_APK = 'safenet.apk'
 ANDROID_APK_MAX = 200 * 1024 * 1024
 
@@ -10792,6 +10979,66 @@ def snippe_webhook():
         db.session.rollback()
         log.exception('snippe webhook refresh %s failed', ref)
     return jsonify(received=True)
+
+
+@app.route('/platform/notifications', methods=['GET', 'POST'])
+@login_required
+@superadmin_required
+def platform_notifications():
+    """Push notifications to the SafeNet app: the Firebase files, a test, and announcements to businesses."""
+    if request.method == 'POST':
+        _check_csrf()
+        action = request.form.get('action')
+        if action == 'upload':
+            done = []
+            for which in push.FILES:
+                f = request.files.get(which)
+                if f and f.filename:
+                    try:
+                        push.save(which, f.read(200_000))
+                        done.append(which)
+                    except push.PushError as e:
+                        flash(str(e), 'danger')
+            if done:
+                flash('Saved: ' + ', '.join({'service': 'service account key', 'android': 'Android app', 'ios': 'iOS app'}[w] for w in done) + '.', 'success')
+        elif action == 'remove' and request.form.get('which') in push.FILES:
+            push.remove(request.form['which'])
+            flash('Removed.', 'success')
+        elif action == 'test':
+            devices = PushDevice.query.filter_by(admin_id=current_user.id).all()
+            if not devices:
+                flash('Your account has no phone signed in to the SafeNet app yet (with notifications allowed).', 'warning')
+            else:
+                try:
+                    results = [push.send(d.token, 'SafeNet test', 'Push notifications work.', {'kind': 'news'}) for d in devices]
+                    flash(f'Sent to {results.count("ok")} of {len(devices)} phone(s).', 'success' if 'ok' in results else 'danger')
+                except push.PushError as e:
+                    flash(str(e), 'danger')
+        elif action == 'announce':
+            title = (request.form.get('title') or '').strip()[:140]
+            body = (request.form.get('body') or '').strip()[:500]
+            who = request.form.get('who')
+            tid = request.form.get('tenant_id', type=int)
+            if not title:
+                flash('Write a title.', 'danger')
+                return redirect(url_for('platform_notifications'))
+            q = Admin.query.join(Tenant, Tenant.id == Admin.tenant_id).filter(Admin.is_active.is_(True), Tenant.status != 'suspended')
+            if tid:
+                q = q.filter(Admin.tenant_id == tid)
+            if who == 'owners':
+                q = q.filter(Admin.role == 'owner')
+            people = q.all()
+            count = notify(None, 'news', (title, body), people=people)
+            db.session.commit()
+            flash(f'Sent to {count} people (in their alerts list, and to the phones of those with the app).', 'success')
+        return redirect(url_for('platform_notifications'))
+    devices = dict(db.session.query(PushDevice.platform, func.count()).group_by(PushDevice.platform).all())
+    news = (db.session.query(Notification.title, Notification.body, func.min(Notification.created_at), func.count())
+            .filter(Notification.kind == 'news').group_by(Notification.title, Notification.body)
+            .order_by(func.min(Notification.created_at).desc()).limit(10).all())
+    return render_template('platform/notifications.html', st=push.status(), devices=devices, news=news,
+                           tenants=Tenant.query.filter(Tenant.status != 'suspended').order_by(Tenant.name).all(),
+                           mine=PushDevice.query.filter_by(admin_id=current_user.id).count(), kinds=PUSH_KIND_NAMES)
 
 
 # Initialize database

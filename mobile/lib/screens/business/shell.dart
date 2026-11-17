@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/push.dart';
 import '../../core/session.dart';
 import '../../core/strings.dart';
+import 'alerts.dart';
 import 'customers.dart';
 import 'home.dart';
 import 'live.dart';
@@ -19,6 +21,20 @@ class BusinessShell extends StatefulWidget {
 
 class _BusinessShellState extends State<BusinessShell> {
   int tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    Push.onOpen = (link) {                                      // a notification tapped
+      if (mounted) openAlertLink(context, link);
+    };
+  }
+
+  @override
+  void dispose() {
+    Push.onOpen = null;
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

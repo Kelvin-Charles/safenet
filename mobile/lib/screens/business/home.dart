@@ -7,6 +7,7 @@ import '../../core/session.dart';
 import '../../core/strings.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
+import 'alerts.dart';
 import 'more.dart';
 import 'shell.dart';
 import '../../ui/kit.dart';
@@ -21,7 +22,7 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       appBar: SnAppBar(
         title: Text((s.me?['tenant']?['name'] as String?) ?? 'SafeNet'),
-        actions: const [SiteButton()],
+        actions: const [SiteButton(), AlertsBell(), SizedBox(width: 8)],
       ),
       body: Loader<Map<String, dynamic>>(
         reloadKey: s.api.siteId,

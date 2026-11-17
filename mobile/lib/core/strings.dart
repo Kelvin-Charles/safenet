@@ -472,5 +472,14 @@ class S {
     "Don't add it for me": "Usiniongezee",
     "Last payment": "Malipo ya mwisho",
     "Leave empty to keep repeating until you change it.": "Acha wazi ili yaendelee kujirudia hadi utakapobadilisha.",
+    "Alerts": "Taarifa",
+    "Notifications": "Arifa",
+    "Mark all read": "Weka zote kama zimesomwa",
+    "Show more": "Onyesha zaidi",
+    "Alerts show here for now. Notifications on the phone are coming soon.": "Taarifa zinaonekana hapa kwa sasa. Arifa kwenye simu zinakuja hivi karibuni.",
+    "No alerts yet. Sales, devices going offline and withdrawals will show here.": "Hakuna taarifa bado. Mauzo, vifaa vikizimika na utoaji wa pesa vitaonekana hapa.",
+    "This phone gets a notification for the alerts turned on. All of them also show in Alerts.": "Simu hii inapata arifa kwa taarifa zilizowashwa. Zote pia zinaonekana kwenye Taarifa.",
+    "Allow notifications for SafeNet in the phone settings to get them on this phone.": "Ruhusu arifa za SafeNet kwenye mipangilio ya simu ili uzipate kwenye simu hii.",
+    "Alerts show in the app for now. Notifications on the phone are coming soon.": "Taarifa zinaonekana ndani ya programu kwa sasa. Arifa kwenye simu zinakuja hivi karibuni.",
 };
 }

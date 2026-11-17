@@ -292,6 +292,10 @@ def run():
     _add_column('expenses', 'repeat_next', 'DATE')
     _add_column('expenses', 'repeat_of_id', 'INTEGER')
     _add_index('expenses', 'uq_expenses_repeat', 'repeat_of_id, spent_on', unique=True)
+    _add_column('admins', 'push_off', "VARCHAR(255) NOT NULL DEFAULT ''")
+    _add_column('gateways', 'is_down', 'BOOLEAN NOT NULL DEFAULT 0')
+    _add_column('routers', 'is_down', 'BOOLEAN NOT NULL DEFAULT 0')
+    _add_column('sites', 'wifidog_down', 'BOOLEAN NOT NULL DEFAULT 0')
     _ensure_sites()
     _scrub_provider_messages()
 

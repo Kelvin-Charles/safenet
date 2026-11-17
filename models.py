@@ -114,6 +114,7 @@ class Site(db.Model):
     # WiFiDog access points (Ruijie RG-AP and others) use /wifidog/<portal_token>/ as their auth server
     wifidog_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
     wifidog_seen_at = db.Column(db.DateTime)            # last ping or request from an access point
+    wifidog_down = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())   # "offline" alert sent
     wifidog_gw_id = db.Column(db.String(64))            # last access point id seen
     # RADIUS access points with an external login page (Grandstream, Cambium, CoovaChilli, MikroTik, Meraki): they send
     # guests to /hs/<portal_token>, SafeNet checks the code and hands it back to the device, which asks SafeNet's RADIUS
@@ -194,6 +195,7 @@ class Gateway(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     last_seen_at = db.Column(db.DateTime)
     last_ip = db.Column(db.String(45))
+    is_down = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())   # "offline" alert sent
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     tenant = db.relationship('Tenant')
@@ -222,6 +224,7 @@ class Admin(UserMixin, db.Model):
     role = db.Column(db.String(16), nullable=False, default='owner')
     is_superadmin = db.Column(db.Boolean, nullable=False, default=False)  # platform operator
     email_verified_at = db.Column(db.DateTime)
+    push_off = db.Column(db.String(255), nullable=False, default='', server_default='')   # alert kinds turned off: "sale,daily"
 
     tenant = db.relationship('Tenant')
 
@@ -811,6 +814,7 @@ class Router(db.Model):
     last_handshake_at = db.Column(db.DateTime)                  # updated by safenet-wireguard
     rx_bytes = db.Column(db.BigInteger, default=0)
     tx_bytes = db.Column(db.BigInteger, default=0)
+    is_down = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())   # "offline" alert sent
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     tenant = db.relationship('Tenant')
@@ -1148,3 +1152,32 @@ class DeletionRequest(db.Model):
     done_at = db.Column(db.DateTime)
 
     tenant = db.relationship('Tenant')
+
+
+class PushDevice(db.Model):
+    """A phone signed in to the SafeNet app that gets push notifications (its Firebase token)."""
+    __tablename__ = 'push_devices'
+
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='CASCADE'), nullable=False, index=True)
+    token = db.Column(db.String(255), nullable=False, unique=True)
+    platform = db.Column(db.String(8), nullable=False, default='android')    # android, ios
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_seen_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    admin = db.relationship('Admin')
+
+
+class Notification(db.Model):
+    """An alert for one person (sale, device offline, withdrawal...): pushed to their phones and kept in the app's list."""
+    __tablename__ = 'notifications'
+
+    id = db.Column(db.Integer, primary_key=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='CASCADE'), nullable=False, index=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), index=True)
+    kind = db.Column(db.String(16), nullable=False)               # sale, daily, device, withdrawal, billing, news, platform
+    title = db.Column(db.String(140), nullable=False)
+    body = db.Column(db.String(500), nullable=False, default='')
+    link = db.Column(db.String(32))                                # app screen to open: payments, earnings, sites, billing...
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    read_at = db.Column(db.DateTime)

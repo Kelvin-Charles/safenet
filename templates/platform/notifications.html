@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Notifications - {{ app_name }}{% endblock %}
+{% block page_title %}Platform: Notifications{% endblock %}
+
+{% block content %}
+{% set ready = st.service and (st.android or st.ios) %}
+<div class="row">
+    <div class="col-lg-7 mb-3">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-bell"></i> Push notifications to the SafeNet app</div>
+            <div class="card-body">
+                {% if ready %}
+                <div class="alert alert-success py-2 small mb-3"><i class="bi bi-check-circle"></i> On. Phones signed in to the app get alerts:
+                    {{ devices.get('android', 0) }} Android, {{ devices.get('ios', 0) }} iPhone.</div>
+                {% else %}
+                <div class="alert alert-warning py-2 small mb-3"><i class="bi bi-exclamation-triangle"></i> Off: upload the files below.
+                    Until then alerts still appear in the app's <strong>Alerts</strong> list, without a notification on the phone.</div>
+                {% endif %}
+                <table class="table table-sm small align-middle">
+                    {% for which, label, value, extra in [
+                        ('service', 'Service account key (sends the notifications)', st.service, st.service_email),
+                        ('android', 'Android app (google-services.json)', st.android, st.android_project),
+                        ('ios', 'iOS app (GoogleService-Info.plist)', st.ios, st.ios_project)] %}
+                    <tr><td>{{ label }}</td>
+                        <td>{% if value %}<span class="badge bg-success">Set</span> <code class="small">{{ value }}</code>
+                            {% if extra %}<small class="text-muted d-block">{{ extra }}</small>{% endif %}
+                            {% if which != 'service' and st.service and extra and extra != st.service %}<small class="text-danger d-block">Not the same Firebase project as the key ({{ st.service }})</small>{% endif %}
+                            {% else %}<span class="badge bg-secondary">Missing</span>{% endif %}</td>
+                        <td class="text-end">{% if value %}<form method="POST" class="d-inline" onsubmit="return confirm('Remove this file?')">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="remove">
+                            <button class="btn btn-link btn-sm text-danger p-0" name="which" value="{{ which }}">Remove</button></form>{% endif %}</td></tr>
+                    {% endfor %}
+                </table>
+                <form method="POST" enctype="multipart/form-data" class="row g-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="upload">
+                    <div class="col-12"><label class="form-label small mb-1">Service account key (.json)</label>
+                        <input type="file" name="service" accept=".json,application/json" class="form-control form-control-sm"></div>
+                    <div class="col-md-6"><label class="form-label small mb-1">google-services.json</label>
+                        <input type="file" name="android" accept=".json,application/json" class="form-control form-control-sm"></div>
+                    <div class="col-md-6"><label class="form-label small mb-1">GoogleService-Info.plist</label>
+                        <input type="file" name="ios" accept=".plist" class="form-control form-control-sm"></div>
+                    <div class="col-12 d-flex gap-2">
+                        <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-upload"></i> Save files</button>
+                    </div>
+                </form>
+                {% if st.service %}
+                <form method="POST" class="mt-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="test">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit"><i class="bi bi-send"></i> Send a test to my phone{{ '' if mine == 1 else 's' }} ({{ mine }})</button>
+                </form>
+                {% endif %}
+                <details class="small text-muted mt-3">
+                    <summary>Where these files come from</summary>
+                    <ol class="mt-2 mb-0">
+                        <li>At <a href="https://console.firebase.google.com" target="_blank" rel="noopener">console.firebase.google.com</a>, create a project (e.g. SafeNet).</li>
+                        <li>Add an <strong>Android</strong> app with package name <code>com.safezonetz.safenet_app</code> and download <strong>google-services.json</strong>.</li>
+                        <li>Add an <strong>iOS</strong> app with bundle ID <code>com.safezonetz.safenetApp</code> and download <strong>GoogleService-Info.plist</strong>.</li>
+                        <li>For iPhones: in Apple Developer, Keys, create a key with <em>Apple Push Notifications service</em>, then upload the .p8 in Firebase: Project settings, Cloud Messaging, Apple app configuration.</li>
+                        <li>Project settings, Service accounts, <strong>Generate new private key</strong>: that file is the service account key. Keep it secret.</li>
+                    </ol>
+                    <p class="mt-2 mb-0">The app reads its settings from SafeNet when it starts, so no new app build is needed once these are uploaded. The files stay on the server (app files folder, readable only by SafeNet).</p>
+                </details>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5 mb-3">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-megaphone"></i> Send an announcement</div>
+            <div class="card-body">
+                <form method="POST" onsubmit="return confirm('Send this to everyone chosen?')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="announce">
+                    <div class="mb-2"><label class="form-label small mb-1">Title</label>
+                        <input name="title" maxlength="140" class="form-control form-control-sm" required placeholder="e.g. Maintenance tonight 23:00-23:30"></div>
+                    <div class="mb-2"><label class="form-label small mb-1">Message</label>
+                        <textarea name="body" maxlength="500" rows="3" class="form-control form-control-sm"></textarea></div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6"><label class="form-label small mb-1">Business</label>
+                            <select name="tenant_id" class="form-select form-select-sm"><option value="">All businesses</option>
+                                {% for t in tenants %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}</select></div>
+                        <div class="col-6"><label class="form-label small mb-1">People</label>
+                            <select name="who" class="form-select form-select-sm"><option value="all">Everyone on the team</option><option value="owners">Owners only</option></select></div>
+                    </div>
+                    <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-send"></i> Send</button>
+                    <small class="text-muted d-block mt-2">It shows in each person's Alerts list in the app, and as a notification on their phone (unless they turned off "{{ kinds.news[0] }}").</small>
+                </form>
+                {% if news %}
+                <hr><div class="small fw-semibold mb-1">Sent before</div>
+                <ul class="list-unstyled small mb-0">
+                    {% for title, body, at, count in news %}
+                    <li class="mb-1"><strong>{{ title }}</strong> <span class="text-muted">· {{ at|local('%Y-%m-%d %H:%M') }} · {{ count }} people</span>
+                        {% if body %}<div class="text-muted">{{ body|truncate(120) }}</div>{% endif %}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+<div class="card">
+    <div class="card-header"><i class="bi bi-list-check"></i> What the app alerts people about</div>
+    <div class="card-body small">
+        <ul class="mb-0">
+            {% for k, v in kinds.items() %}<li><strong>{{ v[0] }}</strong>: {{ v[1] }}.</li>{% endfor %}
+        </ul>
+        <p class="text-muted mt-2 mb-0">Each person turns kinds on or off in the app (More, Notifications). Only the people whose role sees the money get sales and summaries; withdrawals go to owners; the plan to owners and admins.</p>
+    </div>
+</div>
+{% endblock %}

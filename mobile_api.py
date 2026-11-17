@@ -19,10 +19,11 @@ from flask import Blueprint, abort, g, jsonify, redirect, request
 from flask_login import current_user, login_user
 from itsdangerous import BadSignature, SignatureExpired
 from sqlalchemy import desc, func, or_
+from sqlalchemy.exc import IntegrityError
 
 from i18n import tr
 from models import (db, Admin, Package, Payment, Plan, RadAcct, RadCheck, RadReply, RadUserGroup, RateEvent, Site,
-                    SmsContact, Tenant, Voucher, Withdrawal, OutageCredit, Outage)
+                    SmsContact, Tenant, Voucher, Withdrawal, OutageCredit, Outage, Notification, PushDevice)
 
 bp = Blueprint('mobile', __name__)
 A = None                     # the app module (set by init): its helpers, looked up when called so tests can replace them
@@ -1608,3 +1609,101 @@ def delete_me():
         user = _need_login()
         A._new_deletion_request('business', f'{user.username} ({user.email})', user.email, reason, source='app', admin=user, verified=True)
     return jsonify(ok=True, message=tr('Request received. We will delete the account within 30 days and tell you when it is done.'))
+
+
+# ---------------------------------------------------------------- push notifications and the alerts list
+@bp.route('/api/m/push/config')
+def push_config():
+    """What the app needs to start Firebase (public values); {'enabled': false} until set up on Platform: Notifications."""
+    return jsonify(A.push.app_config())
+
+
+@bp.route('/api/m/push/register', methods=['POST'])
+def push_register():
+    """This phone gets this account's notifications (a phone belongs to whoever signed in on it last)."""
+    user = _need_login()
+    d = request.get_json(silent=True) or {}
+    token = str(d.get('token') or '').strip()
+    platform = 'ios' if d.get('platform') == 'ios' else 'android'
+    if not 20 <= len(token) <= 255:
+        return _err(tr('Check what you entered.'), 400)
+    for _ in range(2):
+        device = PushDevice.query.filter_by(token=token).first()
+        if device is None:
+            device = PushDevice(token=token)
+            db.session.add(device)
+        device.admin_id, device.platform, device.last_seen_at = user.id, platform, datetime.utcnow()
+        try:
+            db.session.commit()
+            break
+        except IntegrityError:          # the same phone registering twice at once
+            db.session.rollback()
+    return jsonify(ok=True)
+
+
+@bp.route('/api/m/push/unregister', methods=['POST'])
+def push_unregister():
+    """Signing out: this phone stops getting notifications (works without a sign-in: the token is the phone's own)."""
+    token = str((request.get_json(silent=True) or {}).get('token') or '').strip()[:255]
+    if token:
+        PushDevice.query.filter_by(token=token).delete()
+        db.session.commit()
+    return jsonify(ok=True)
+
+
+def _alert_json(n):
+    return {'id': n.id, 'kind': n.kind, 'title': n.title, 'body': n.body, 'link': n.link, 'at': _iso(n.created_at), 'read': n.read_at is not None}
+
+
+@bp.route('/api/m/alerts')
+def alerts():
+    user = _need_login()
+    mine = Notification.query.filter_by(admin_id=user.id)
+    before = request.args.get('before', type=int)
+    rows = (mine.filter(Notification.id < before) if before else mine).order_by(Notification.id.desc()).limit(PER_PAGE + 1).all()
+    return jsonify(items=[_alert_json(n) for n in rows[:PER_PAGE]], more=len(rows) > PER_PAGE,
+                   unread=mine.filter(Notification.read_at.is_(None)).count(), push=A.push.can_send())
+
+
+@bp.route('/api/m/alerts/count')
+def alerts_count():
+    user = _need_login()
+    return jsonify(unread=Notification.query.filter_by(admin_id=user.id).filter(Notification.read_at.is_(None)).count())
+
+
+@bp.route('/api/m/alerts/read', methods=['POST'])
+def alerts_read():
+    """Mark one alert read ({"id": 5}) or all of them ({})."""
+    user = _need_login()
+    q = Notification.query.filter_by(admin_id=user.id).filter(Notification.read_at.is_(None))
+    aid = (request.get_json(silent=True) or {}).get('id')
+    if aid is not None:
+        if not str(aid).isdigit():
+            return _err(tr('Not found.'), 404)
+        q = q.filter(Notification.id == int(aid))
+    q.update({'read_at': datetime.utcnow()}, synchronize_session=False)
+    db.session.commit()
+    return alerts_count()
+
+
+@bp.route('/api/m/alerts/settings')
+def alert_settings():
+    user = _need_login()
+    off = set((user.push_off or '').split(','))
+    kinds = [{'kind': k, 'name': tr(A.PUSH_KIND_NAMES[k][0]), 'about': tr(A.PUSH_KIND_NAMES[k][1]), 'on': k not in off}
+             for k in A.PUSH_KINDS if A._push_allowed(user, k)]
+    return jsonify(kinds=kinds, push=A.push.can_send(), phones=PushDevice.query.filter_by(admin_id=user.id).count())
+
+
+@bp.route('/api/m/alerts/settings', methods=['POST'])
+def alert_settings_save():
+    """{"sale": false, "daily": true}: which alerts this person gets (in the list and on the phone)."""
+    user = _need_login()
+    d = request.get_json(silent=True) or {}
+    off = {k for k in (user.push_off or '').split(',') if k in A.PUSH_KINDS}
+    for k in A.PUSH_KINDS:
+        if k in d:
+            (off.discard if d[k] else off.add)(k)
+    user.push_off = ','.join(sorted(off))
+    db.session.commit()
+    return alert_settings()
