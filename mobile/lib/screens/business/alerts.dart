@@ -15,9 +15,10 @@ import 'web_page.dart';
 (IconData, Color) alertLook(String? kind) => switch (kind) {
       'sale' => (Icons.payments_rounded, kGood),
       'daily' => (Icons.insights_rounded, kAccent),
-      'device' => (Icons.router_rounded, kBad),
+      'device' => (Icons.router_rounded, kWarn),
       'withdrawal' => (Icons.call_made_rounded, Colors.green.shade800),
       'billing' => (Icons.workspace_premium_rounded, kGold),
+      'failed' => (Icons.error_rounded, kBad),
       'platform' => (Icons.admin_panel_settings_rounded, Colors.deepPurple),
       _ => (Icons.campaign_rounded, Colors.indigo),
     };

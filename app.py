@@ -4336,6 +4336,7 @@ def _ruijie_push_site(site, only=None, deadline=None):
             voucher.ruijie_state = 'failed'
             voucher.ruijie_note = f'no-package:{voucher.validity_minutes}'
             missing.add(voucher.validity_minutes)
+            _ruijie_no_code(vid, f'no Ruijie package lasts {format_minutes(voucher.validity_minutes)}')
             db.session.commit()
             continue
         try:
@@ -4349,6 +4350,7 @@ def _ruijie_push_site(site, only=None, deadline=None):
             elif state == 'catchup' and 'invalid code' in str(e).lower():     # Ruijie only takes codes it makes
                 db.session.rollback()
                 Voucher.query.filter_by(id=vid).update({'ruijie_state': 'failed', 'ruijie_note': 'ruijie-codes'})
+                _ruijie_no_code(vid, 'Ruijie only takes codes it makes')
                 db.session.commit()
             else:
                 db.session.rollback()
@@ -4362,6 +4364,13 @@ def _ruijie_push_site(site, only=None, deadline=None):
     if missing:
         raise ruijie.RuijieError(tr('No Ruijie package lasts {d}. Create one in Ruijie Cloud, then press Read packages again.',
                                     d=', '.join(format_minutes(m) for m in sorted(missing))))
+
+
+def _ruijie_no_code(voucher_id, why):
+    """A paid code that couldn't be made on Ruijie Cloud: the guest paid and can't log in, so tell the business."""
+    payment = Payment.query.filter_by(voucher_id=voucher_id).first()
+    if payment is not None:
+        _payment_problem(payment, 'no_code', why)
 
 
 def _ruijie_catch_up():
@@ -6673,9 +6682,10 @@ def _gb(n):
 
 
 # ---------------------------------------------------------------- app notifications (push + the app's alerts list)
-PUSH_KINDS = ('sale', 'daily', 'device', 'withdrawal', 'billing', 'news', 'platform')
+PUSH_KINDS = ('sale', 'failed', 'daily', 'device', 'withdrawal', 'billing', 'news', 'platform')
 PUSH_KIND_NAMES = {
     'sale': ('New sales', 'Each payment a guest makes'),
+    'failed': ('Payment problems', "A guest's payment fails, comes in short, or is paid but gets no code"),
     'daily': ("Today's summary", 'Sales, guests and data at 9 pm'),
     'device': ('Devices offline', 'A gateway, router or access points stops answering, and when it is back'),
     'withdrawal': ('Withdrawals', 'When your money is sent, or a withdrawal is not approved'),
@@ -6689,7 +6699,7 @@ def _push_allowed(admin, kind):
     """Whether this person's role gets this kind of alert at all."""
     if kind == 'platform':
         return admin.is_superadmin
-    if kind == 'sale':
+    if kind in ('sale', 'failed'):
         return admin.has_role('admin') or admin.is_viewer
     if kind == 'daily':
         return admin.has_role('admin') or (admin.is_viewer and not admin.site_id)
@@ -6751,14 +6761,54 @@ def _superadmins():
     return Admin.query.filter_by(is_superadmin=True, is_active=True).all()
 
 
+def _payment_detail(payment):
+    """'1 Day, Shop' (the site only when the business has more than one)."""
+    site = db.session.get(Site, payment.site_id) if payment.site_id else None
+    where = site.name if site and Site.query.filter_by(tenant_id=payment.tenant_id).count() > 1 else ''
+    return ', '.join(x for x in (payment.package_name, where) if x)
+
+
+PAYMENT_RETRIED = ('unreachable', 'timed out')      # failed only for want of an answer: checked again, so no alert yet
+
+
+def _payment_problem(payment, problem, note=None):
+    """A guest's payment went wrong: problem 'failed' (not completed), 'review' (less money came than the price; no
+    code given) or 'no_code' (paid, but Ruijie Cloud couldn't make the code). Once per payment. Caller commits."""
+    try:
+        if not payment.tenant_id:
+            return
+        reason = (note or payment.message or '').strip().rstrip('.')
+        if problem == 'failed' and any(w in reason.lower() for w in PAYMENT_RETRIED):
+            return
+        ref = payment.reference
+        if Notification.query.filter(Notification.tenant_id == payment.tenant_id, Notification.kind == 'failed',
+                                     Notification.created_at >= payment.created_at - timedelta(minutes=1),
+                                     Notification.body.like(f'%{ref}%')).first():
+            return
+        money = f'{payment.currency} {payment.amount:,.0f}'
+        who = ', '.join(x for x in (_payment_detail(payment), _masked(payment.phone)) if x)
+        why = f' {reason[:120]}.' if reason else ''
+        texts = {
+            'failed': {'en': (f'Payment failed: {money}', f'{who}.{why} Ref {ref}'),
+                       'sw': (f'Malipo hayakukamilika: {money}', f'{who}.{why} Kumb. {ref}')},
+            'review': {'en': (f'Payment to check: {money}', f'{who} paid less than the price ({reason}). No code was given. Ref {ref}'),
+                       'sw': (f'Malipo ya kuangalia: {money}', f'{who} amelipa pungufu ya bei ({reason}). Hakuna namba iliyotolewa. Kumb. {ref}')},
+            'no_code': {'en': (f'Paid, but no code: {money}', f'{who}. Ruijie Cloud could not make the code ({reason}). '
+                                                              f'Give the guest a code by hand. Ref {ref}'),
+                        'sw': (f'Amelipa, hakuna namba: {money}', f'{who}. Ruijie Cloud imeshindwa kutengeneza namba ({reason}). '
+                                                                  f'Mpe mteja namba kwa mkono. Kumb. {ref}')},
+        }[problem]
+        notify(payment.tenant_id, 'failed', texts, link='payments', site_id=payment.site_id)
+    except Exception:
+        log.exception('payment problem alert %s failed', payment.reference)
+
+
 def _sale_alert(payment):
     """A guest paid: a push to the business's phones, and the 'New sale' SMS to the owner if they asked for it. Caller commits."""
     tenant = payment.tenant
     if not tenant:
         return
-    site = db.session.get(Site, payment.site_id) if payment.site_id else None
-    where = site.name if site and Site.query.filter_by(tenant_id=tenant.id).count() > 1 else ''
-    detail = ', '.join(x for x in (payment.package_name, where) if x)
+    detail = _payment_detail(payment)
     total = _day_stats(tenant)['total']
     money = f'{payment.currency} {payment.amount:,.0f}'
     notify(tenant.id, 'sale', {'en': (f'New sale: {money}', f'{detail} · {_masked(payment.phone)}. Today: {payment.currency} {total:,.0f}'),
@@ -7083,6 +7133,7 @@ def _refresh_payment(reference, force=False):
         if result['state'] is None and (now - payment.created_at).total_seconds() > PAYMENT_UNKNOWN_MINUTES * 60:
             payment.status = 'failed'                  # the provider never heard of it: the request didn't get through
             payment.message = 'The payment request did not reach the mobile-money network.'
+            _payment_problem(payment, 'failed')
         if result['state']:
             payment.provider_status = result.get('provider_status') or payment.provider_status
             payment.channel = result.get('channel') or payment.channel
@@ -7094,10 +7145,12 @@ def _refresh_payment(reference, force=False):
                 if collected is not None and collected < payment.charged:
                     payment.status = 'review'
                     payment.message = f'Collected {collected}, expected {payment.charged}'
+                    _payment_problem(payment, 'review')
                 else:
                     _fulfil_payment(payment)
             elif result['state'] == 'failed':
                 payment.status = 'failed'
+                _payment_problem(payment, 'failed')
     db.session.commit()
     return payment
 
@@ -7317,6 +7370,7 @@ def _start_purchase(tenant, site_id, package, phone, network=None, mac=None, ip=
             return payment, None, 200
         log.warning('%s payment %s failed: %s', paylib.name(account), payment.reference, e.detail)
         payment.status, payment.message = 'failed', e.detail
+        _payment_problem(payment, 'failed')
         db.session.commit()
         return payment, str(e), 502
     db.session.commit()
@@ -8430,9 +8484,28 @@ def platform_tenant_status(tid):
             a.email_verified_at = datetime.utcnow()
     else:
         abort(400)
+    _account_action_alert(tenant, action)
     db.session.commit()
     flash(f'{tenant.name}: {action} done.', 'success')
     return redirect(url_for('platform_tenants'))
+
+
+def _account_action_alert(tenant, action):
+    """The platform team changed a business's account: tell its people."""
+    until = tenant.paid_until if action == 'add_month' else tenant.trial_ends_at
+    day = f'{until:%d %b %Y}' if until else ''
+    texts = {
+        'resume': {'en': ('Your SafeNet account is active again', 'Your Wi-Fi and SafeNet work as before.'),
+                   'sw': ('Akaunti yako ya SafeNet imerudi', 'Wi-Fi na SafeNet zinafanya kazi kama awali.')},
+        'add_month': {'en': ('A month added to your SafeNet plan', f'Paid until {day}.'),
+                      'sw': ('Mwezi umeongezwa kwenye kifurushi chako', f'Kimelipiwa hadi {day}.')},
+        'extend': {'en': ('Your SafeNet trial was extended', f'It now ends on {day}.'),
+                   'sw': ('Muda wa majaribio umeongezwa', f'Sasa unaisha {day}.')},
+        'suspend': {'en': ('Your SafeNet account is paused', 'Guests cannot log in for now. Contact SafeNet to restore it.'),
+                    'sw': ('Akaunti yako ya SafeNet imesitishwa', 'Wateja hawawezi kuingia kwa sasa. Wasiliana na SafeNet kuirudisha.')},
+    }.get(action)
+    if texts:
+        notify(tenant.id, 'billing', texts, link='billing')
 
 
 @app.route('/platform/switch/<int:tid>', methods=['POST'])
@@ -9347,6 +9420,10 @@ def confirm_withdrawal(wid):
             log.warning('withdrawal %s left for the platform admin: %s', wid, error)
             notify(None, 'platform', (f'Withdrawal to pay by hand: {tenant.name}', f'{tenant.currency} {w.amount:,.0f} to {w.destination}: {error}'[:300]),
                    people=_superadmins())
+            notify(tenant.id, 'withdrawal', {
+                'en': (f'Withdrawal delayed: {tenant.currency} {w.amount:,.0f}', f'It could not go out automatically, so SafeNet will send it to {w.destination} by hand.'),
+                'sw': (f'Utoaji umechelewa: {tenant.currency} {w.amount:,.0f}', f'Haukuweza kutumwa wenyewe, hivyo SafeNet itatuma kwa {w.destination} kwa mkono.')},
+                   link='earnings')
             db.session.commit()
             for admin in Admin.query.filter_by(is_superadmin=True, is_active=True):
                 send_mail(admin.email, f'Withdrawal to pay by hand: {tenant.name} {tenant.currency} {w.amount:,.0f}',
@@ -9653,6 +9730,7 @@ def _refresh_platform_withdrawal(pw):
     elif status in snippe.PAYOUT_FAILED:
         pw.status, pw.processed_at = 'failed', datetime.utcnow()
         pw.payout_error = f"Snippe: payout {(data or {}).get('failure_reason') or status}"[:255]
+        notify(None, 'platform', (f'Earnings payout failed: TZS {pw.amount:,.0f}', pw.payout_error), people=_superadmins())
 
 
 @app.route('/platform/earnings')
@@ -10449,11 +10527,21 @@ def _refresh_subscription(reference, force=False):
                 collected = result.get('amount')
                 if collected is not None and collected < sp.pushed:
                     sp.status, sp.message = 'review', f'Collected {collected}, expected {sp.pushed}'
+                    notify(sp.tenant_id, 'billing', {
+                        'en': ('SafeNet plan payment to check', f'{sp.currency} {collected:,.0f} came in of {sp.pushed:,.0f}. '
+                                                                f'SafeNet will check it. Ref {sp.reference}'),
+                        'sw': ('Malipo ya kifurushi yanaangaliwa', f'{sp.currency} {collected:,.0f} yameingia kati ya {sp.pushed:,.0f}. '
+                                                                    f'SafeNet itayaangalia. Kumb. {sp.reference}')}, link='billing')
                 else:
                     _fulfil_subscription(sp)
             elif result['state'] == 'failed':
                 sp.status = 'failed'
                 _release_sms(sp)
+                why = f" {sp.message.rstrip('.')}." if sp.message else ''
+                notify(sp.tenant_id, 'billing', {
+                    'en': ('SafeNet plan payment failed', f'{sp.currency} {sp.pushed:,.0f} was not paid.{why} Try again from SafeNet plan.'),
+                    'sw': ('Malipo ya kifurushi hayakukamilika', f'{sp.currency} {sp.pushed:,.0f} hayakulipwa.{why} Jaribu tena kwenye Kifurushi cha SafeNet.')},
+                       link='billing')
     db.session.commit()
     return sp
 

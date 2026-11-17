@@ -2,6 +2,9 @@
 SW = {
     'New sales': 'Mauzo mapya',
     'Each payment a guest makes': 'Kila malipo ya mteja',
+    'Payment problems': 'Matatizo ya malipo',
+    "A guest's payment fails, comes in short, or is paid but gets no code":
+        'Malipo ya mteja yakishindikana, yakipungua, au akilipa bila kupata namba',
     "Today's summary": 'Muhtasari wa leo',
     'Sales, guests and data at 9 pm': 'Mauzo, wateja na data saa 3 usiku',
     'Devices offline': 'Vifaa visivyo mtandaoni',

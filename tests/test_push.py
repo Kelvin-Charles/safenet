@@ -60,8 +60,8 @@ c.post('/api/m/push/register', headers=H['partner1'], json={'token': 'tok-partne
 
 # settings: each person sees only the kinds their role gets
 kinds = lambda u: [k['kind'] for k in c.get('/api/m/alerts/settings', headers=H[u]).get_json()['kinds']]
-assert kinds('owner1') == ['sale', 'daily', 'device', 'withdrawal', 'billing', 'news']
-assert kinds('staff1') == ['device', 'news'] and kinds('sitepart') == ['sale', 'device', 'news']
+assert kinds('owner1') == ['sale', 'failed', 'daily', 'device', 'withdrawal', 'billing', 'news']
+assert kinds('staff1') == ['device', 'news'] and kinds('sitepart') == ['sale', 'failed', 'device', 'news']
 assert 'platform' in kinds('boss')
 
 # a sale: owner, partner and the partner of that site; not staff, not the partner of another site. Nothing pushed yet (no key)
@@ -141,6 +141,28 @@ with app.app_context():
     db.session.get(Admin, ids['owner1']).language = 'sw'; db.session.commit()
 sale('R3', S1)
 assert c.get('/api/m/alerts', headers=H['owner1']).get_json()['items'][0]['title'] == 'Mauzo mapya: TZS 2,000'
+
+# payment problems: failed once per payment (not when it's only waiting for an answer), short payments, paid but no code
+def problem(ref, kind, msg, note=None):
+    with app.app_context():
+        p = Payment.query.filter_by(reference=ref).first() or Payment(tenant_id=T, reference=ref, phone='255712000222', amount=Decimal(1000),
+                                                                      validity_minutes=60, package_name='Hour', site_id=S1, currency='TZS')
+        p.status, p.message = 'failed', msg
+        db.session.add(p); db.session.flush(); appmod._payment_problem(p, kind, note); db.session.commit()
+        return [n.title for n in Notification.query.filter_by(admin_id=ids['boss'], kind='failed').order_by(Notification.id)]
+assert problem('F1', 'failed', 'Customer cancelled.') == ['Payment failed: TZS 1,000']
+assert problem('F1', 'failed', 'Customer cancelled.') == ['Payment failed: TZS 1,000']             # once
+assert problem('F2', 'failed', 'Snippe unreachable') == ['Payment failed: TZS 1,000']             # checked again first
+assert problem('F3', 'review', 'Collected 500, expected 1000')[-1] == 'Payment to check: TZS 1,000'
+assert problem('F4', 'no_code', None, 'no Ruijie package lasts 1 hour')[-1] == 'Paid, but no code: TZS 1,000'
+with app.app_context():
+    n = Notification.query.filter_by(admin_id=ids['boss'], kind='failed').first()
+    assert 'Customer cancelled.' in n.body and 'Ref F1' in n.body and n.link == 'payments'
+    assert {a for (a,) in db.session.query(Notification.admin_id).filter_by(kind='failed')} == {ids['owner1'], ids['partner1'], ids['boss']}
+    assert Notification.query.filter_by(admin_id=ids['owner1'], kind='failed').first().title == 'Malipo hayakukamilika: TZS 1,000'
+    # the platform team pauses / restores an account: its people hear about it
+    appmod._account_action_alert(db.session.get(Tenant, T), 'suspend'); db.session.commit()
+    assert Notification.query.filter_by(admin_id=ids['boss'], kind='billing').one().title == 'Your SafeNet account is paused'
 
 # withdrawals reach the owner only
 with app.app_context():
