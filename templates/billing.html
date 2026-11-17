@@ -13,12 +13,12 @@
                 {% if st == 'complimentary' %}
                 <p class="mb-0"><span class="badge bg-success">{{ _('Active') }}</span> {{ _('Your account has no end date.') }}</p>
                 {% elif st == 'trial' %}
-                <p><span class="badge bg-info">{{ _('Free trial') }}</span> {{ _('{n} day left (ends {date}).', n=state.days_left, date=state.end.strftime('%d %b %Y')) if state.days_left == 1 else _('{n} days left (ends {date}).', n=state.days_left, date=state.end.strftime('%d %b %Y')) }}</p>
+                <p><span class="badge bg-info">{{ _('Free trial') }}</span> {{ _('{n} day left (ends {date}).', n=state.days_left, date=state.end|local('%d %b %Y')) if state.days_left == 1 else _('{n} days left (ends {date}).', n=state.days_left, date=state.end|local('%d %b %Y')) }}</p>
                 {% elif st == 'active' %}
-                <p><span class="badge bg-success">{{ _('Active') }}</span> {{ _('Paid until') }} <strong>{{ state.end.strftime('%d %b %Y') }}</strong> ({{ _('{n} days', n=state.days_left) }}).</p>
+                <p><span class="badge bg-success">{{ _('Active') }}</span> {{ _('Paid until') }} <strong>{{ state.end|local('%d %b %Y') }}</strong> ({{ _('{n} days', n=state.days_left) }}).</p>
                 {% elif st == 'grace' %}
-                <p><span class="badge bg-warning text-dark">{{ _('Payment due') }}</span> {{ _('Your trial ended on {date}.', date=state.end.strftime('%d %b %Y')) if not tenant.paid_until else _('Your subscription ended on {date}.', date=state.end.strftime('%d %b %Y')) }}
-                    {{ _('Your Wi-Fi keeps working until') }} <strong>{{ state.service_until.strftime('%d %b %Y %H:%M') }} UTC</strong>. {{ _('Renew before then.') }}</p>
+                <p><span class="badge bg-warning text-dark">{{ _('Payment due') }}</span> {{ _('Your trial ended on {date}.', date=state.end|local('%d %b %Y')) if not tenant.paid_until else _('Your subscription ended on {date}.', date=state.end|local('%d %b %Y')) }}
+                    {{ _('Your Wi-Fi keeps working until') }} <strong>{{ state.service_until|local('%d %b %Y %H:%M') }}</strong>. {{ _('Renew before then.') }}</p>
                 {% elif st == 'expired' %}
                 <p><span class="badge bg-danger">{{ _('Expired') }}</span> {{ _("Your Wi-Fi is paused: guests can't log in and packages can't be sold. Renew to switch it back on immediately.") }}</p>
                 {% else %}
@@ -70,6 +70,7 @@
                     {% endif %}
                     <button type="submit" class="btn btn-primary mt-3 w-100"><i class="bi bi-send"></i> {{ _('Send payment request') }}</button>
                     {% if sms_due[0] %}<div class="alert alert-info small py-2 mt-2 mb-0"><i class="bi bi-chat-dots"></i> {{ _('{n} voucher SMS sent to your guests ({price} each) will be added:', n=sms_due[0], price=(state.plan.currency if state.plan else 'TZS') ~ ' ' ~ sms_price|string) }} <strong>{{ '{:,.0f}'.format(sms_due[1]) }}</strong> {{ _('on top of the plan.') }}</div>{% endif %}
+                    {% if pay_fee_percent %}<p class="small text-muted mt-2 mb-0"><i class="bi bi-info-circle"></i> {{ _("The mobile-money service's fee ({percent}%) is added to what you pay by PIN prompt. Paying from your balance has no fee.", percent=pay_fee_percent) }}</p>{% endif %}
                     <p class="small text-muted mt-2 mb-0">{{ _("You'll get a PIN prompt on your phone. Paying early adds time after your current period, so you never lose days.") }}</p>
                 </form>
                 {% endif %}
@@ -88,10 +89,10 @@
                         <tbody>
                             {% for p in history %}
                             <tr>
-                                <td><small>{{ p.created_at.strftime('%Y-%m-%d') }}</small><small class="d-block text-muted font-monospace">{{ p.reference }}</small></td>
+                                <td><small>{{ p.created_at|local('%Y-%m-%d') }}</small><small class="d-block text-muted font-monospace">{{ p.reference }}</small></td>
                                 <td>{{ p.plan_name or '-' }} <small class="text-muted">× {{ p.months }}</small></td>
-                                <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}{% if p.sms_amount %}<small class="d-block text-muted">{{ _('incl. {amount} SMS', amount='{:,.0f}'.format(p.sms_amount)) }}</small>{% endif %}{% if p.balance_amount %}<small class="d-block text-muted">{{ _('{amount} from your balance', amount='{:,.0f}'.format(p.balance_amount)) }}</small>{% endif %}</td>
-                                <td><small>{% if p.period_end %}{{ p.period_start.strftime('%d %b') }} – {{ p.period_end.strftime('%d %b %Y') }}{% else %}-{% endif %}</small></td>
+                                <td>{{ p.currency }} {{ '{:,.0f}'.format(p.amount) }}{% if p.sms_amount %}<small class="d-block text-muted">{{ _('incl. {amount} SMS', amount='{:,.0f}'.format(p.sms_amount)) }}</small>{% endif %}{% if p.balance_amount %}<small class="d-block text-muted">{{ _('{amount} from your balance', amount='{:,.0f}'.format(p.balance_amount)) }}</small>{% endif %}{% if p.fee_amount %}<small class="d-block text-muted">{{ _('+ {amount} mobile-money fee', amount='{:,.0f}'.format(p.fee_amount)) }}</small>{% endif %}</td>
+                                <td><small>{% if p.period_end %}{{ p.period_start|local('%d %b') }} – {{ p.period_end|local('%d %b %Y') }}{% else %}-{% endif %}</small></td>
                                 <td>
                                     {% if p.status == 'paid' %}<span class="badge bg-success">{{ _('Paid') }}</span>{% if p.method == 'manual' %}<small class="d-block text-muted">{{ _('added by SafeNet') }}</small>{% endif %}
                                     {% elif p.status == 'pending' %}<a href="{{ url_for('billing_payment', reference=p.reference) }}" class="badge bg-warning text-dark text-decoration-none">{{ _('Pending') }}</a>

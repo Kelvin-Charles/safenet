@@ -46,19 +46,21 @@ with app.app_context():
     assert sp.status == 'paid' and sp.method == 'balance' and sp.balance_amount == 15000 and sp.period_end
     assert tenant_balance(TID)[0] == 4400
     assert appmod._platform_profit()['subs'] == 15000 and appmod._platform_profit()['subs_fees'] == 0
-# not enough: the 4,400 left pays first, a PIN prompt for the other 10,600
+# not enough: the 4,400 left pays first, a PIN prompt for the other 10,600 plus Snippe's 2.5% (the business pays it)
 r = pay(use_balance='1', phone='0684000111')
-assert pushes == [(Decimal(10600), '255684000111')], pushes
-assert '10,600' in r                                           # the PIN page shows what is asked
+assert pushes == [(Decimal(10872), '255684000111')], pushes
+assert '10,872' in r and '272 mobile-money fee' not in r      # the PIN page shows what is asked
 with app.app_context():
     sp = SubscriptionPayment.query.filter_by(status='pending').one(); REF = sp.reference
-    assert sp.balance_amount == 4400 and sp.amount == 15000 and sp.pushed == 10600
+    assert sp.balance_amount == 4400 and sp.amount == 15000 and sp.fee_amount == 272 and sp.pushed == 10872
     assert tenant_balance(TID)[0] == 0                        # held while the prompt is open: can't be withdrawn twice
 state[REF] = 'completed'
 with app.app_context():
     sp = appmod._refresh_subscription(REF, force=True)
     assert sp.status == 'paid'
-    assert appmod._platform_profit()['subs_fees'] == 265      # Snippe's share only on the 10,600 it collected
+    p = appmod._platform_profit()
+    assert p['subs_fees'] == 272 and p['subs'] == 15000 + 15272  # Snippe's share of the 10,872 it collected, paid by the business
+assert '+ 272 mobile-money fee' in html.unescape(c.get('/billing').text)
 # a prompt that fails gives the held balance back
 with app.app_context():
     db.session.add(Payment(tenant_id=TID, reference='SNX2', package_name='Day', validity_minutes=1440, phone='255700000001',
@@ -66,7 +68,7 @@ with app.app_context():
                            provider='snippe', provider_account='platform', status='paid', paid_at=now))
     db.session.commit()
 pay(use_balance='1', phone='0684000111')
-assert pushes[-1][0] == 10150
+assert pushes[-1][0] == 10411                                 # 10,150 + the fee
 with app.app_context():
     REF2 = SubscriptionPayment.query.filter_by(status='pending').one().reference
     assert tenant_balance(TID)[0] == 0
@@ -82,14 +84,14 @@ with app.app_context():
     db.session.commit()
     assert tenant_balance(TID)[0] == 14700
 pay(use_balance='1', phone='0684000111')
-assert pushes[-1][0] == 1000
+assert pushes[-1][0] == 1026                                  # 1,000 + the fee
 with app.app_context():
     assert SubscriptionPayment.query.filter_by(status='pending').one().balance_amount == 14000
 # without ticking it, the whole price by PIN prompt as before
 with app.app_context():
     SubscriptionPayment.query.filter_by(status='pending').update({'status': 'failed'}); db.session.commit()
 pay(phone='0684000111')
-assert pushes[-1][0] == 15000
+assert pushes[-1][0] == 15385                                 # 15,000 + the fee
 # the balance part shows in Earnings, and every balance SafeNet shows is lower by it
 e = html.unescape(c.get('/earnings').text)
 assert 'paid for your SafeNet plan' in e and 'Paid from your balance for your SafeNet plan' in e and '−TZS 15,000' in e

@@ -742,7 +742,8 @@ class Withdrawal(db.Model):
     payout_provider = db.Column(db.String(16))                # clickpesa, snippe
     payout_id = db.Column(db.String(64))                      # the provider's id (Snippe's reference)
     payout_status = db.Column(db.String(16))
-    payout_fee = db.Column(db.Numeric(10, 2))
+    payout_fee = db.Column(db.Numeric(10, 2))                 # what the provider charged SafeNet
+    fee_charged = db.Column(db.Numeric(10, 2))                # the payout fee the business pays: taken from what it receives
     payout_receiver = db.Column(db.String(100))               # name ClickPesa found for the number
     payout_error = db.Column(db.String(255))                  # why the last automatic payout failed
     reference = db.Column(db.String(64))                      # payout transaction id
@@ -760,6 +761,11 @@ class Withdrawal(db.Model):
     tenant = db.relationship('Tenant')
     requested_by = db.relationship('Admin', foreign_keys=[requested_by_id])
     processed_by = db.relationship('Admin', foreign_keys=[processed_by_id])
+
+    @property
+    def sent_amount(self):
+        """What reaches the business: the amount less the payout fee it pays."""
+        return self.amount - (self.fee_charged or 0)
 
     @property
     def destination(self):
@@ -935,11 +941,12 @@ class SubscriptionPayment(db.Model):
 
     sms_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0, server_default='0')   # guest SMS included in amount
     balance_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0, server_default='0')  # paid from its SafeNet Pay balance
+    fee_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0, server_default='0')  # mobile-money fee, on top (the business pays it)
 
     @property
     def pushed(self):
-        """What is asked by mobile money: the amount less what the business's balance paid."""
-        return self.amount - (self.balance_amount or 0)
+        """What is asked by mobile money: the amount less what the business's balance paid, plus the provider's fee."""
+        return self.amount - (self.balance_amount or 0) + (self.fee_amount or 0)
 
     tenant = db.relationship('Tenant')
     billing_plan = db.relationship('BillingPlan')

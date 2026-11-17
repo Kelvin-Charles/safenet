@@ -286,6 +286,8 @@ def run():
     if _add_column('expenses', 'kind', "VARCHAR(12) NOT NULL DEFAULT 'one_time'"):
         _expense_kinds()
     _add_column('expenses', 'repeat_every', 'VARCHAR(8)')
+    _add_column('withdrawals', 'fee_charged', 'DECIMAL(10,2)')
+    _add_column('subscription_payments', 'fee_amount', 'DECIMAL(10,2) NOT NULL DEFAULT 0')
     _add_column('expenses', 'repeat_ends', 'DATE')
     _add_column('expenses', 'repeat_next', 'DATE')
     _add_column('expenses', 'repeat_of_id', 'INTEGER')

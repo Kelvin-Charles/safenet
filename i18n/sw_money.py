@@ -89,6 +89,7 @@ SW = {
     # payments
     "ClickPesa isn't configured.": 'ClickPesa haijawekwa.',
     '{currency} today (UTC)': '{currency} leo (UTC)',
+    '{currency} today': '{currency} leo',
     '{currency} this month': '{currency} mwezi huu',
     '{currency} all time · {n} paid': '{currency} tangu mwanzo · {n} yamelipwa',
     'Waiting for PIN': 'Yanasubiri PIN',
@@ -278,4 +279,8 @@ SW = {
     'Switch on': 'Washa',
     'When': 'Lini',
     'until switched off': 'hadi itakapozimwa',
+    'received {amount}, fee {fee}': 'umepokea {amount}, ada {fee}',
+    'The mobile-money or bank payout fee is taken from the amount you withdraw, so you receive the amount less the fee.': 'Ada ya kutuma kwa simu au benki hukatwa kwenye kiasi unachotoa, hivyo unapokea kiasi hicho ukiondoa ada.',
+    "The mobile-money service's fee ({percent}%) is added to what you pay by PIN prompt. Paying from your balance has no fee.": 'Ada ya huduma ya pesa kwa simu ({percent}%) huongezwa kwenye unacholipa kwa PIN. Kulipa kutoka salio lako hakuna ada.',
+    '+ {amount} mobile-money fee': '+ {amount} ada ya pesa kwa simu',
 }

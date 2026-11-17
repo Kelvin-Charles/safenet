@@ -97,6 +97,7 @@ create = [c for c in calls if c[0] == 'create'][-1]
 assert create[1] == prev[1] and create[3] == '48001268' and create[4] == '503'                  # same reference as the preview
 with app.app_context():
     x = db.session.get(Withdrawal, LIPA); assert x.status == 'sending' and x.payout_receiver == 'ACME TRADERS LTD' and x.payout_fee == 100
+    assert x.fee_charged == 100 and x.sent_amount == x.amount - 100   # the business pays the payout fee
     assert tenant_balance(TID)[0] == Decimal(20000)                  # still counted as withdrawn
 # can't be sent twice
 assert 'already processed' in cs.post(f'/platform/payouts/{LIPA}/send', data={'csrf_token': tok(s)}, follow_redirects=True).text
@@ -188,6 +189,7 @@ assert c1['key'] == GOOD and c1['phone'] == '255754000111' and c1['name'] == 'As
 assert c1['webhook'].endswith('/webhooks/snippe') and re.fullmatch(r'WD\d+X[0-9A-F]{6}', c1['ref'])
 with app.app_context():
     x = db.session.get(Withdrawal, SM); assert x.status == 'sending' and x.payout_provider == 'snippe' and x.payout_id == 'snp-ref-1' and x.payout_fee == 1500
+    assert x.fee_charged == 1500 and x.sent_amount == x.amount - 1500
 # Snippe's webhook (signed) settles it
 snp['status'] = 'completed'
 raw = json.dumps({'type': 'payout.completed', 'data': {'reference': 'snp-ref-1', 'status': 'completed'}})

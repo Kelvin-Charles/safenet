@@ -42,7 +42,8 @@ import hmac
 import logging
 import re
 from functools import wraps
-from datetime import timedelta
+from datetime import timedelta, timezone
+from zoneinfo import ZoneInfo
 import ipaddress
 from decimal import Decimal
 from urllib.parse import urlparse, parse_qs, urlencode, quote
@@ -139,6 +140,7 @@ def set_language():
 
 # Context processor for global template variables
 app.jinja_env.filters['minutes'] = format_minutes      # 1440 -> '1 day'
+app.jinja_env.filters['local'] = lambda dt, fmt='%Y-%m-%d %H:%M': local_time(dt, fmt)   # UTC -> viewer's time
 
 
 @app.context_processor
@@ -480,8 +482,9 @@ def dashboard():
     view = _site_filters(tid, site)
     now = datetime.utcnow()
     midnight = _local_midnight_utc()
-    offset = datetime.now() - now                                  # server local time - UTC
-    month_start_local = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    offset = _local_offset()                                       # the viewer's local time - UTC
+    now_local = now + offset
+    month_start_local = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     month_start = month_start_local - offset
     last_seen = func.coalesce(RadAcct.acctupdatetime, RadAcct.acctstarttime)
     sessions = lambda: view['sessions'](RadAcct.query)
@@ -592,7 +595,7 @@ def dashboard():
         alerts.append(('info', tr('{n} customer accounts expire within 3 days', n=subs['expiring']) if subs['expiring'] > 1 else
                       tr('{n} customer account expire within 3 days', n=subs['expiring'])))
 
-    hour = datetime.now().hour
+    hour = now_local.hour
     greeting = tr('Good morning') if hour < 12 else (tr('Good afternoon') if hour < 17 else tr('Good evening'))
     return render_template('dashboard.html', greeting=greeting, site=site, devices=devices, health=health,
                            last_telemetry=last_telemetry, users_online=users_online, via_hotspot=via_hotspot,
@@ -601,7 +604,7 @@ def dashboard():
                            today=today, period=period, all_time=all_time, fees=Decimal(str(fees)),
                            balance=balance, withdrawn=withdrawn, days=days, week_total=week_total, day_peak=day_peak,
                            site_split=site_split, subs=subs, recent=recent_rows, alerts=alerts, offset=offset,
-                           period_label=f"{month_start_local:%d %b %Y} – {datetime.now():%d %b %Y}",
+                           period_label=f"{month_start_local:%d %b %Y} – {now_local:%d %b %Y}",
                            currency=tenant.currency, now=now, platform_mode=tenant.payment_mode == 'platform')
 
 
@@ -5790,9 +5793,51 @@ def delete_package(package_id):
 # ---------------------------------------------------------------------------
 # Offers: promotions on packages (extra free time and/or a discount)
 # ---------------------------------------------------------------------------
-def _local_offset():
-    """Server local time (TZ, East Africa) minus UTC, to whole minutes: dates are typed and shown in local time."""
+def _server_offset():
+    """Server local time (TZ, East Africa) minus UTC, to whole minutes."""
     return timedelta(minutes=round((datetime.now() - datetime.utcnow()).total_seconds() / 60))
+
+
+def _viewer_zone():
+    """The timezone of the person looking (their browser sets the sn_tz cookie; the app can send X-Timezone),
+    or None when it isn't known. Times are kept in UTC and shown in this zone."""
+    if not has_request_context():
+        return None
+    if 'viewer_zone' not in g:
+        zone = None
+        name = (request.headers.get('X-Timezone') or request.cookies.get('sn_tz') or '').strip()
+        if 0 < len(name) <= 64 and re.fullmatch(r'[A-Za-z][A-Za-z0-9_+\-]*(/[A-Za-z0-9_+\-]+)*', name):
+            try:
+                zone = ZoneInfo(name)
+            except Exception:              # unknown name, or no timezone data on this machine
+                zone = None
+        g.viewer_zone = zone
+    return g.viewer_zone
+
+
+def _local_offset():
+    """Local time minus UTC, to whole minutes, for the person looking (their timezone; else the minutes offset the app
+    sends in X-UTC-Offset; else the server's, East Africa): dates are typed and shown in local time."""
+    zone = _viewer_zone()
+    if zone is not None:
+        off = zone.utcoffset(datetime.utcnow())
+        return timedelta(minutes=round(off.total_seconds() / 60))
+    if has_request_context():
+        minutes = request.headers.get('X-UTC-Offset', type=int)
+        if minutes is not None and -14 * 60 <= minutes <= 14 * 60:
+            return timedelta(minutes=minutes)
+    return _server_offset()
+
+
+def local_time(dt, fmt='%Y-%m-%d %H:%M'):
+    """Template filter: a UTC time from the database in the viewer's local time, formatted."""
+    if not dt:
+        return ''
+    if not isinstance(dt, datetime):               # a plain date has no time of day to move
+        return dt.strftime(fmt)
+    zone = _viewer_zone()
+    local = dt.replace(tzinfo=timezone.utc).astimezone(zone).replace(tzinfo=None) if zone else dt + _local_offset()
+    return local.strftime(fmt)
 
 
 def _offer_from_form(offer, f=None):
@@ -6921,9 +6966,9 @@ def payments():
     pagination = query.order_by(Payment.created_at.desc()).paginate(
         page=page, per_page=Config.ITEMS_PER_PAGE, error_out=False)
 
-    now = datetime.utcnow()
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    month = today.replace(day=1)
+    today = _local_midnight_utc()                  # today and this month in the viewer's local time
+    local_today = today + _local_offset()
+    month = local_today.replace(day=1) - _local_offset()
     tid = tenant_id()
     in_site = _site_filters(tid, current_site())['payments']
     paid_total = lambda since=None: in_site(db.session.query(func.coalesce(func.sum(Payment.amount), 0)).filter(
@@ -7395,9 +7440,9 @@ LIVE_STALE_MINUTES = 15   # open sessions with no accounting update for this lon
 
 
 def _local_midnight_utc():
-    """Start of today in the server's timezone (TZ env), as naive UTC."""
-    now_local = datetime.now()
-    offset = now_local - datetime.utcnow()
+    """Start of today in the viewer's timezone (else the server's), as naive UTC."""
+    offset = _local_offset()
+    now_local = datetime.utcnow() + offset
     return now_local.replace(hour=0, minute=0, second=0, microsecond=0) - offset
 
 
@@ -8460,9 +8505,10 @@ def _money_by_month(tid, site):
     for when, amount in (sms.filter(SmsCharge.site_id == site.id) if site else sms):
         row(when)['sms'] += Decimal(str(amount or 0))
     if site is None:            # the SafeNet plan is for the whole business (its bill's SMS are counted above)
-        for when, amount, sms_part in db.session.query(SubscriptionPayment.created_at, SubscriptionPayment.amount, SubscriptionPayment.sms_amount) \
+        for when, amount, sms_part, fee in db.session.query(SubscriptionPayment.created_at, SubscriptionPayment.amount,
+                                                             SubscriptionPayment.sms_amount, SubscriptionPayment.fee_amount) \
                 .filter(SubscriptionPayment.tenant_id == tid, SubscriptionPayment.status == 'paid'):
-            row(when)['plan'] += Decimal(str(amount or 0)) - Decimal(str(sms_part or 0))
+            row(when)['plan'] += Decimal(str(amount or 0)) - Decimal(str(sms_part or 0)) + Decimal(str(fee or 0))
     spent = db.session.query(Expense.spent_on, Expense.amount).filter(Expense.tenant_id == tid)
     for day, amount in (spent.filter(Expense.site_id == site.id) if site else spent):
         months.setdefault(day.strftime('%Y-%m'), dict.fromkeys(_MONEY_KEYS, Decimal(0)))['spent'] += Decimal(str(amount))
@@ -9284,15 +9330,16 @@ def _finish_withdrawal(w, status, reference=None, note=None):
         w.processed_by_id = current_user.id
     owner = Admin.query.filter_by(tenant_id=w.tenant_id, role='owner').first()
     amount = f'{w.tenant.currency} {w.amount:,.0f}'
+    sent = f'{w.tenant.currency} {w.sent_amount:,.0f}' + (f' ({amount} less the {w.fee_charged:,.0f} payout fee)' if w.fee_charged else '')
     if owner:
-        body = (f'Your withdrawal of {amount} to {w.destination} was sent. Reference: {w.reference}.\n'
+        body = (f'Your withdrawal of {amount} to {w.destination} was sent: {sent}. Reference: {w.reference}.\n'
                 if status == 'paid' else
                 f'Your withdrawal of {amount} was not approved{": " + note if note else ""}. '
                 f'The amount is back in your balance.\n')
         send_mail(owner.email, f'Withdrawal {status}', body)
     if status == 'paid':
-        send_sms_async(w.phone, f'SafeNet: {amount} has been sent to {"this number" if w.method == "mobile" else w.destination}. '
-                                f'Ref {w.reference}.')
+        send_sms_async(w.phone, f'SafeNet: {w.tenant.currency} {w.sent_amount:,.0f} has been sent to {"this number" if w.method == "mobile" else w.destination}'
+                                f'{f" (fee {w.fee_charged:,.0f})" if w.fee_charged else ""}. Ref {w.reference}.')
     else:
         send_sms_async(_normalize_tz_phone(w.tenant.phone or '') or w.phone, f'SafeNet: your withdrawal of {amount} '
                        f'was not approved{": " + note if note else ""}. It is back in your balance.')
@@ -9378,14 +9425,17 @@ def _platform_profit():
     paid_platform = Payment.query.filter(Payment.status == 'paid', Payment.provider_account == 'platform')
     subs = SubscriptionPayment.query.filter(SubscriptionPayment.status == 'paid',
                                             SubscriptionPayment.method.in_(tuple(paylib.PROVIDERS) + ('balance',)))
-    snippe_subs = total(subs.filter(SubscriptionPayment.method == 'snippe'), SubscriptionPayment.amount - SubscriptionPayment.balance_amount)
+    snippe_subs = total(subs.filter(SubscriptionPayment.method == 'snippe'),
+                        SubscriptionPayment.amount - SubscriptionPayment.balance_amount + SubscriptionPayment.fee_amount)
+    sent = Withdrawal.query.filter(Withdrawal.status.in_(('paid', 'sending')))
     taken = PlatformWithdrawal.query.filter(PlatformWithdrawal.status.in_(('sending', 'paid')))
     p = dict(fees=total(paid_platform, Payment.fee_amount),
              sms=total(SmsCharge.query.filter_by(method='balance'), SmsCharge.amount),
-             subs=total(subs, SubscriptionPayment.amount),
-             # Snippe keeps its share of a subscription (businesses don't pay it on top, guests do)
+             # with the mobile-money fee the business paid on top (since 2026-11; before, SafeNet bore Snippe's share)
+             subs=total(subs, SubscriptionPayment.amount + SubscriptionPayment.fee_amount),
              subs_fees=Decimal(math.ceil(snippe_subs * Decimal(str(Config.SNIPPE_FEE_PERCENT)) / 100)),
-             payout_fees=total(Withdrawal.query.filter(Withdrawal.status.in_(('paid', 'sending'))), Withdrawal.payout_fee),
+             # what the providers charged for payouts, less what businesses paid of it (taken from what they received)
+             payout_fees=total(sent, Withdrawal.payout_fee) - total(sent, Withdrawal.fee_charged),
              taken=total(taken, PlatformWithdrawal.amount) + total(taken, PlatformWithdrawal.payout_fee))
     p['earned'] = p['fees'] + p['sms'] + p['subs'] - p['subs_fees'] - p['payout_fees']
     p['available'] = p['earned'] - p['taken']
@@ -9677,8 +9727,8 @@ def _reconcile_snippe(days):
             snp['out_total'] += _snippe_money(x, 'total') or amount + fees
             if status == 'completed' and w.status != 'paid':
                 problem('Payout sent by Snippe, not paid in SafeNet', ref, f'completed {amount:,.0f}', f'{w.status} {w.amount:,.0f}')
-            elif amount != w.amount:
-                problem('Different payout amount', ref, f'{status} {amount:,.0f}', f'{w.status} {w.amount:,.0f}')
+            elif amount != w.sent_amount:
+                problem('Different payout amount', ref, f'{status} {amount:,.0f}', f'{w.status} {w.sent_amount:,.0f}')
         elif w.status in ('paid', 'sending'):
             problem('Payout paid in SafeNet, not at Snippe', ref, f'{status} {amount:,.0f}', f'{w.status} {w.amount:,.0f}')
 
@@ -9694,8 +9744,10 @@ def _reconcile_snippe(days):
     ours = dict(guest_n=paid_guests.count(), guest=total(paid_guests, Payment.amount) + total(paid_guests, Payment.customer_fee),
                 customer_fees=total(paid_guests, Payment.customer_fee), platform_fees=total(paid_guests, Payment.fee_amount),
                 tenants_net=total(paid_guests, Payment.net_amount),
-                sub_n=paid_subs.count(), sub=total(paid_subs, SubscriptionPayment.amount - SubscriptionPayment.balance_amount),
-                out_n=sent.count(), out=total(sent, Withdrawal.amount), out_fees=total(sent, Withdrawal.payout_fee))
+                sub_n=paid_subs.count(), sub=total(paid_subs, SubscriptionPayment.amount - SubscriptionPayment.balance_amount
+                                                   + SubscriptionPayment.fee_amount),
+                out_n=sent.count(), out=total(sent, Withdrawal.amount) - total(sent, Withdrawal.fee_charged),
+                out_fees=total(sent, Withdrawal.payout_fee))
     # paid in SafeNet but not among Snippe's transactions at all (only when every page of the period was read;
     # the first hour is left out: a payment made just before the period may show at Snippe a moment later)
     margin = (since + timedelta(hours=1)) if since else None
@@ -9807,9 +9859,10 @@ def send_payout(wid):
                         info[key] = call()
                     except snippe.SnippeError as e:
                         log.info('snippe %s for payout %s: %s', key, wid, e)
+                fee = (info.get('fee') or {}).get('fee_amount')
                 return render_template('platform/payout_send.html', w=w, via=via, options=options, names=paylib.PROVIDERS,
                                        snippe_info=info, name=w.account_name or w.tenant.name, bank=bank, banks=snippe.BANKS,
-                                       preview=None, providers=[])
+                                       preview=None, providers=[], fee_due=_fee_estimate(w, fee))
             providers, provider_code = [], None
             if w.method == 'lipa':
                 providers = clickpesa.lipa_namba_providers()
@@ -9818,7 +9871,8 @@ def send_payout(wid):
             db.session.commit()
             preview = clickpesa.preview_payout(w.amount, w.payout_ref, **target) if (w.method == 'mobile' or provider_code) else None
             return render_template('platform/payout_send.html', w=w, via=via, options=options, names=paylib.PROVIDERS,
-                                   preview=preview, providers=providers, provider_code=provider_code)
+                                   preview=preview, providers=providers, provider_code=provider_code,
+                                   fee_due=_fee_estimate(w, (preview or {}).get('fee')))
         except (clickpesa.ClickPesaError, snippe.SnippeError) as e:
             db.session.rollback()
             flash(f'{paylib.PROVIDERS[via]}: {e}', 'danger')
@@ -9828,10 +9882,48 @@ def send_payout(wid):
     if error:
         flash(error, 'danger')
         return back if not error.startswith('Choose') else redirect(url_for('send_payout', wid=w.id, via=via))
-    flash(f'{w.tenant.currency} {w.amount:,.0f} sent to {w.destination}.' if w.status == 'paid' else
+    flash(f'{w.tenant.currency} {w.sent_amount:,.0f} sent to {w.destination} (fee {w.fee_charged or 0:,.0f}, paid by the business).' if w.status == 'paid' else
           f'Payout to {w.destination} accepted by {paylib.PROVIDERS[via]}. It shows as paid once {paylib.PROVIDERS[via]} confirms it.',
           'success')
     return back
+
+
+def _fee_estimate(w, fee):
+    """The fee the business will pay, for the check page (what was fixed already, else the provider's figure)."""
+    if w.fee_charged is not None:
+        return w.fee_charged
+    try:
+        return Decimal(math.ceil(Decimal(str(fee)))) if fee is not None else None
+    except Exception:
+        return None
+
+
+def _payout_fee_due(w, lookup):
+    """The payout fee the business pays (taken from what it receives): the provider's fee for the amount, in whole
+    shillings, rounded up. Asked once; a retry sends the same amount. None when the provider didn't say."""
+    if w.fee_charged is None:
+        try:
+            fee = lookup()
+        except (clickpesa.ClickPesaError, snippe.SnippeError):
+            raise
+        except Exception:                   # an unexpected reply
+            fee = None
+        if fee is None:
+            return None
+        if isinstance(fee, dict):
+            fee = fee.get('value')
+        w.fee_charged = Decimal(math.ceil(Decimal(str(fee or 0))))
+    return w.fee_charged
+
+
+def _payout_fee_problem(w, fee):
+    wid = w.id
+    db.session.rollback()
+    msg = ("The payout service didn't say what the fee is, so nothing was sent. Try again." if fee is None else
+           f'The fee ({fee:,.0f}) is more than the withdrawal, so nothing was sent.')
+    Withdrawal.query.filter_by(id=wid).update({'payout_error': msg[:255]})
+    db.session.commit()
+    return msg
 
 
 def _send_payout_now(w, via, bank=None, provider=None):
@@ -9849,7 +9941,10 @@ def _send_payout_now(w, via, bank=None, provider=None):
                 db.session.rollback()
                 return 'Choose the bank.'
             target = dict(bank=bank, account=w.bank_account) if w.method == 'bank' else dict(phone=w.phone)
-            tx = snippe.create_payout(w.amount, w.payout_ref, creds, name, narration=f'SafeNet earnings {w.tenant.name}',
+            fee = _payout_fee_due(w, lambda: (snippe.payout_fee(w.amount, creds) or {}).get('fee_amount'))
+            if fee is None or w.amount - fee < 1:
+                return _payout_fee_problem(w, fee)
+            tx = snippe.create_payout(w.amount - fee, w.payout_ref, creds, name, narration=f'SafeNet earnings {w.tenant.name}',
                                       webhook_url=_link('snippe_webhook') if creds.webhook_key else None, **target)
             w.payout_id = str(tx.get('reference') or '')[:64] or None
             w.payout_status = str(tx.get('status') or 'pending').upper()[:16]
@@ -9865,7 +9960,10 @@ def _send_payout_now(w, via, bank=None, provider=None):
                     db.session.rollback()
                     return 'Choose the Lipa Namba provider.'
             target = dict(phone=w.phone) if w.method == 'mobile' else dict(lipa_namba=w.lipa_namba, provider_code=provider_code)
-            tx = clickpesa.create_payout(w.amount, w.payout_ref, **target)
+            fee = _payout_fee_due(w, lambda: (clickpesa.preview_payout(w.amount, w.payout_ref, **target) or {}).get('fee'))
+            if fee is None or w.amount - fee < 1:
+                return _payout_fee_problem(w, fee)
+            tx = clickpesa.create_payout(w.amount - fee, w.payout_ref, **target)
             w.payout_status = str(tx.get('status') or 'AUTHORIZED')[:16]
             w.payout_fee = Decimal(str(tx.get('fee') or 0))
             w.payout_receiver = str((tx.get('beneficiary') or {}).get('accountName') or '')[:100] or None
@@ -10193,6 +10291,8 @@ def billing():
                            can_pay=current_user.has_role('owner'), grace=Config.BILLING_GRACE_DAYS,
                            payments_ready=paylib.is_ready(_platform_account()), state=billing_state(tenant),
                            default_phone=tenant.phone or '', sms_due=sms_due, sms_price=Config.SMS_PRICE,
+                           pay_fee_percent=('{:g}'.format(Config.SNIPPE_FEE_PERCENT)
+                                            if _platform_account().provider == 'snippe' and Config.SNIPPE_FEE_PERCENT > 0 else None),
                            balance=max(tenant_balance(tenant.id)[0], Decimal(0)))
 
 
@@ -10222,9 +10322,10 @@ def billing_pay():
         if 0 < total - from_balance < BILLING_MIN_PUSH:
             from_balance = max(total - BILLING_MIN_PUSH, Decimal(0))
     pushed = total - from_balance
+    fee = _customer_fee(account, pushed) if pushed > 0 else Decimal(0)    # the provider's share, paid by the business
     if pushed > 0:
         problem = None if phone else tr('Enter a valid mobile money number, e.g. 0712 345 678.')
-        problem = problem or check_network(phone, None, pushed, networks=paylib.networks(account))
+        problem = problem or check_network(phone, None, pushed + fee, networks=paylib.networks(account))
         if not problem and not paylib.is_ready(account):
             problem = tr('Online payment is not available right now. Please contact SafeNet.')
         if problem:
@@ -10232,7 +10333,7 @@ def billing_pay():
             flash(problem, 'danger')
             return redirect(url_for('billing'))
     sp = SubscriptionPayment(tenant_id=tenant.id, billing_plan_id=plan.id, plan_name=plan.name, months=months,
-                             amount=total, sms_amount=sms_amount, balance_amount=from_balance, currency=plan.currency,
+                             amount=total, sms_amount=sms_amount, balance_amount=from_balance, fee_amount=fee, currency=plan.currency,
                              phone=phone or _normalize_tz_phone(tenant.phone or ''), method=account.provider if pushed > 0 else 'balance',
                              reference='SB' + secrets.token_hex(6).upper(), created_by_id=current_user.id)
     db.session.add(sp)

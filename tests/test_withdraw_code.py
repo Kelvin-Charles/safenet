@@ -8,6 +8,7 @@ sys.path.insert(0, os.getcwd())
 import config; config.Config.SQLALCHEMY_DATABASE_URI = 'sqlite://'
 import snippe
 paid_out = []
+snippe.payout_fee = lambda amount, creds: {'fee_amount': 500, 'total_amount': amount + 500}
 snippe.create_payout = lambda amount, ref, creds, name, narration=None, webhook_url=None, **target: \
     paid_out.append((amount, target)) or {'reference': 'sp-1', 'status': 'pending', 'fees': {'value': 0}}
 import app as appmod
@@ -67,7 +68,7 @@ if old != code:
     assert 'That code is not right' in post(code=old)
 # the right code: the money goes out at once, no platform admin
 r = post(code=code)
-assert 'on its way to' in r and paid_out == [(Decimal(10000), {'phone': '255684000222'})]
+assert 'on its way to' in r and paid_out == [(Decimal(9500), {'phone': '255684000222'})]   # less the 500 fee the business pays
 with app.app_context():
     w = db.session.get(Withdrawal, WID)
     assert w.status == 'sending' and w.payout_provider == 'snippe' and w.otp_hash is None
@@ -149,7 +150,7 @@ assert len(paid_out) == before                                  # nothing sent w
 code = re.search(r'Code: (\d{6})\.', sms).group(1)
 assert 'on its way to' in html.unescape(cb.post(f'/earnings/withdraw/{W3}/confirm', data={'csrf_token': tok(page), 'code': code},
                                                 follow_redirects=True).text)
-assert paid_out[-1] == (Decimal(5000), {'phone': '255684000222'})
+assert paid_out[-1] == (Decimal(4500), {'phone': '255684000222'})
 # no business phone: the platform admin can't withdraw for it at all
 with app.app_context():
     db.session.get(Tenant, TID).phone = None

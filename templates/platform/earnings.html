@@ -19,9 +19,9 @@
                 <table class="table table-sm mb-2">
                     <tr><td>SafeNet's fee on guest payments</td><td class="text-end">{{ tzs(profit.fees) }}</td></tr>
                     <tr><td>SMS charged to businesses' balances</td><td class="text-end">{{ tzs(profit.sms) }}</td></tr>
-                    <tr><td>Subscriptions paid online</td><td class="text-end">{{ tzs(profit.subs) }}</td></tr>
+                    <tr><td>Subscriptions paid online <small class="text-muted">(with the mobile-money fee businesses pay on top)</small></td><td class="text-end">{{ tzs(profit.subs) }}</td></tr>
                     <tr><td>Snippe's fee on subscriptions (estimated)</td><td class="text-end text-danger">−{{ tzs(profit.subs_fees) }}</td></tr>
-                    <tr><td>Fees on payouts to businesses (SafeNet pays them)</td><td class="text-end text-danger">−{{ tzs(profit.payout_fees) }}</td></tr>
+                    <tr><td>Payout fees SafeNet bore <small class="text-muted">(older payouts; businesses now pay it from what they receive)</small></td><td class="text-end text-danger">−{{ tzs(profit.payout_fees) }}</td></tr>
                     <tr class="table-light"><td><strong>Earned</strong></td><td class="text-end"><strong>{{ tzs(profit.earned) }}</strong></td></tr>
                     <tr><td>Taken out already</td><td class="text-end text-danger">−{{ tzs(profit.taken) }}</td></tr>
                     <tr class="table-light"><td><strong>Available</strong></td><td class="text-end"><strong>{{ tzs(profit.available) }}</strong></td></tr>
@@ -78,7 +78,7 @@
                 <thead><tr><th>Date</th><th>Amount</th><th>To</th><th>Status</th></tr></thead>
                 <tbody>
                 {% for w in items %}
-                <tr><td><small>{{ w.created_at.strftime('%Y-%m-%d %H:%M') }}{% if w.created_by %} · {{ w.created_by.username }}{% endif %}</small></td>
+                <tr><td><small>{{ w.created_at|local('%Y-%m-%d %H:%M') }}{% if w.created_by %} · {{ w.created_by.username }}{% endif %}</small></td>
                     <td>{{ tzs(w.amount) }}{% if w.payout_fee %}<small class="text-muted d-block">fee {{ tzs(w.payout_fee) }}</small>{% endif %}</td>
                     <td>{{ w.destination }}{% if w.account_name %}<small class="text-muted d-block">{{ w.account_name }}</small>{% endif %}</td>
                     <td>{% if w.status == 'paid' %}<span class="badge bg-success">Paid</span> <small class="text-muted">{{ w.payout_id or '' }}</small>

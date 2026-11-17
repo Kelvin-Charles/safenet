@@ -584,6 +584,7 @@ def earnings():
     total = lambda col, q=paid: _money(q.with_entities(func.coalesce(func.sum(col), 0)).scalar())
     sms_count, sms_amount = A.sms_totals(tenant.id)
     withdrawals = [{'id': w.id, 'amount': _money(w.amount), 'status': w.status, 'method': getattr(w, 'method', None),
+                    'fee': _money(w.fee_charged) if w.fee_charged else None, 'received': _money(w.sent_amount),
                     'phone': getattr(w, 'phone', None), 'created': _iso(w.created_at)}
                    for w in A.scoped(Withdrawal).order_by(Withdrawal.created_at.desc()).limit(30)]
     return jsonify(currency=tenant.currency or 'TZS', platform=tenant.payment_mode == 'platform',
