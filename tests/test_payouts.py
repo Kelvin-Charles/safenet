@@ -169,6 +169,10 @@ with app.app_context():
     assert appmod.platform_provider() == 'snippe' and appmod._platform_account().creds.api_key == GOOD
 
 e = co.get('/earnings').text
+# Snippe: a flat 1,500 fee added on top (withdraw 5,000: 5,000 sent, 6,500 off the balance), and 5,000 at least
+assert 'minimum withdrawal is TZS 5,000' in html.unescape(co.post('/earnings/withdraw', data={'csrf_token': tok(e), 'password': PW, 'amount': 4000,
+    'phone': '0684000001', 'method': 'bank', 'bank_name': 'NMB', 'bank_account': '2041000111', 'account_name': 'Zulu Connect Ltd'}, follow_redirects=True).text)
+assert 'Withdrawal fee' in e and 'TZS 1,500 for any amount' in html.unescape(e)
 for d in (dict(method='mobile', phone='0754000111', account_name='Asha Juma'),
           dict(method='bank', bank_name='NMB', bank_account='2041000111', account_name='Zulu Connect Ltd'),
           dict(method='lipa', lipa_namba='55667788', lipa_network='Airtel Money')):
@@ -176,6 +180,8 @@ for d in (dict(method='mobile', phone='0754000111', account_name='Asha Juma'),
                                                 follow_redirects=True).text), d
 with app.app_context():
     SM, SB, SL = [x.id for x in Withdrawal.query.filter_by(status='requested').order_by(Withdrawal.id)]
+    assert [(x.amount, x.fee_charged) for x in Withdrawal.query.filter_by(status='requested').order_by(Withdrawal.id)] == \
+        [(6500, 1500), (6500, 1500), (5000, None)]                       # Lipa Namba: ClickPesa's fee, from the amount
 p = cs.get('/platform/payouts').text
 assert re.search(rf'payouts/{SM}/send\?via=snippe".*?Send with Snippe.*?payouts/{SM}/send\?via=clickpesa', p, re.S)   # Snippe first
 assert f'payouts/{SL}/send?via=clickpesa' in p and f'payouts/{SL}/send?via=snippe' not in p                    # Lipa Namba: ClickPesa only

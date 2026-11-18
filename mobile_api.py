@@ -591,7 +591,7 @@ def earnings():
     return jsonify(currency=tenant.currency or 'TZS', platform=tenant.payment_mode == 'platform',
                    balance=_money(balance), earned=_money(earned), withdrawn=_money(withdrawn),
                    gross=total(Payment.amount), fees=total(Payment.fee_amount, paid.filter(Payment.provider_account == 'platform')),
-                   sms={'count': sms_count, 'amount': _money(sms_amount)}, min_withdrawal=A.Config.MIN_WITHDRAWAL,
+                   sms={'count': sms_count, 'amount': _money(sms_amount)}, min_withdrawal=A._min_withdrawal(),
                    fee_percent=float(A._fee_percent(tenant)), withdrawals=withdrawals)
 
 

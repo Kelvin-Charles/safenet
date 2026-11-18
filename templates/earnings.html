@@ -38,10 +38,11 @@
         <div class="card">
             <div class="card-header"><i class="bi bi-cash-coin"></i> {{ _('Withdraw') }}</div>
             <div class="card-body">
-                {% if stats.balance >= min_withdrawal %}
+                {% set wfee = withdraw_fee or 0 %}
+                {% if stats.balance >= min_withdrawal + wfee %}
                 <form method="POST" action="{{ url_for('request_withdrawal') }}" novalidate>
                     {{ form.hidden_tag() }}
-                    {{ field(form.amount, help=_('Minimum {min}, up to {max}', min=cur ~ ' ' ~ '{:,}'.format(min_withdrawal), max='{:,.0f}'.format(stats.balance))) }}
+                    {{ field(form.amount, help=_('Minimum {min}, up to {max}', min=cur ~ ' ' ~ '{:,}'.format(min_withdrawal), max='{:,.0f}'.format(stats.balance - wfee))) }}
                     {{ field(form.method, "form-select") }}
                     <div data-method="lipa">
                         {{ field(form.lipa_namba, inputmode="numeric", placeholder=_('e.g. {example}', example='48001268')) }}
@@ -60,7 +61,15 @@
                         {% else %}
                         <small class="text-muted">{{ _('Then we send a code by SMS to your business phone; enter it and the money is sent straight away.') }}</small></div>
                         {% endif %}
-                    <p class="small text-muted mb-2"><i class="bi bi-info-circle"></i> {{ _("The mobile-money or bank payout fee is taken from the amount you withdraw, so you receive the amount less the fee.") }}</p>
+                    {% if withdraw_fee %}
+                    <div class="alert alert-light border small mb-3" id="wd-fee" data-fee="{{ withdraw_fee|int }}" data-cur="{{ cur }}" data-methods="{{ fee_methods|join(',') }}">
+                        <div class="d-flex justify-content-between"><span>{{ _('You receive') }}</span><strong id="wd-get">{{ cur }} 0</strong></div>
+                        <div class="d-flex justify-content-between"><span>{{ _('Withdrawal fee') }}</span><strong>{{ cur }} {{ '{:,.0f}'.format(withdraw_fee) }}</strong></div>
+                        <div class="d-flex justify-content-between border-top mt-1 pt-1"><span>{{ _('Taken from your balance') }}</span><strong id="wd-total">{{ cur }} {{ '{:,.0f}'.format(withdraw_fee) }}</strong></div>
+                        <div class="text-muted mt-1">{{ _('The withdrawal fee is {cur} {fee} for any amount, added to what you withdraw.', cur=cur, fee='{:,.0f}'.format(withdraw_fee)) }}</div>
+                    </div>
+                    {% endif %}
+                    <p class="small text-muted mb-2" id="wd-fee-off"{% if withdraw_fee %} style="display:none"{% endif %}><i class="bi bi-info-circle"></i> {{ _("The mobile-money or bank payout fee is taken from the amount you withdraw, so you receive the amount less the fee.") }}</p>
                     <button type="submit" class="btn btn-primary"><i class="bi bi-send"></i> {{ _('Withdraw') }}</button>
                 </form>
                 {% else %}
@@ -159,6 +168,18 @@
     if (!method) return;
     function show() { document.querySelectorAll('[data-method]').forEach(el => el.style.display = el.dataset.method === method.value ? '' : 'none'); }
     method.addEventListener('change', show); show();
+    const box = document.getElementById('wd-fee'), amount = document.getElementById('amount');
+    if (!box || !amount) return;
+    const fee = +box.dataset.fee, methods = box.dataset.methods.split(','), cur = box.dataset.cur;
+    const money = n => cur + ' ' + Math.round(n).toLocaleString('en-US');
+    function sum() {
+        const a = parseFloat(String(amount.value).replace(/[^0-9.]/g, '')) || 0, on = methods.includes(method.value);
+        box.style.display = on ? '' : 'none';
+        document.getElementById('wd-fee-off').style.display = on ? 'none' : '';
+        document.getElementById('wd-get').textContent = money(a);
+        document.getElementById('wd-total').textContent = money(a + fee);
+    }
+    amount.addEventListener('input', sum); method.addEventListener('change', sum); sum();
 })();
 </script>
 {% endblock %}

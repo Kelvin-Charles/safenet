@@ -9256,8 +9256,10 @@ def earnings():
     form = WithdrawalForm(phone=tenant.phone or '')
     if not Config.CLICKPESA_PAYOUTS:            # Lipa Namba is paid through ClickPesa only (switch in Platform: Billing)
         form.method.choices = [c for c in form.method.choices if c[0] != 'lipa']
+    snippe_fee = _withdraw_fee('mobile') or _withdraw_fee('bank')
     return render_template('earnings.html', stats=stats, withdrawals=withdrawals, plan_paid=plan_paid, form=form,
-                           fee_percent=_fee_percent(tenant), min_withdrawal=Config.MIN_WITHDRAWAL, sms_price=Config.SMS_PRICE,
+                           withdraw_fee=snippe_fee, fee_methods=[m for m in ('mobile', 'bank') if _via_snippe(m)],
+                           fee_percent=_fee_percent(tenant), min_withdrawal=_min_withdrawal(), sms_price=Config.SMS_PRICE,
                            sms_history=sms_history,
                            can_withdraw=current_user.has_role('owner'))
 
@@ -9294,13 +9296,19 @@ def request_withdrawal():
     tenant = Tenant.query.filter_by(id=tenant_id()).with_for_update().one()   # one request at a time
     amount = Decimal(str(form.amount.data))
     balance, _, _ = tenant_balance(tenant.id)
-    if amount < Config.MIN_WITHDRAWAL:
+    least = _min_withdrawal(method)
+    if amount < least:
         db.session.rollback()
-        flash(tr('The minimum withdrawal is {cur} {amount}.', cur=tenant.currency, amount=f'{Config.MIN_WITHDRAWAL:,}'), 'danger')
+        flash(tr('The minimum withdrawal is {cur} {amount}.', cur=tenant.currency, amount=f'{least:,}'), 'danger')
         return redirect(url_for('earnings'))
-    if amount > balance:
+    fee = _withdraw_fee(method)
+    if amount + (fee or 0) > balance:
         db.session.rollback()
-        flash(tr('You can withdraw up to {cur} {amount}.', cur=tenant.currency, amount=f'{balance:,.0f}'), 'danger')
+        if fee:
+            flash(tr('You can withdraw up to {cur} {amount} (your balance less the {fee} withdrawal fee).', cur=tenant.currency,
+                     amount=f'{max(balance - fee, 0):,.0f}', fee=f'{fee:,.0f}'), 'danger')
+        else:
+            flash(tr('You can withdraw up to {cur} {amount}.', cur=tenant.currency, amount=f'{balance:,.0f}'), 'danger')
         return redirect(url_for('earnings'))
     # the owner's password, then a code by SMS to the business phone (which only the platform admin can change)
     if _rate_limited('wdpass', f'admin:{current_user.id}', 5, 15):
@@ -9312,8 +9320,8 @@ def request_withdrawal():
         db.session.commit()
         flash(tr('Your password is not right.'), 'danger')
         return redirect(url_for('earnings'))
-    w = Withdrawal(tenant_id=tenant.id, amount=amount, phone=phone, account_name=account_name, method=method,
-                   requested_by_id=current_user.id)
+    w = Withdrawal(tenant_id=tenant.id, amount=amount + (fee or 0), phone=phone, account_name=account_name, method=method,
+                   requested_by_id=current_user.id, fee_charged=fee)      # the fee on top: `amount` is what reaches them
     if method == 'lipa':
         w.lipa_namba, w.lipa_network = lipa_namba, form.lipa_network.data
     elif method == 'bank':
@@ -9358,11 +9366,11 @@ def _send_withdrawal_code(w, phone):
     w.otp_expires_at = datetime.utcnow() + timedelta(minutes=WITHDRAWAL_CODE_MINUTES)
     w.otp_sends = (w.otp_sends or 0) + 1
     if w.requested_by and w.requested_by.is_superadmin:      # SafeNet support withdrawing for the business
-        send_sms_async(phone, f'SafeNet: SafeNet support is withdrawing {w.tenant.currency} {w.amount:,.0f} to {w.destination} '
+        send_sms_async(phone, f'SafeNet: SafeNet support is withdrawing {w.tenant.currency} {w.sent_amount:,.0f} to {w.destination} '
                               f'for you. Code: {code}. Give it to SafeNet support only if you asked them to. '
                               f'It expires in {WITHDRAWAL_CODE_MINUTES} minutes.')
         return
-    send_sms_async(phone, f'SafeNet: your code to withdraw {w.tenant.currency} {w.amount:,.0f} to {w.destination} is {code}. '
+    send_sms_async(phone, f'SafeNet: your code to withdraw {w.tenant.currency} {w.sent_amount:,.0f} to {w.destination} is {code}. '
                           f'It expires in {WITHDRAWAL_CODE_MINUTES} minutes. Never share it with anyone.')
 
 
@@ -9549,6 +9557,46 @@ def _payouts_ready(provider=None):
     ready = {'clickpesa': bool(Config.CLICKPESA_PAYOUTS) and clickpesa.is_configured(clickpesa.platform_credentials()),
              'snippe': snippe.is_configured(_platform_snippe_creds())}
     return ready.get(provider, False) if provider else ready
+
+
+SNIPPE_PAYOUT_MIN = 5000          # the least Snippe sends in one payout (after its fee comes off)
+_snippe_fee_cache = {}
+
+
+def _snippe_payout_fee(amount=SNIPPE_PAYOUT_MIN):
+    """Snippe's fee for a payout of `amount` (a flat 1,500 so far), asked at most hourly; None when it can't be asked."""
+    hit = _snippe_fee_cache.get(int(amount))
+    if hit and time.time() - hit[1] < 3600:
+        return hit[0]
+    try:
+        fee = Decimal(math.ceil(Decimal(str((snippe.payout_fee(amount, _platform_snippe_creds()) or {}).get('fee_amount')))))
+    except Exception:
+        return hit[0] if hit else None
+    _snippe_fee_cache[int(amount)] = (fee, time.time())
+    return fee
+
+
+def _via_snippe(method):
+    """Withdrawals of this kind go out through Snippe (mobile money and banks; Lipa Namba is ClickPesa's)."""
+    return method in ('mobile', 'bank') and _payouts_ready('snippe')
+
+
+def _withdraw_fee(method):
+    """Snippe's payout fee (a flat 1,500 for any amount), added on top of what the business withdraws and taken from its
+    balance with it: withdraw 5,000, receive 5,000, 6,500 comes off. None when it isn't sent through Snippe (then the
+    provider's fee comes off the amount, as before)."""
+    if not _via_snippe(method):
+        return None
+    fee = _snippe_payout_fee()
+    return fee if fee is not None else Decimal(1500)
+
+
+def _min_withdrawal(method='mobile'):
+    """The least a business can withdraw (what it receives): the platform's minimum, and Snippe's own 5,000."""
+    least = Config.MIN_WITHDRAWAL
+    if _via_snippe(method):
+        least = max(least, SNIPPE_PAYOUT_MIN)
+    return int(least)
 
 
 def _payout_options(w):
@@ -10197,6 +10245,13 @@ def _send_payout_now(w, via, bank=None, provider=None):
             fee = _payout_fee_due(w, lambda: (snippe.payout_fee(w.amount, creds) or {}).get('fee_amount'))
             if fee is None or w.amount - fee < 1:
                 return _payout_fee_problem(w, fee)
+            if w.amount - fee < SNIPPE_PAYOUT_MIN:
+                wid_, msg = w.id, (f'Snippe sends at least {SNIPPE_PAYOUT_MIN:,}: {w.amount:,.0f} less its {fee:,.0f} fee is '
+                                   f'{w.amount - fee:,.0f}. Pay it by hand, or reject it.')
+                db.session.rollback()
+                Withdrawal.query.filter_by(id=wid_).update({'payout_error': msg[:255]})
+                db.session.commit()
+                return msg
             tx = snippe.create_payout(w.amount - fee, w.payout_ref, creds, name, narration=f'SafeNet earnings {w.tenant.name}',
                                       webhook_url=_link('snippe_webhook') if creds.webhook_key else None, **target)
             w.payout_id = str(tx.get('reference') or '')[:64] or None

@@ -283,4 +283,9 @@ SW = {
     'The mobile-money or bank payout fee is taken from the amount you withdraw, so you receive the amount less the fee.': 'Ada ya kutuma kwa simu au benki hukatwa kwenye kiasi unachotoa, hivyo unapokea kiasi hicho ukiondoa ada.',
     "The mobile-money service's fee ({percent}%) is added to what you pay by PIN prompt. Paying from your balance has no fee.": 'Ada ya huduma ya pesa kwa simu ({percent}%) huongezwa kwenye unacholipa kwa PIN. Kulipa kutoka salio lako hakuna ada.',
     '+ {amount} mobile-money fee': '+ {amount} ada ya pesa kwa simu',
+    'You receive': 'Utapokea',
+    'Withdrawal fee': 'Ada ya kutoa',
+    'Taken from your balance': 'Kinachotolewa kwenye salio lako',
+    'The withdrawal fee is {cur} {fee} for any amount, added to what you withdraw.': 'Ada ya kutoa ni {cur} {fee} kwa kiasi chochote, inaongezwa juu ya unachotoa.',
+    'You can withdraw up to {cur} {amount} (your balance less the {fee} withdrawal fee).': 'Unaweza kutoa hadi {cur} {amount} (salio lako ukiondoa ada ya kutoa {fee}).',
 }

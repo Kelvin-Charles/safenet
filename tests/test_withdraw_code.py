@@ -68,14 +68,14 @@ if old != code:
     assert 'That code is not right' in post(code=old)
 # the right code: the money goes out at once, no platform admin
 r = post(code=code)
-assert 'on its way to' in r and paid_out == [(Decimal(9500), {'phone': '255684000222'})]   # less the 500 fee the business pays
+assert 'on its way to' in r and paid_out == [(Decimal(10000), {'phone': '255684000222'})]   # the 500 fee comes on top, from the balance
 with app.app_context():
     w = db.session.get(Withdrawal, WID)
     assert w.status == 'sending' and w.payout_provider == 'snippe' and w.otp_hash is None
-    assert tenant_balance(TID)[0] == Decimal(9400)
+    assert tenant_balance(TID)[0] == Decimal(8900)
 assert co.get(f'/earnings/withdraw/{WID}/confirm').status_code == 302      # done: back to earnings
 # expired code
-r = ask(password='password1', amount=5000)
+r = ask(password='password1', amount=6000)
 with app.app_context():
     w2 = Withdrawal.query.filter_by(status='verifying').one(); W2 = w2.id
     w2.otp_expires_at = datetime.utcnow() - timedelta(minutes=1); db.session.commit()
@@ -114,7 +114,7 @@ s = co.get('/settings').text
 co.post('/settings', data={'csrf_token': tok(s), 'name': 'Zulu Ltd', 'phone': '0684 000 111', 'currency': 'TZS'})
 with app.app_context():
     assert db.session.get(Tenant, TID).phone_pending == '0699 999 999'
-r = ask(password='password1', amount=5000)
+r = ask(password='password1', amount=6000)
 assert texts[-1][0] == '255684000111'                               # still the approved phone
 # the platform admin approves: both numbers are told
 cb = login('boss')
@@ -134,14 +134,14 @@ r = cb.post(f'/platform/switch/{TID}', data={'csrf_token': tok(p), 'next': 'earn
 assert r.headers['Location'].endswith('/earnings')
 e = cb.get('/earnings').text
 assert 'a code goes by SMS to the business phone' in html.unescape(e)
-r = html.unescape(cb.post('/earnings/withdraw', data={'csrf_token': tok(e), 'amount': 5000, 'phone': '0684000222', 'method': 'mobile',
+r = html.unescape(cb.post('/earnings/withdraw', data={'csrf_token': tok(e), 'amount': 6000, 'phone': '0684000222', 'method': 'mobile',
                                                       'password': 'password1'}, follow_redirects=True).text)
 assert 'Ask the business to read it to you' in r
 phone, sms = texts[-1]
 assert phone == '255699999999' and 'SafeNet support is withdrawing' in sms
 with app.app_context():
     w = Withdrawal.query.filter_by(status='verifying').order_by(Withdrawal.id.desc()).first(); W3 = w.id
-    assert w.amount == Decimal(5000)
+    assert w.amount == Decimal(6500) and w.sent_amount == Decimal(6000)
 page = cb.get(f'/earnings/withdraw/{W3}/confirm').text
 before = len(paid_out)
 assert 'That code is not right' in html.unescape(cb.post(f'/earnings/withdraw/{W3}/confirm', data={'csrf_token': tok(page), 'code': '999999'
@@ -150,7 +150,7 @@ assert len(paid_out) == before                                  # nothing sent w
 code = re.search(r'Code: (\d{6})\.', sms).group(1)
 assert 'on its way to' in html.unescape(cb.post(f'/earnings/withdraw/{W3}/confirm', data={'csrf_token': tok(page), 'code': code},
                                                 follow_redirects=True).text)
-assert paid_out[-1] == (Decimal(4500), {'phone': '255684000222'})
+assert paid_out[-1] == (Decimal(6000), {'phone': '255684000222'})
 # no business phone: the platform admin can't withdraw for it at all
 with app.app_context():
     db.session.get(Tenant, TID).phone = None
@@ -159,9 +159,9 @@ with app.app_context():
                            provider='snippe', provider_account='platform', status='paid', paid_at=now))
     db.session.commit()
 e = cb.get('/earnings').text
-r = html.unescape(cb.post('/earnings/withdraw', data={'csrf_token': tok(e), 'amount': 5000, 'phone': '0684000222', 'method': 'mobile',
+r = html.unescape(cb.post('/earnings/withdraw', data={'csrf_token': tok(e), 'amount': 6000, 'phone': '0684000222', 'method': 'mobile',
                                                       'password': 'password1'}, follow_redirects=True).text)
 assert 'must confirm with a code' in r
 with app.app_context():
-    assert Withdrawal.query.filter_by(amount=Decimal(5000), status='requested').count() == 0
+    assert Withdrawal.query.filter_by(amount=Decimal(6500), status='requested').count() == 0
 print('WITHDRAW CODE OK')
