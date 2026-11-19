@@ -267,6 +267,8 @@ def run():
     _add_column('sites', 'ruijie_synced_at', 'DATETIME')
     _add_column('sites', 'ruijie_clients', 'MEDIUMTEXT')
     _add_column('sites', 'ruijie_clients_at', 'DATETIME')
+    _add_column('sites', 'ruijie_aps', 'TEXT')
+    _add_column('sites', 'ruijie_aps_at', 'DATETIME')
     _add_column('vouchers', 'ruijie_state', 'VARCHAR(8)')
     _add_column('vouchers', 'disabled_reason', 'VARCHAR(120)')
     _add_column('vouchers', 'ruijie_at', 'DATETIME NULL')

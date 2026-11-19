@@ -42,6 +42,7 @@
                 <input type="search" id="filter" class="form-control form-control-sm" style="max-width: 220px" placeholder="{{ _('Filter by code, phone, MAC…') }}">
             </div>
             <div class="card-body">
+                <div id="reyee-bar"></div>
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
                         <thead>
@@ -83,6 +84,10 @@
         disconnectNow: {{ _('Disconnect now')|tojson }}, noActivity: {{ _('No activity yet.')|tojson }},
         updated: {{ _('Live · updated {time}')|tojson }}, lost: {{ _('Connection lost, retrying… ({error})')|tojson }},
         confirmKick: {{ _('Disconnect {user} now? They can log in again unless you also disable their voucher.')|tojson }},
+        confirmPhone: {{ _('Log this phone out of the Wi-Fi now? It can log in again with a valid code.')|tojson }},
+        manage: {{ _('Manage access points, Wi-Fi and guests')|tojson }},
+        kickFree: {{ _('Disconnect free logins')|tojson }}, confirmFree: {{ _('Log out every phone on {site} that came in free (not with a code)?')|tojson }},
+        kicked: {{ _('{n} logged out')|tojson }},
     };
     const fill = (s, v) => s.replace(/\{(\w+)\}/g, (m, k) => k in v ? v[k] : m);
     const EVENT_STYLE = {
@@ -94,7 +99,7 @@
         paid:    { icon: 'bi-check2-circle',      label: T.paid },
         failed:  { icon: 'bi-exclamation-triangle', label: T.failed },
     };
-    let last = null, known = new Set(), timer = null;
+    let last = null, known = new Set(), timer = null, canReyee = false, reyeeKey = '';
 
     const $ = id => document.getElementById(id);
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -157,7 +162,8 @@
                 <td>${bytes(r.down)}</td>
                 <td>${bytes(r.up)}</td>
                 <td>${left === null ? '<span class="text-muted">–</span>' : duration(left)}</td>
-                <td>${r.user && !String(r.router).startsWith('Reyee') ? `<button class="btn btn-sm btn-outline-danger" data-kick="${esc(r.user)}" title="${esc(T.disconnectNow)}"><i class="bi bi-x-circle"></i></button>` : ''}</td>
+                <td>${r.reyee_site && canReyee ? `<button class="btn btn-sm btn-outline-danger" data-reyee="${r.reyee_site}" data-mac="${esc(r.mac)}" title="${esc(T.disconnectNow)}"><i class="bi bi-x-circle"></i></button>`
+                    : r.user && !String(r.router).startsWith('Reyee') ? `<button class="btn btn-sm btn-outline-danger" data-kick="${esc(r.user)}" title="${esc(T.disconnectNow)}"><i class="bi bi-x-circle"></i></button>` : ''}</td>
             </tr>`;
         }).join('');
         known = seen;
@@ -182,6 +188,8 @@
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const d = await r.json();
             renderTiles(d.stats);
+            canReyee = (d.reyee || []).length > 0;
+            renderReyee(d.reyee || []);
             renderOnline(d.online, d.now, d.stale_minutes);
             renderFeed(d.events);
             last = d;
@@ -194,7 +202,42 @@
     }
 
     const CSRF = '{{ csrf_token() }}';
+    function renderReyee(sites) {
+        const key = JSON.stringify(sites);
+        if (key === reyeeKey) return;              // don't redraw (a click may be on its way)
+        reyeeKey = key;
+        $('reyee-bar').innerHTML = sites.map(s => `<div class="d-flex flex-wrap align-items-center gap-3 border rounded px-3 py-2 mb-3 small">
+            <strong><i class="bi bi-router"></i> ${esc(s.name)}</strong>
+            <a href="${esc(s.manage)}" class="btn btn-sm btn-outline-primary"><i class="bi bi-sliders"></i> ${esc(T.manage)}</a>
+            <button class="btn btn-sm btn-outline-danger" data-kick-free="${s.id}" data-name="${esc(s.name)}"><i class="bi bi-person-x"></i> ${esc(T.kickFree)}</button>
+            <span class="text-muted" data-note="${s.id}"></span></div>`).join('');
+    }
+    async function reyee(params) {
+        const r = await fetch('{{ url_for("live_reyee") }}', { method: 'POST', credentials: 'same-origin',
+                                                             body: new URLSearchParams({ ...params, csrf_token: CSRF }) });
+        const d = await r.json().catch(() => ({}));
+        const note = document.querySelector(`[data-note="${params.site}"]`);
+        if (note) note.textContent = r.ok ? fill(T.kicked, {n: d.kicked || 0}) : (d.error || '!');
+        reyeeKey = '';
+        setTimeout(refresh, 1000);
+        return r.ok;
+    }
+    $('reyee-bar').addEventListener('click', async e => {
+        const b = e.target.closest('[data-kick-free]');
+        if (!b || !confirm(fill(T.confirmFree, {site: b.dataset.name}))) return;
+        b.disabled = true;
+        await reyee({ site: b.dataset.kickFree, action: 'free' });
+        b.disabled = false;
+    });
+
     $('online-body').addEventListener('click', async e => {
+        const ph = e.target.closest('[data-reyee]');
+        if (ph) {
+            if (!confirm(T.confirmPhone)) return;
+            ph.disabled = true;
+            ph.innerHTML = (await reyee({ site: ph.dataset.reyee, action: 'kick', mac: ph.dataset.mac })) ? '<i class="bi bi-check"></i>' : '!';
+            return;
+        }
         const btn = e.target.closest('[data-kick]');
         if (!btn || !confirm(fill(T.confirmKick, {user: btn.dataset.kick}))) return;
         btn.disabled = true;

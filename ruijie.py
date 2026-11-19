@@ -148,7 +148,7 @@ class Cloud:
         for attempt in range(4):
             qs = urllib.parse.urlencode({**(query or {}), 'access_token': self.token(force=relogin)})
             try:
-                reply = self._http(method, f'{self.base}/service/api/{path}?{qs}', body if method == 'POST' else None)
+                reply = self._http(method, f'{self.base}/service/api/{path}?{qs}', body if method in ('POST', 'PUT') else None)
             except RuijieError as e:
                 if busy(str(e)) and attempt < 1:
                     time.sleep(2)
@@ -315,6 +315,61 @@ class Cloud:
                 break
             page += 1
         return out
+
+    def kick(self, group_id, login):
+        """Log a phone out (Auth Clients: Disconnect). `login` is one of logins(). The call Ruijie Cloud's own page makes."""
+        self.call('POST', 'samTransfer/kick/user/offline', {'cloudType': 'smb', 'lang': 'en'},
+                  {'group_id': int(group_id), 'account': login.get('account'), 'auth_type': login.get('authType'),
+                   'mac': login.get('userMac'), 'id': login.get('id')})
+
+    # --- running the project from SafeNet: the calls Ruijie Cloud's own pages make (they answer API keys too)
+    def device_list(self, group_id):
+        """The project's access points (and other devices): name, serial, model, online, IPs, last seen (ms), firmware."""
+        data = self.call('GET', 'maint/devices', {'group_id': group_id, 'page': 1, 'per_page': 100})
+        return [{'sn': str(d.get('serialNumber') or ''), 'name': str(d.get('aliasName') or d.get('name') or d.get('serialNumber') or ''),
+                 'model': str(d.get('productClass') or ''), 'kind': str(d.get('commonType') or ''),
+                 'online': str(d.get('onlineStatus') or '').upper() == 'ON', 'ip': str(d.get('localIp') or ''),
+                 'public_ip': str(d.get('cpeIp') or ''), 'last_online': d.get('lastOnline'), 'mac': str(d.get('mac') or ''),
+                 'firmware': str(d.get('softwareVersion') or '').split(';')[0], 'offline_reason': str(d.get('offlineReason') or '')}
+                for d in data.get('deviceList') or [] if isinstance(d, dict)]
+
+    def reboot(self, serials):
+        """Restart these devices (guests drop off for a minute or two)."""
+        self.call('POST', 'maint/device/reboot', body={'snList': list(serials)})
+
+    def wifi(self, group_id):
+        """(configuration template id, the project's Wi-Fi networks as Ruijie keeps them)."""
+        data = self.call('GET', f'conf/group/{group_id}/ssid')
+        tpl = next((t for t in data.get('list') or [] if isinstance(t, dict)), None)
+        if not tpl:
+            raise RuijieError('Ruijie Cloud has no Wi-Fi settings for this project yet.')
+        return tpl.get('confTempId'), [x for x in tpl.get('ssidList') or [] if isinstance(x, dict)]
+
+    def save_wifi(self, template_id, ssid):
+        """Save one Wi-Fi network (an entry of wifi(), changed)."""
+        entity = dict(ssid)
+        if isinstance(entity.get('relatedRadio'), list):
+            entity['relatedRadio'] = ','.join(str(x) for x in entity['relatedRadio'])
+        entity.setdefault('authEntity', {})
+        self.call('PUT', f'conf/template/{template_id}/ssid/{ssid["id"]}', body={'wirelessConfEntity': entity})
+
+    def blocked(self, group_id):
+        """{wlanId: {'type': 'deny'|'allow', 'macs': [{'mac', 'name'}]}}: the phones each Wi-Fi network blocks."""
+        data = self.call('GET', f'enet/conf/group/{group_id}/wlan_mac_filter')
+        return {int(x.get('wlanId')): {'type': x.get('type') or 'deny', 'macs': [m for m in x.get('macList') or [] if isinstance(m, dict)]}
+                for x in (data.get('info') or {}).get('list') or [] if isinstance(x, dict) and x.get('wlanId') is not None}
+
+    def save_blocked(self, group_id, template_id, lists):
+        """Save the block lists (the shape blocked() returns)."""
+        self.call('PUT', f'enet/conf/group/{group_id}/conf_template/{template_id}/wlan_mac_filter',
+                  body={'list': [{'wlanId': w, 'type': v['type'], 'macList': v['macs']} for w, v in sorted(lists.items())]})
+
+    def portals(self, group_id):
+        """The project's login pages: name, login types (15 voucher, 8 One-Click, ...), the Wi-Fi networks using it."""
+        data = self.call('GET', f'samTransfer/portal/share/{group_id}', {'cloudType': 'smb', 'lang': 'en'})
+        return [{'id': p.get('uuid'), 'name': p.get('name') or '', 'auth': [a for a in str(p.get('authType') or '').split(',') if a],
+                 'ssids': p.get('usingSsid') or [], 'custom': bool(p.get('fileLoadPath'))}
+                for p in ((data.get('sharePortal') or {}).get('list') or []) if isinstance(p, dict)]
 
     def vouchers(self, group_id, pages=25):
         """Every voucher in the project, as Ruijie has them: voucherCode, loginTime and expiryTime (ms),

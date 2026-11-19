@@ -40,7 +40,32 @@ class FakeCloud:
         return list(phones)
 
     def logins(self, group_id):
-        return list(logins_list)
+        return [dict(x) for x in logins_list]
+
+    def kick(self, group_id, login):
+        kicked.append(login['account'])
+
+    def device_list(self, group_id):
+        return [dict(a) for a in aps]
+
+    def reboot(self, serials):
+        rebooted.extend(serials)
+
+    def wifi(self, group_id):
+        return 77, [dict(n) for n in nets]
+
+    def save_wifi(self, template_id, ssid):
+        assert template_id == 77
+        nets[:] = [dict(ssid) if n['id'] == ssid['id'] else n for n in nets]
+
+    def blocked(self, group_id):
+        return {w: {'type': v['type'], 'macs': [dict(m) for m in v['macs']]} for w, v in blocks.items()}
+
+    def save_blocked(self, group_id, template_id, lists):
+        blocks.clear(); blocks.update(lists)
+
+    def portals(self, group_id):
+        return [{'id': 'p1', 'name': 'Safenet Pay', 'auth': ['15', '8'], 'ssids': ['Hostel WiFi'], 'custom': True}]
 
     def create_package(self, group_id, name, minutes, devices=1, price='', down_kbps=0, up_kbps=0):
         if not can_create[0]:
@@ -76,6 +101,8 @@ real._http = lambda *a, **k: {'code': 0, 'count': 1, 'list': [{'mac': '06:5A', '
 assert (real.clients('1')[0]['down'], real.clients('1')[0]['up']) == (1000, 20)
 ruijie.Cloud = FakeCloud
 ruijie_list, phones, logins_list = [], [], []
+aps, nets, blocks = [], [], {}
+kicked, rebooted = [], []
 import app as appmod
 appmod.send_sms_async = lambda *a, **k: None
 from app import app, db
@@ -394,6 +421,62 @@ lv = c.get('/api/live').get_json()
 rows = {x['mac']: x for x in lv['online']}
 assert rows['06:5A:00:00:00:02']['user'] == NEW and rows['06:5A:00:00:00:02']['expires'] and rows['06:5A:00:00:00:02']['kind'] == 'voucher'
 assert rows['06:5A:00:00:00:01']['user'] == ''
+
+# logging phones out: an expired code Ruijie left on, and free (One-Click) logins while the free trial is off
+kicked.clear(); rebooted.clear()
+aps[:] = [{'sn': 'G1AP1', 'name': 'Hostel AP', 'model': 'RAP2200', 'kind': 'AP', 'online': True, 'ip': '192.168.1.2', 'public_ip': '', 'last_online': None,
+        'mac': '', 'firmware': 'ReyeeOS 2', 'offline_reason': ''}]
+nets[:] = [{'id': 500, 'wlanId': 1, 'ssidName': 'Hostel WiFi', 'enable': 'true', 'ishidden': 'false', 'encryptionMode': 'open', 'password': ''}]
+blocks.clear(); blocks[1] = {'type': 'deny', 'macs': []}
+with app.app_context():
+    v = Voucher.query.filter_by(code=NEW).one(); v.expires_at = datetime.utcnow() - timedelta(minutes=1)
+    db.session.get(Tenant, db.session.get(Site, SID).tenant_id).guest_trial_minutes = 30; db.session.commit()
+logins_list[:] = [{'account': NEW, 'authType': 15, 'userMac': '065a.0000.0002', 'id': 1, 'onlineStatus': 1},
+                  {'account': '065a.0000.0007', 'authType': 8, 'userMac': '065a.0000.0007', 'id': 2, 'onlineStatus': 1},
+                  {'account': '065a.0000.0008', 'authType': 8, 'userMac': '065a.0000.0008', 'id': 3, 'onlineStatus': 0}]
+with app.app_context():
+    appmod._ruijie_sync_site(db.session.get(Site, SID))
+assert kicked == [NEW]                                              # the trial is on: free logins stay
+with app.app_context():
+    db.session.get(Tenant, db.session.get(Site, SID).tenant_id).guest_trial_minutes = 0; db.session.commit()
+    kicked.clear(); appmod._ruijie_sync_site(db.session.get(Site, SID))
+    assert kicked == ['065a.0000.0007'], kicked                     # trial off: the free one goes too (the code's end came from Ruijie)
+lp = c.get('/live').text
+assert [x['id'] for x in c.get('/api/live').get_json()['reyee']] == [SID]
+reyee = lambda **d: c.post('/live/reyee', data={'csrf_token': tok(lp), 'site': SID, **d}).get_json()
+kicked.clear()
+assert reyee(action='free') == {'ok': True, 'kicked': 1} and kicked == ['065a.0000.0007']      # not the one already offline
+kicked.clear()
+assert reyee(action='kick', mac='06:5A:00:00:00:07') == {'ok': True, 'kicked': 1} and kicked == ['065a.0000.0007']
+assert c.post('/live/reyee', data={'csrf_token': tok(lp), 'site': 99999, 'action': 'free'}).status_code == 404
+
+# the control page: access points, Wi-Fi, login page, blocking, who is logged in
+pg = html.unescape(c.get(f'/sites/{SID}/reyee').text)
+assert 'Hostel AP' in pg and 'Hostel WiFi' in pg and 'One-Click (free)' in pg and 'logged out automatically' in pg and '06:5A:00:00:00:07' in pg
+act = lambda **d: html.unescape(c.post(f'/sites/{SID}/reyee', data={'csrf_token': tok(pg), **d}, follow_redirects=True).text)
+assert 'Restarting the access point' in act(action='reboot', sn='G1AP1') and rebooted == ['G1AP1']
+assert c.post(f'/sites/{SID}/reyee', data={'csrf_token': tok(pg), 'action': 'reboot', 'sn': 'NOT-MINE'}).status_code == 404
+assert '8 to 63 characters' in act(action='wifi', ssid_id='500', name='Hostel WiFi', security='wpa2-psk', password='short', enable='1')
+assert 'Wi-Fi saved' in act(action='wifi', ssid_id='500', name='Hostel Free WiFi', security='open', enable='1')
+assert nets[0]['ssidName'] == 'Hostel Free WiFi' and nets[0]['encryptionMode'] == 'open' and nets[0]['enable'] == 'true'
+assert 'Wi-Fi saved' in act(action='wifi', ssid_id='500', name='Hostel Free WiFi', security='wpa2-psk', password='karibu123')
+assert nets[0]['encryptionMode'] == 'wpa2-psk' and nets[0]['password'] == 'karibu123' and nets[0]['enable'] == 'false'
+kicked.clear()
+assert 'is blocked' in act(action='block', mac='06-5A-00-00-00-07', name='Troublemaker')
+assert blocks[1]['macs'] == [{'mac': '06:5a:00:00:00:07', 'name': 'Troublemaker'}] and kicked == ['065a.0000.0007']
+assert '06:5A:00:00:00:07' in html.unescape(c.get(f'/sites/{SID}/reyee').text)
+assert 'can join again' in act(action='unblock', mac='06:5a:00:00:00:07') and blocks[1]['macs'] == []
+assert 'Enter a phone MAC' in act(action='block', mac='nonsense')
+# an access point going offline: an alert (not on the first read), and back online
+with app.app_context():
+    from models import Notification
+    st = db.session.get(Site, SID); st.ruijie_aps_at = None; st.ruijie_aps = None
+    appmod._ruijie_ap_watch(st, FakeCloud('https://cloud.ruijienetworks.com', 'a', 'shh')); db.session.commit()
+    aps[0]['online'] = False; st.ruijie_aps_at = datetime.utcnow() - timedelta(hours=1)
+    appmod._ruijie_ap_watch(st, FakeCloud('https://cloud.ruijienetworks.com', 'a', 'shh')); db.session.commit()
+    assert [n.title for n in Notification.query.filter_by(kind='device')] [-1:] == ['Hostel AP is offline']
+    appmod._ruijie_ap_watch(st, FakeCloud('https://cloud.ruijienetworks.com', 'a', 'shh')); db.session.commit()   # read again within 10 min: not read
+    assert Notification.query.filter_by(kind='device').count() == 1
 
 # removing it stops the copying
 assert 'Ruijie Cloud removed' in html.unescape(post(action='remove').text)

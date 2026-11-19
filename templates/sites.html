@@ -427,6 +427,9 @@ radiussecret  {{ tenant_radius_secret }}
                                     </form>
                                 </div>
                                 {% endif %}
+                                {% if s.ruijie_group_id %}
+                                <a class="btn btn-primary btn-sm mb-2" href="{{ url_for('site_reyee', site_id=s.id) }}"><i class="bi bi-sliders"></i> {{ _('Manage access points, Wi-Fi and guests') }}</a>
+                                {% endif %}
                                 {% if managed and s.ruijie_group_id %}
                                 <p class="small mb-1">{{ _('{ok} codes made on Ruijie Cloud, {waiting} waiting, {failed} failed', ok=rj.ok, waiting=rj.waiting, failed=rj.failed) }}</p>
                                 {% endif %}

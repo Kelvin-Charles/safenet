@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Reyee access points') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Reyee access points') }} · {{ site.name }}{% endblock %}
+
+{% block content %}
+{% set csrf %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endset %}
+<p class="text-muted small mb-3"><i class="bi bi-cloud"></i> {{ _('Everything here is read from Ruijie Cloud now and saved straight to it: no need to open Ruijie Cloud.') }}
+    <a href="{{ url_for('live') }}">{{ _('Live activity') }}</a> · <a href="{{ url_for('sites_page', open='ruijie-%d'|format(site.id)) }}">{{ _('Ruijie Cloud settings') }}</a></p>
+{% if error %}<div class="alert alert-danger"><i class="bi bi-x-circle"></i> {{ _('Ruijie Cloud did not answer: {error}', error=error) }}</div>{% endif %}
+
+<div class="row g-3">
+    <div class="col-xl-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-router"></i> {{ _('Access points') }}</div>
+            <div class="card-body">
+                {% for ap in data.aps or [] %}
+                <div class="d-flex justify-content-between align-items-start border-bottom py-2 gap-2">
+                    <div>
+                        <strong>{{ ap.name }}</strong>
+                        {% if ap.online %}<span class="badge bg-success ms-1">{{ _('Online') }}</span>
+                        {% else %}<span class="badge bg-danger ms-1">{{ _('Offline') }}</span>{% endif %}
+                        <small class="d-block text-muted">{{ ap.model }} · {{ ap.sn }} · {{ ap.ip }}{% if ap.public_ip %} · {{ _('internet IP {ip}', ip=ap.public_ip) }}{% endif %}</small>
+                        <small class="d-block text-muted">{{ ap.firmware }}{% if not ap.online and ap.last_online %} · {{ _('last seen {time}', time=ms(ap.last_online)|local) }}{% endif %}</small>
+                        {% if not ap.online %}<small class="d-block text-danger">{{ _('Check that it has power and its cable goes to a router with internet.') }}</small>{% endif %}
+                    </div>
+                    {% if ap.online %}
+                    <form method="POST" action="{{ url_for('site_reyee_action', site_id=site.id) }}" onsubmit="return confirm('{{ _('Restart {name}? Guests drop off for about 2 minutes.', name=ap.name)|e }}');">
+                        {{ csrf }}<input type="hidden" name="sn" value="{{ ap.sn }}">
+                        <button class="btn btn-sm btn-outline-secondary" name="action" value="reboot"><i class="bi bi-arrow-clockwise"></i> {{ _('Restart') }}</button>
+                    </form>
+                    {% endif %}
+                </div>
+                {% else %}<p class="text-muted mb-0">{{ _('No access points in this Ruijie Cloud project yet.') }}</p>{% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-wifi"></i> {{ _('Wi-Fi') }}</div>
+            <div class="card-body">
+                {% for net in data.wifi or [] %}
+                <form method="POST" action="{{ url_for('site_reyee_action', site_id=site.id) }}" class="border rounded p-2 mb-2" autocomplete="off">
+                    {{ csrf }}<input type="hidden" name="ssid_id" value="{{ net.id }}">
+                    <div class="row g-2">
+                        <div class="col-md-6"><label class="form-label small mb-1">{{ _('Wi-Fi name') }}</label>
+                            <input name="name" class="form-control form-control-sm" maxlength="32" required value="{{ net.ssidName }}"></div>
+                        <div class="col-md-6"><label class="form-label small mb-1">{{ _('Security') }}</label>
+                            <select name="security" class="form-select form-select-sm" data-security>
+                                <option value="open"{{ ' selected' if net.encryptionMode == 'open' }}>{{ _('Open (guests log in on the login page)') }}</option>
+                                <option value="wpa2-psk"{{ ' selected' if net.encryptionMode != 'open' }}>{{ _('Password (WPA2)') }}</option>
+                            </select></div>
+                        <div class="col-md-6" data-password{% if net.encryptionMode == 'open' %} style="display:none"{% endif %}><label class="form-label small mb-1">{{ _('New password') }}</label>
+                            <input name="password" type="password" class="form-control form-control-sm" minlength="8" maxlength="63" placeholder="{{ _('(leave empty to keep)') if net.encryptionMode != 'open' else '' }}" autocomplete="new-password"></div>
+                        <div class="col-12 d-flex flex-wrap gap-3 small">
+                            <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="enable" value="1"{{ ' checked' if net.enable == 'true' }}> {{ _('On') }}</label>
+                            <label class="form-check mb-0"><input class="form-check-input" type="checkbox" name="hidden" value="1"{{ ' checked' if net.ishidden == 'true' }}> {{ _('Hidden name') }}</label>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary btn-sm mt-2" name="action" value="wifi"><i class="bi bi-check2"></i> {{ _('Save Wi-Fi') }}</button>
+                    {% if net.encryptionMode != 'open' %}<small class="text-warning-emphasis d-block mt-1">{{ _('With a password, guests need it before they see the login page.') }}</small>{% endif %}
+                </form>
+                {% else %}<p class="text-muted mb-0">{{ _('No Wi-Fi networks in this project yet.') }}</p>{% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-door-open"></i> {{ _('Login page') }}</div>
+            <div class="card-body small">
+                {% for p in data.portals or [] %}
+                <p class="mb-1"><strong>{{ p.name }}</strong>{% if p.ssids %} · {{ _('on {wifi}', wifi=p.ssids|join(', ')) }}{% endif %}</p>
+                <p class="mb-2">{{ _('Ways to log in:') }} {% for a in p.auth %}<span class="badge bg-light text-dark border me-1">{{ _(auth_names.get(a, a)) }}</span>{% endfor %}</p>
+                {% if '8' in p.auth and not trial %}
+                <div class="alert alert-info py-2 mb-2"><i class="bi bi-shield-check"></i> {{ _('Free trial is off, so phones that log in free (One-Click) are logged out automatically within a few minutes.') }}</div>
+                {% endif %}
+                {% else %}<p class="text-muted">{{ _('No login page on Ruijie Cloud yet.') }}</p>{% endfor %}
+                <p class="text-muted mb-2">{{ _('The page shows your current packages, prices and logo from SafeNet by itself. Free trial: {state}.', state=(_('on, {m}', m=trial.minutes|minutes) if trial else _('off'))) }}
+                    <a href="{{ url_for('portal_settings') }}">{{ _('Change') }}</a></p>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('site_ruijie_portal', site_id=site.id) }}"><i class="bi bi-download"></i> {{ _('Download login page (.zip)') }}</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-slash-circle"></i> {{ _('Blocked phones') }}</div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('site_reyee_action', site_id=site.id) }}" class="row g-2 mb-2" autocomplete="off">
+                    {{ csrf }}
+                    <div class="col-md-5"><input name="mac" class="form-control form-control-sm" placeholder="8e:4a:3b:ef:71:6c" required></div>
+                    <div class="col-md-4"><input name="name" class="form-control form-control-sm" maxlength="60" placeholder="{{ _('Note (optional)') }}"></div>
+                    <div class="col-md-3 d-grid"><button class="btn btn-sm btn-outline-danger" name="action" value="block">{{ _('Block') }}</button></div>
+                </form>
+                {% for mac, name in data.blocked or [] %}
+                <form method="POST" action="{{ url_for('site_reyee_action', site_id=site.id) }}" class="d-flex justify-content-between align-items-center border-bottom py-1">
+                    {{ csrf }}<input type="hidden" name="mac" value="{{ mac }}">
+                    <span class="font-monospace small">{{ mac|upper }}{% if name %} <span class="text-muted">· {{ name }}</span>{% endif %}</span>
+                    <button class="btn btn-sm btn-link" name="action" value="unblock">{{ _('Unblock') }}</button>
+                </form>
+                {% else %}<p class="text-muted small mb-0">{{ _('No blocked phones.') }}</p>{% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-people"></i> {{ _('Logged in now') }} ({{ guests|length }})</span>
+                {% if guests|selectattr('free')|list %}
+                <form method="POST" action="{{ url_for('site_reyee_action', site_id=site.id) }}" onsubmit="return confirm('{{ _('Log out every phone that came in free (not with a code)?')|e }}');">
+                    {{ csrf }}<button class="btn btn-sm btn-outline-danger" name="action" value="free"><i class="bi bi-person-x"></i> {{ _('Disconnect free logins') }}</button></form>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead><tr><th>{{ _('Phone') }}</th><th>{{ _('Logged in with') }}</th><th>{{ _('Since') }}</th><th></th></tr></thead>
+                        <tbody>
+                        {% for g in guests %}
+                        <tr>
+                            <td><span class="font-monospace small">{{ (g.mac or '')|upper }}</span><small class="d-block text-muted">{{ g.ip }}{% if g.signal is not none %} · {{ g.signal }} dBm{% endif %}</small></td>
+                            <td>{% if g.free %}<span class="badge bg-warning text-dark">{{ _('Free (One-Click)') }}</span>
+                                {% elif g.code %}<a href="{{ url_for('open_login', name=g.code) }}" class="font-monospace">{{ g.code }}</a>{% if g.state in ('expired', 'disabled') %} <span class="badge bg-danger">{{ _(g.state|capitalize) }}</span>{% endif %}
+                                {% else %}–{% endif %}</td>
+                            <td class="small">{{ g.since|local if g.since else '–' }}</td>
+                            <td class="text-end text-nowrap">
+                                <form method="POST" action="{{ url_for('site_reyee_action', site_id=site.id) }}" class="d-inline">
+                                    {{ csrf }}<input type="hidden" name="mac" value="{{ g.mac }}">
+                                    <button class="btn btn-sm btn-outline-secondary" name="action" value="kick" title="{{ _('Log out') }}"><i class="bi bi-x-circle"></i> {{ _('Log out') }}</button>
+                                    <button class="btn btn-sm btn-outline-danger" name="action" value="block" title="{{ _('Block') }}" onclick="return confirm('{{ _('Block this phone? It cannot join this Wi-Fi until you unblock it.')|e }}');"><i class="bi bi-slash-circle"></i></button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}<tr><td colspan="4" class="text-muted text-center py-3">{{ _('Nobody is logged in right now.') }}</td></tr>{% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('[data-security]').forEach(sel => {
+    const box = sel.closest('form').querySelector('[data-password]');
+    sel.addEventListener('change', () => { box.style.display = sel.value === 'open' ? 'none' : ''; });
+});
+</script>
+{% endblock %}

@@ -4526,6 +4526,8 @@ def _ruijie_sync_site(site, cloud=None, now=None):
             raise
         log.warning('ruijie cloud: reading logins for site %s failed: %s', site.id, e)
         logins = []
+    _ruijie_enforce(site, cloud, logins)
+    _ruijie_ap_watch(site, cloud, now)
     phone_of = {}
     for x in logins:
         mac = _mac_norm(x.get('userMac'))
@@ -4581,6 +4583,52 @@ def _ruijie_sync_site(site, cloud=None, now=None):
     for row in rows.values():           # codes Ruijie no longer has
         row.acctstoptime, row.acctterminatecause = now, 'Lost-Carrier'
     db.session.commit()
+
+
+RUIJIE_VOUCHER_LOGIN = '15'     # Ruijie's authType of a voucher login (8 is One-Click, the free login)
+
+
+def _ruijie_kick_reason(site, login, codes):
+    """Why this phone logged in on Ruijie should be logged out, or None: its SafeNet code ended or was disabled (Ruijie
+    doesn't always log it out), or it came in free (One-Click: the login page's "Try free") while the free trial is off
+    here (Ruijie keeps allowing One-Click as long as the uploaded page asked for it)."""
+    if str(login.get('onlineStatus')) != '1':
+        return None
+    v = codes.get(str(login.get('account') or ''))
+    if v is not None:
+        return f'code {v.state}' if v.state in ('expired', 'disabled') else None
+    if str(login.get('authType')) != RUIJIE_VOUCHER_LOGIN and not _guest_trial(db.session.get(Tenant, site.tenant_id), site):
+        return 'free login, trial off'
+    return None
+
+
+def _ruijie_enforce(site, cloud, logins, only_mac=None, free=False):
+    """Log out the phones that shouldn't be on (see _ruijie_kick_reason); `only_mac`: that phone, whatever it has;
+    `free`: also every free login now. Returns the phones (MACs) logged out."""
+    accounts = [str(x.get('account') or '') for x in logins if str(x.get('onlineStatus')) == '1']
+    codes = {v.code: v for v in Voucher.query.filter(Voucher.tenant_id == site.tenant_id, Voucher.code.in_(accounts or ['-']))}
+    done = []
+    for x in logins:
+        if str(x.get('onlineStatus')) != '1':
+            continue
+        if only_mac is not None:
+            why = 'by hand' if _mac_norm(x.get('userMac')) == only_mac else None
+        else:
+            why = _ruijie_kick_reason(site, x, codes)
+            if why is None and free and str(x.get('account') or '') not in codes and str(x.get('authType')) != RUIJIE_VOUCHER_LOGIN:
+                why = 'free login'
+        if not why:
+            continue
+        try:
+            cloud.kick(site.ruijie_group_id, x)
+            x['onlineStatus'] = 0
+            done.append(_mac_norm(x.get('userMac')))
+            log.info('ruijie cloud: site %s logged out %s (%s)', site.id, x.get('account'), why)
+        except ruijie.RuijieError as e:
+            if ruijie.busy(str(e)):
+                raise
+            log.warning('ruijie cloud: logging out %s at site %s failed: %s', x.get('account'), site.id, e)
+    return done
 
 
 RUIJIE_SYNC_SECONDS = 180      # at most this often; less when the day's requests run short (see _ruijie_sync_gap)
@@ -7679,6 +7727,208 @@ def live_disconnect():
     return jsonify(ok=True, routers=sent)
 
 
+def _ruijie_block(site, cloud, mac, name=''):
+    """Block a phone on every Wi-Fi network of the site's Ruijie project (it can't join until unblocked)."""
+    tpl, nets = cloud.wifi(site.ruijie_group_id)
+    lists = cloud.blocked(site.ruijie_group_id)
+    label = re.sub(r'[^\w\-@# ]', '', name)[:60] or 'SafeNet'
+    for net in nets:
+        entry = lists.setdefault(int(net['wlanId']), {'type': 'deny', 'macs': []})
+        if entry['type'] != 'deny':
+            raise ruijie.RuijieError(tr('Wi-Fi {name} lets in listed phones only, so it has no block list.', name=net.get('ssidName')))
+        if not any(_mac_norm(m.get('mac')) == mac for m in entry['macs']):
+            entry['macs'].append({'mac': mac, 'name': label})
+    cloud.save_blocked(site.ruijie_group_id, tpl, lists)
+    log.info('ruijie cloud: site %s blocked %s', site.id, mac)
+
+
+def _ruijie_unblock(site, cloud, mac):
+    tpl, _ = cloud.wifi(site.ruijie_group_id)
+    lists = cloud.blocked(site.ruijie_group_id)
+    for entry in lists.values():
+        entry['macs'] = [m for m in entry['macs'] if _mac_norm(m.get('mac')) != mac]
+    cloud.save_blocked(site.ruijie_group_id, tpl, lists)
+
+
+RUIJIE_AP_CHECK_SECONDS = 600     # access points: read at most this often (each read is a Ruijie request)
+
+
+def _ruijie_ap_watch(site, cloud, now=None):
+    """Read the project's access points now and then, keep them for the control page, and alert the business when one
+    goes offline or comes back (not on the first read: nothing to compare with)."""
+    now = now or datetime.utcnow()
+    if site.ruijie_aps_at and (now - site.ruijie_aps_at).total_seconds() < RUIJIE_AP_CHECK_SECONDS:
+        return
+    try:
+        aps = cloud.device_list(site.ruijie_group_id)
+    except ruijie.RuijieError as e:
+        if ruijie.busy(str(e)):
+            raise
+        log.warning('ruijie cloud: reading access points of site %s failed: %s', site.id, e)
+        return
+    before = {a['sn']: a['online'] for a in json.loads(site.ruijie_aps or '[]')} if site.ruijie_aps_at else {}
+    site.ruijie_aps, site.ruijie_aps_at = json.dumps(aps), now
+    for ap in aps:
+        was = before.get(ap['sn'])
+        if was is None or was == ap['online']:
+            continue
+        name = ap['name'] or ap['sn']
+        if ap['online']:
+            texts = {'en': (f'{name} is back online', f'The access point at {site.name} answers again.'),
+                     'sw': (f'{name} imerudi mtandaoni', f'Access point ya {site.name} inajibu tena.')}
+        else:
+            texts = {'en': (f'{name} is offline', f'The access point at {site.name} stopped answering Ruijie Cloud. Check its power and internet.'),
+                     'sw': (f'{name} haipo mtandaoni', f'Access point ya {site.name} imeacha kujibu Ruijie Cloud. Angalia umeme na intaneti yake.')}
+        notify(site.tenant_id, 'device', texts, link='sites', site_id=site.id)
+
+
+def _reyee_site_or_404(site_id):
+    site = owned_or_404(Site, site_id)
+    if not site.ruijie_ready:
+        abort(404)
+    return site
+
+
+@app.route('/sites/<int:site_id>/reyee')
+@login_required
+@role_required('admin')
+def site_reyee(site_id):
+    """Run the site's Reyee access points from SafeNet: what Ruijie Cloud has, read now."""
+    site = _reyee_site_or_404(site_id)
+    tenant = db.session.get(Tenant, site.tenant_id)
+    data, error = {}, None
+    try:
+        with ruijie.lane('page'):
+            cloud = _ruijie_cloud(site)
+            g = site.ruijie_group_id
+            data['aps'] = cloud.device_list(g)
+            data['template'], data['wifi'] = cloud.wifi(g)
+            blocked = cloud.blocked(g)
+            data['blocked'] = sorted({_mac_norm(m.get('mac')): m.get('name') or '' for e in blocked.values() if e['type'] == 'deny'
+                                      for m in e['macs'] if _mac_norm(m.get('mac'))}.items())
+            data['portals'] = cloud.portals(g)
+            logins = [x for x in cloud.logins(g) if str(x.get('onlineStatus')) == '1']
+    except ruijie.RuijieError as e:
+        error, logins = str(e), []
+    site.ruijie_aps, site.ruijie_aps_at = (json.dumps(data['aps']), datetime.utcnow()) if 'aps' in data else (site.ruijie_aps, site.ruijie_aps_at)
+    db.session.commit()
+    codes = {v.code: v for v in Voucher.query.filter(Voucher.tenant_id == site.tenant_id,
+                                                     Voucher.code.in_([str(x.get('account')) for x in logins] or ['-']))}
+    phones = {_mac_norm(p.get('mac')): p for p in json.loads(site.ruijie_clients or '[]')}
+    guests = []
+    for x in logins:
+        mac = _mac_norm(x.get('userMac'))
+        v = codes.get(str(x.get('account') or ''))
+        free = str(x.get('authType')) != RUIJIE_VOUCHER_LOGIN
+        guests.append({'mac': mac, 'ip': x.get('userIp') or '', 'code': v.code if v else ('' if free else str(x.get('account') or '')),
+                       'state': v.state if v else '', 'free': free and v is None, 'since': _ms_utc(x.get('loginTimes')),
+                       'signal': (phones.get(mac) or {}).get('rssi')})
+    return render_template('sites_reyee.html', site=site, data=data, error=error, guests=guests,
+                           trial=_guest_trial(tenant, site), auth_names=RUIJIE_AUTH_NAMES, ms=_ms_utc)
+
+
+RUIJIE_AUTH_NAMES = {'15': 'Voucher', '8': 'One-Click (free)', '2': 'Account', '4': 'SMS', '19': 'Social login'}
+
+
+@app.route('/sites/<int:site_id>/reyee', methods=['POST'])
+@login_required
+@role_required('admin')
+def site_reyee_action(site_id):
+    _check_csrf()
+    site = _reyee_site_or_404(site_id)
+    action = request.form.get('action')
+    back = redirect(url_for('site_reyee', site_id=site.id))
+    mac = _mac_norm(request.form.get('mac') or '')
+    try:
+        with ruijie.lane('page'):
+            cloud = _ruijie_cloud(site)
+            g = site.ruijie_group_id
+            if action == 'reboot':
+                sn = (request.form.get('sn') or '').strip()
+                if sn not in {a['sn'] for a in cloud.device_list(g)}:
+                    abort(404)
+                cloud.reboot([sn])
+                flash(tr('Restarting the access point. Guests are back online in about 2 minutes.'), 'success')
+            elif action == 'wifi':
+                tpl, nets = cloud.wifi(g)
+                net = next((n for n in nets if str(n.get('id')) == request.form.get('ssid_id')), None)
+                if net is None:
+                    abort(404)
+                name = (request.form.get('name') or '').strip()
+                secure = request.form.get('security') == 'wpa2-psk'
+                password = request.form.get('password') or ''
+                if not 1 <= len(name.encode()) <= 32:
+                    flash(tr('The Wi-Fi name must be 1 to 32 characters.'), 'danger')
+                    return back
+                if secure and not password and net.get('encryptionMode') == 'open':
+                    flash(tr('Enter a password of 8 to 63 characters, or keep the Wi-Fi open.'), 'danger')
+                    return back
+                if secure and password and not 8 <= len(password) <= 63:
+                    flash(tr('Enter a password of 8 to 63 characters, or keep the Wi-Fi open.'), 'danger')
+                    return back
+                net['ssidName'] = name
+                net['enable'] = 'true' if request.form.get('enable') else 'false'
+                net['ishidden'] = 'true' if request.form.get('hidden') else 'false'
+                net['encryptionMode'] = 'wpa2-psk' if secure else 'open'
+                if secure and password:
+                    net['password'] = password
+                elif not secure:
+                    net['password'] = ''
+                cloud.save_wifi(tpl, net)
+                if site.ruijie_managed:
+                    site.ruijie_ssid = name[:32]
+                flash(tr('Wi-Fi saved. The access points take it within a minute; phones on it reconnect.'), 'success')
+            elif action == 'block' and mac:
+                _ruijie_block(site, cloud, mac, request.form.get('name') or '')
+                _ruijie_enforce(site, cloud, cloud.logins(g), only_mac=mac)
+                flash(tr('{mac} is blocked on this Wi-Fi.', mac=mac.upper()), 'success')
+            elif action == 'unblock' and mac:
+                _ruijie_unblock(site, cloud, mac)
+                flash(tr('{mac} can join again.', mac=mac.upper()), 'success')
+            elif action == 'kick' and mac:
+                n = len(_ruijie_enforce(site, cloud, cloud.logins(g), only_mac=mac))
+                flash(tr('{n} logged out', n=n), 'success')
+            elif action == 'free':
+                n = len(_ruijie_enforce(site, cloud, cloud.logins(g), free=True))
+                flash(tr('{n} logged out', n=n), 'success')
+            else:
+                flash(tr('Enter a phone MAC address, like 8e:4a:3b:ef:71:6c.'), 'danger')
+    except ruijie.RuijieError as e:
+        db.session.rollback()
+        flash(tr('Ruijie Cloud did not do it: {error}', error=str(e)), 'danger')
+        return back
+    db.session.commit()
+    return back
+
+
+@app.route('/live/reyee', methods=['POST'])
+@login_required
+def live_reyee():
+    """Reyee sites (Ruijie Cloud): log one phone out, block it, or log out every free login now."""
+    _check_csrf()
+    if not current_user.has_role('admin'):
+        abort(403)
+    site = Site.query.filter_by(id=request.form.get('site', type=int), tenant_id=tenant_id()).first()
+    if site is None or not site.ruijie_ready or (current_site() and current_site().id != site.id):
+        abort(404)
+    action = request.form.get('action')
+    mac = _mac_norm(request.form.get('mac') or '') if action in ('kick', 'block') else None
+    if action not in ('kick', 'block', 'free') or (action != 'free' and not mac):
+        abort(400)
+    try:
+        with ruijie.lane('page'):
+            cloud = _ruijie_cloud(site)
+            if action == 'block':
+                _ruijie_block(site, cloud, mac, request.form.get('name') or '')
+            kicked = _ruijie_enforce(site, cloud, cloud.logins(site.ruijie_group_id), only_mac=mac, free=action == 'free')
+    except ruijie.RuijieError as e:
+        return jsonify(ok=False, error=str(e)), 502
+    if kicked:                               # off the Online list now, not at the next read
+        site.ruijie_clients = json.dumps([p for p in json.loads(site.ruijie_clients or '[]') if _mac_norm(p.get('mac')) not in kicked])
+    db.session.commit()
+    return jsonify(ok=True, kicked=len(kicked))
+
+
 @app.route('/api/live')
 @login_required
 def api_live():
@@ -7741,7 +7991,7 @@ def api_live():
                     'plan': (v.plan.name if v and v.plan else '') or '', 'phone': phones.get(v.id) if v else None,
                     'expires': _iso(v.expires_at) if v else None,
                     'mac': str(ph.get('mac') or ''), 'ip': str(ph.get('ip') or ''),
-                    'router': f"Reyee · {st.name} · {ph.get('ssid') or ''}".rstrip(' ·'),
+                    'router': f"Reyee · {st.name} · {ph.get('ssid') or ''}".rstrip(' ·'), 'reyee_site': st.id,
                     'signal': ph.get('rssi'), 'started': _iso(since), 'updated': _iso(now),
                     # a phone with its code: the code's session adds up its data across reconnects
                     'seconds': int((now - since).total_seconds()),
@@ -7799,7 +8049,10 @@ def api_live():
                            'text': f'{p.phone} payment {p.status}: {p.message or ""}'.strip()})
     events = sorted((e for e in events if e['at']), key=lambda e: e['at'], reverse=True)[:40]
 
-    return jsonify(now=_iso(now), stats=stats, online=online, events=events,
+    reyee_sites = [{'id': st.id, 'name': st.name, 'manage': url_for('site_reyee', site_id=st.id)}
+                   for st in ([current_site()] if current_site() else tenant_sites(tid)) if st.ruijie_ready] \
+        if current_user.has_role('admin') else []
+    return jsonify(now=_iso(now), stats=stats, online=online, events=events, reyee=reyee_sites,
                    stale_minutes=LIVE_STALE_MINUTES)
 
 
