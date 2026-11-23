@@ -2,7 +2,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from datetime import datetime
 from config import Config
-from models import Notification, PushDevice, DeletionRequest, Expense, SiteAddress, voucher_sites, Outage, OutageCredit, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
+from models import WalletDeposit, Notification, PushDevice, DeletionRequest, Expense, SiteAddress, voucher_sites, Outage, OutageCredit, db, RuijieUsage, SmsCampaign, SmsContact, Offer, BillingPlan, SubscriptionPayment, SessionKick, Withdrawal, PlatformWithdrawal, VpnServer, Router, Admin, Plan, PlanAttribute, RadUser, RadCheck, RadReply, RadUserGroup, RadGroupCheck, RadGroupReply, RadAcct, Nas, RadPostAuth, Voucher, Package, Payment, Tenant, Gateway, Site, WifidogSession, PlatformSetting, SmsCharge, RateEvent, OmadaCounter
 from forms import LoginForm, AdminForm, PlanForm, PlanAttributeForm, UserForm, NasForm, SearchForm, VoucherGenerateForm, PackageForm, SignupForm, EmailForm, ResetPasswordForm, TenantSettingsForm, TeamMemberForm, GatewayForm, PaymentSettingsForm, WithdrawalForm, PortalSettingsForm
 from flask_wtf.csrf import generate_csrf, validate_csrf
 from wtforms.validators import ValidationError
@@ -541,7 +541,8 @@ def dashboard():
     all_time = _collected(tid, site, datetime(2000, 1, 1))
     fees = view['payments'](Payment.query.filter(Payment.tenant_id == tid, Payment.status == 'paid', Payment.paid_at >= month_start)) \
         .with_entities(func.coalesce(func.sum(Payment.fee_amount), 0)).scalar()
-    balance, earned, withdrawn = tenant_balance(tid)
+    _, earned, withdrawn = tenant_balance(tid)
+    balance = withdrawable(tid)                 # shown as ready to withdraw
     days = []
     for i in range(7):
         day_start = midnight - timedelta(days=6 - i)
@@ -7014,8 +7015,8 @@ def sms_totals(tid, since=None):
 
 
 def tenant_balance(tid):
-    """(balance, earned, withdrawn) of platform-collected sales for a tenant. SMS sent to its guests while
-    SafeNet collects for it are taken from the balance."""
+    """(balance, earned, withdrawn) of platform-collected sales for a tenant, with what it deposited. SMS sent to its
+    guests while SafeNet collects for it are taken from the balance."""
     earned = db.session.query(func.coalesce(func.sum(Payment.net_amount), 0)).filter(
         Payment.tenant_id == tid, Payment.status == 'paid', Payment.provider_account == 'platform').scalar()
     withdrawn = db.session.query(func.coalesce(func.sum(Withdrawal.amount), 0)).filter(
@@ -7023,7 +7024,33 @@ def tenant_balance(tid):
     earned, withdrawn = Decimal(str(earned)), Decimal(str(withdrawn))
     sms = db.session.query(func.coalesce(func.sum(SmsCharge.amount), 0)).filter(
         SmsCharge.tenant_id == tid, SmsCharge.method == 'balance').scalar()
-    return earned - withdrawn - Decimal(str(sms)) - plan_from_balance(tid), earned, withdrawn
+    deposited = db.session.query(func.coalesce(func.sum(WalletDeposit.amount), 0)).filter(
+        WalletDeposit.tenant_id == tid, WalletDeposit.status == 'paid').scalar()
+    return earned + Decimal(str(deposited)) - withdrawn - Decimal(str(sms)) - plan_from_balance(tid), earned, withdrawn
+
+
+def unspent_deposits(tid):
+    """What is left of a business's deposits: SMS and plan payments use deposits first, then sales. This part of the
+    balance can't be withdrawn (SafeNet isn't a way to send money)."""
+    events = [(d.paid_at or d.created_at, Decimal(str(d.amount))) for d in WalletDeposit.query.filter_by(tenant_id=tid, status='paid')]
+    if not events:
+        return Decimal(0)
+    first = min(at for at, _ in events)
+    spent = db.session.query(SmsCharge.created_at, SmsCharge.amount).filter(
+        SmsCharge.tenant_id == tid, SmsCharge.method == 'balance', SmsCharge.created_at >= first).all()
+    spent += db.session.query(SubscriptionPayment.created_at, SubscriptionPayment.balance_amount).filter(
+        SubscriptionPayment.tenant_id == tid, SubscriptionPayment.balance_amount > 0, SubscriptionPayment.created_at >= first,
+        SubscriptionPayment.status.in_(('pending', 'paid', 'review'))).all()
+    events += [(at, -Decimal(str(amount))) for at, amount in spent]
+    left = Decimal(0)
+    for _, amount in sorted(events, key=lambda e: e[0]):
+        left = max(left + amount, Decimal(0))
+    return min(left, max(tenant_balance(tid)[0], Decimal(0)))
+
+
+def withdrawable(tid):
+    """The balance a business can withdraw: its sales, without deposits."""
+    return tenant_balance(tid)[0] - unspent_deposits(tid)
 
 
 def plan_from_balance(tid):
@@ -7148,6 +7175,14 @@ def _payments_sync_due():
         except Exception:
             db.session.rollback()
             log.exception('payment sync %s failed', ref)
+    for (ref,) in db.session.query(WalletDeposit.reference).filter(
+            WalletDeposit.status == 'pending', WalletDeposit.created_at >= since,
+            or_(WalletDeposit.checked_at.is_(None), WalletDeposit.checked_at <= now - timedelta(seconds=50))).limit(50).all():
+        try:
+            _refresh_deposit(ref, force=True)
+        except Exception:
+            db.session.rollback()
+            log.exception('deposit sync %s failed', ref)
 
 
 def _payments_sync_loop():
@@ -7680,6 +7715,8 @@ def clickpesa_webhook():
         try:
             if reference.startswith('SB'):
                 _refresh_subscription(reference, force=True)
+            elif reference.startswith('DP'):
+                _refresh_deposit(reference, force=True)
             elif reference.startswith('WD'):
                 w = Withdrawal.query.filter_by(payout_ref=reference).with_for_update().first()
                 if w:
@@ -9493,7 +9530,7 @@ def earnings():
         'own_gross': total(Payment.amount, paid.filter(Payment.provider_account == 'own')),
         'platform_gross': total(Payment.amount, platform_paid),
         'fees': total(Payment.fee_amount, platform_paid),
-        'earned': earned, 'withdrawn': withdrawn, 'balance': balance,
+        'earned': earned, 'withdrawn': withdrawn, 'balance': withdrawable(tid), 'deposits': unspent_deposits(tid),
         'sms_count': sms_totals(tid)[0], 'sms_balance': Decimal(str(db.session.query(func.coalesce(func.sum(SmsCharge.amount), 0))
                                                                     .filter(SmsCharge.tenant_id == tid, SmsCharge.method == 'balance').scalar())),
         'sms_month': sms_totals(tid, _month_start()),
@@ -9548,7 +9585,7 @@ def request_withdrawal():
         return redirect(url_for('earnings'))
     tenant = Tenant.query.filter_by(id=tenant_id()).with_for_update().one()   # one request at a time
     amount = Decimal(str(form.amount.data))
-    balance, _, _ = tenant_balance(tenant.id)
+    balance = withdrawable(tenant.id)
     least = _min_withdrawal(method)
     if amount < least:
         db.session.rollback()
@@ -9666,7 +9703,7 @@ def confirm_withdrawal(wid):
         # the code is right: check the balance again (one at a time), then pay
         tenant = Tenant.query.filter_by(id=w.tenant_id).with_for_update().one()
         w = Withdrawal.query.filter_by(id=wid).with_for_update().one()
-        balance, _, _ = tenant_balance(tenant.id)
+        balance = withdrawable(tenant.id)
         if w.amount > balance:
             w.status, w.note, w.otp_hash = 'rejected', 'More than the balance', None
             db.session.commit()
@@ -10178,7 +10215,7 @@ def platform_withdraw_confirm(pid):
 # Reconcile SafeNet's books with its Snippe account. The account is shared with other projects, so only transactions
 # whose reference is SafeNet's (kept in Snippe's metadata.order_reference) count.
 # ---------------------------------------------------------------------------
-SAFENET_REF = re.compile(r'^(SN|SB)[0-9A-F]{12}$|^(WD|PW)\d+X[0-9A-F]{6}$')
+SAFENET_REF = re.compile(r'^(SN|SB|DP)[0-9A-F]{12}$|^(WD|PW)\d+X[0-9A-F]{6}$')
 RECONCILE_PERIODS = (('7', 'Last 7 days', 7), ('30', 'Last 30 days', 30), ('90', 'Last 90 days', 90), ('all', 'All time', None))
 _reconcile_cache = {}
 
@@ -10223,27 +10260,28 @@ def _reconcile_snippe(days):
     outs = [x for x in outs if recent(x) and ref_of(x)]
     guests = _by_reference(Payment, Payment.reference, {ref_of(x) for x in pays})
     subs = _by_reference(SubscriptionPayment, SubscriptionPayment.reference, {ref_of(x) for x in pays})
+    deps = _by_reference(WalletDeposit, WalletDeposit.reference, {ref_of(x) for x in pays})
     wds = _by_reference(Withdrawal, Withdrawal.payout_ref, {ref_of(x) for x in outs})
     pws = _by_reference(PlatformWithdrawal, PlatformWithdrawal.payout_ref, {ref_of(x) for x in outs})
     zero = Decimal(0)
-    snp = dict(guest_n=0, guest=zero, sub_n=0, sub=zero, fees=zero, net=zero, out_n=0, out=zero, out_fees=zero, out_total=zero, own_n=0, own_total=zero)
+    snp = dict(guest_n=0, guest=zero, sub_n=0, sub=zero, dep_n=0, dep=zero, fees=zero, net=zero, out_n=0, out=zero, out_fees=zero, out_total=zero, own_n=0, own_total=zero)
     problems = []
     problem = lambda what, ref, at_snippe, at_safenet, fix=None: problems.append(
         dict(what=what, ref=ref, snippe=at_snippe, safenet=at_safenet, fix=fix))
     for x in pays:
         ref, status = ref_of(x), x.get('status') or '?'
-        p, sp = guests.get(ref), subs.get(ref)
-        ours = p if p and p.provider == 'snippe' and p.provider_account == 'platform' else sp if sp and sp.method == 'snippe' else None
+        p, sp, dep = guests.get(ref), subs.get(ref), deps.get(ref)
+        ours = p if p and p.provider == 'snippe' and p.provider_account == 'platform' else sp if sp and sp.method == 'snippe' else dep if dep and dep.method == 'snippe' else None
         gross = _snippe_money(x, 'settlement', 'gross') or _snippe_money(x, 'amount')
         if not ours:
-            if SAFENET_REF.match(ref) and status == 'completed' and not (p or sp):
+            if SAFENET_REF.match(ref) and status == 'completed' and not (p or sp or dep):
                 problem("Paid at Snippe with a SafeNet reference SafeNet doesn't have", ref, f'completed {gross:,.0f}', 'not found')
             continue
         expected = ours.charged if p else ours.pushed
         if status == 'completed':
             fees = _snippe_money(x, 'settlement', 'fees')
             net = _snippe_money(x, 'settlement', 'net') or gross - fees
-            kind = 'guest' if p else 'sub'
+            kind = 'guest' if p else 'sub' if sp else 'dep'
             snp[kind + '_n'] += 1
             snp[kind] += gross
             snp['fees'] += fees
@@ -10292,6 +10330,7 @@ def _reconcile_snippe(days):
                                        Payment.provider_account == 'platform', late(Payment.created_at))
     paid_subs = SubscriptionPayment.query.filter(SubscriptionPayment.status == 'paid', SubscriptionPayment.method == 'snippe',
                                                  late(SubscriptionPayment.created_at))
+    paid_deps = WalletDeposit.query.filter(WalletDeposit.status == 'paid', WalletDeposit.method == 'snippe', late(WalletDeposit.created_at))
     sent = Withdrawal.query.filter(Withdrawal.payout_provider == 'snippe', Withdrawal.status.in_(('paid', 'sending')),
                                    late(Withdrawal.created_at))
     total = lambda q, col: Decimal(str(q.with_entities(func.coalesce(func.sum(col), 0)).scalar()))
@@ -10300,6 +10339,7 @@ def _reconcile_snippe(days):
                 tenants_net=total(paid_guests, Payment.net_amount),
                 sub_n=paid_subs.count(), sub=total(paid_subs, SubscriptionPayment.amount - SubscriptionPayment.balance_amount
                                                    + SubscriptionPayment.fee_amount),
+                dep_n=paid_deps.count(), dep=total(paid_deps, WalletDeposit.amount + WalletDeposit.fee_amount),
                 out_n=sent.count(), out=total(sent, Withdrawal.amount) - total(sent, Withdrawal.fee_charged),
                 out_fees=total(sent, Withdrawal.payout_fee))
     # paid in SafeNet but not among Snippe's transactions at all (only when every page of the period was read;
@@ -10313,6 +10353,9 @@ def _reconcile_snippe(days):
         for sp in paid_subs.filter(SubscriptionPayment.created_at >= margin) if margin else paid_subs:
             if sp.reference not in seen:
                 problem('Paid in SafeNet, not at Snippe', sp.reference, 'not found', f'paid {sp.pushed:,.0f}')
+        for dep in paid_deps.filter(WalletDeposit.created_at >= margin) if margin else paid_deps:
+            if dep.reference not in seen:
+                problem('Paid in SafeNet, not at Snippe', dep.reference, 'not found', f'paid {dep.pushed:,.0f}')
     if outs_complete:
         seen = {ref_of(x) for x in outs}
         for w in sent.filter(Withdrawal.created_at >= margin) if margin else sent:
@@ -10360,7 +10403,8 @@ def platform_reconcile_fix():
     _check_csrf()
     ref = (request.form.get('ref') or '')[:20]
     period = request.form.get('period', '30')
-    item = Payment.query.filter_by(reference=ref).first() or SubscriptionPayment.query.filter_by(reference=ref).first()
+    item = Payment.query.filter_by(reference=ref).first() or SubscriptionPayment.query.filter_by(reference=ref).first() \
+        or WalletDeposit.query.filter_by(reference=ref).first()
     if not item or item.status not in ('pending', 'failed'):
         flash('Nothing to fix for that payment.', 'info')
         return redirect(url_for('platform_reconcile', period=period))
@@ -10376,7 +10420,8 @@ def platform_reconcile_fix():
     item.status, item.message = 'pending', None
     item.provider_id = item.provider_id or str(record.get('reference') or '')[:64] or None
     db.session.commit()
-    item = _refresh_payment(ref, force=True) if isinstance(item, Payment) else _refresh_subscription(ref, force=True)
+    item = (_refresh_payment if isinstance(item, Payment) else _refresh_subscription if isinstance(item, SubscriptionPayment)
+            else _refresh_deposit)(ref, force=True)
     _reconcile_cache.clear()
     flash(f'{ref} is now {item.status}.' if item else f'{ref} could not be checked.', 'success' if item and item.status == 'paid' else 'warning')
     return redirect(url_for('platform_reconcile', period=period))
@@ -10953,6 +10998,135 @@ def billing_payment_status(reference):
                    paid_until=sp.period_end.strftime('%d %b %Y') if sp.period_end else None)
 
 
+# ---------------------------------------------------------------------------
+# Wallet: a business adds money to its SafeNet Pay balance by mobile money (for SMS and its plan)
+# ---------------------------------------------------------------------------
+DEPOSIT_MIN, DEPOSIT_MAX = 1000, 1_000_000
+
+
+def _refresh_deposit(reference, force=False):
+    """Check a pending deposit with its provider; credited once (the row is locked)."""
+    d = WalletDeposit.query.filter_by(reference=reference).with_for_update().first()
+    if not d:
+        db.session.rollback()
+        return None
+    now = datetime.utcnow()
+    if d.status == 'pending' and (force or not d.checked_at or (now - d.checked_at).total_seconds() >= 3):
+        d.checked_at = now
+        try:
+            result = paylib.check(_platform_account(d.method), reference, d.provider_id)
+        except paylib.PaymentError as e:
+            log.warning('%s deposit query %s failed: %s', d.method, reference, e)
+            result = {'state': None}
+        if result.get('provider_id') and not d.provider_id:
+            d.provider_id = str(result['provider_id'])[:64]
+        if result['state'] is None and not d.provider_id and (now - d.created_at).total_seconds() > PAYMENT_UNKNOWN_MINUTES * 60:
+            d.status, d.message = 'failed', 'The payment request did not reach the mobile-money network.'
+        elif result['state']:
+            d.provider_status = result.get('provider_status') or d.provider_status
+            d.channel = result.get('channel') or d.channel
+            d.message = (result.get('message') or '')[:255] or None
+            if result['state'] == 'paid':
+                collected = result.get('amount')
+                if collected is not None and collected < d.pushed:
+                    d.status, d.message = 'review', f'Collected {collected}, expected {d.pushed}'
+                    notify(None, 'platform', ('Deposit to check', f'{d.reference}: {d.message}'), people=_superadmins())
+                else:
+                    d.status, d.paid_at = 'paid', now
+                    db.session.flush()
+                    total = f'{d.currency} {tenant_balance(d.tenant_id)[0]:,.0f}'
+                    notify(d.tenant_id, 'billing', {
+                        'en': (f'Deposit received: {d.currency} {d.amount:,.0f}', f'Your balance is now {total}. Ref {d.reference}.'),
+                        'sw': (f'Pesa imeingia: {d.currency} {d.amount:,.0f}', f'Salio lako sasa ni {total}. Kumb. {d.reference}.')})
+            elif result['state'] == 'failed':
+                d.status = 'failed'
+    db.session.commit()
+    return d
+
+
+@app.route('/wallet')
+@login_required
+@role_required('admin')
+def wallet():
+    tenant = current_tenant()
+    if tenant.payment_mode != 'platform':
+        flash(tr('SMS is added to your SafeNet bill, so you do not need to deposit.'), 'info')
+        return redirect(url_for('earnings'))
+    account = _platform_account()
+    amount = request.args.get('amount', type=int) or 0
+    return render_template('wallet.html', balance=tenant_balance(tenant.id)[0], unspent=unspent_deposits(tenant.id),
+                           cur=tenant.currency or 'TZS', price=Config.SMS_PRICE, least=DEPOSIT_MIN, most=DEPOSIT_MAX,
+                           amount=min(max(amount, DEPOSIT_MIN), DEPOSIT_MAX) if amount > 0 else '',
+                           phone=portal_ui.local_phone(_normalize_tz_phone(tenant.phone or '')) if _normalize_tz_phone(tenant.phone or '') else '',
+                           rate=float(Config.SNIPPE_FEE_PERCENT) if account.provider == 'snippe' else 0, ready=paylib.is_ready(account),
+                           deposits=scoped(WalletDeposit).order_by(WalletDeposit.id.desc()).limit(50).all())
+
+
+@app.route('/wallet/deposit', methods=['POST'])
+@login_required
+@role_required('admin')
+def wallet_deposit():
+    _check_csrf()
+    tenant = current_tenant()
+    if tenant.payment_mode != 'platform':
+        return redirect(url_for('wallet'))
+    try:
+        amount = int((request.form.get('amount') or '').replace(',', '').strip())
+    except ValueError:
+        amount = 0
+    phone = _normalize_tz_phone(request.form.get('phone', ''))
+    account = _platform_account()
+    fee = _customer_fee(account, Decimal(amount)) if amount > 0 else Decimal(0)
+    problem = None
+    if not DEPOSIT_MIN <= amount <= DEPOSIT_MAX:
+        problem = tr('Enter an amount from {least} to {most}.', least=f'{DEPOSIT_MIN:,}', most=f'{DEPOSIT_MAX:,}')
+    elif not phone:
+        problem = tr('Enter a valid mobile money number, e.g. 0712 345 678.')
+    elif not paylib.is_ready(account):
+        problem = tr('Online payment is not available right now. Please contact SafeNet.')
+    else:
+        problem = check_network(phone, None, Decimal(amount) + fee, networks=paylib.networks(account))
+    if not problem and _rate_limited('deposit', f'tenant:{tenant.id}', 10, 60):
+        problem = tr('Too many tries. Please wait a while and try again.')
+    if problem:
+        flash(problem, 'danger')
+        return redirect(url_for('wallet', amount=amount if amount > 0 else None))
+    _rate_hit('deposit', f'tenant:{tenant.id}')
+    d = WalletDeposit(tenant_id=tenant.id, amount=Decimal(amount), fee_amount=fee, currency=tenant.currency or 'TZS', phone=phone,
+                      method=account.provider, reference='DP' + secrets.token_hex(6).upper(), created_by_id=current_user.id)
+    db.session.add(d)
+    db.session.commit()
+    try:
+        tx = paylib.start(account, d.pushed, phone, d.reference,
+                          webhook_url=_link('snippe_webhook') if account.provider == 'snippe' else None,
+                          payer=(tenant.name, 'SafeNet deposit'))
+        d.provider_id, d.channel, d.provider_status = tx['provider_id'], tx['channel'], tx['provider_status']
+    except paylib.PaymentError as e:
+        if not e.unsure:           # unsure: the PIN prompt may well have gone out, so it's checked until known
+            d.status, d.message = 'failed', (e.detail or '')[:255]
+    db.session.commit()
+    if d.status == 'failed':
+        flash(tr("We couldn't send the payment request: {error}.", error=d.message or tr('try again')), 'danger')
+        return redirect(url_for('wallet', amount=amount))
+    return redirect(url_for('wallet_payment', reference=d.reference))
+
+
+@app.route('/wallet/payments/<reference>')
+@login_required
+@role_required('admin')
+def wallet_payment(reference):
+    return render_template('wallet_payment.html', d=scoped(WalletDeposit).filter_by(reference=reference).first_or_404())
+
+
+@app.route('/wallet/payments/<reference>/status')
+@login_required
+@role_required('admin')
+def wallet_payment_status(reference):
+    d = scoped(WalletDeposit).filter_by(reference=reference).first_or_404()
+    d = _refresh_deposit(d.reference)
+    return jsonify(status=d.status, message=d.message or '', balance=f'{d.currency} {tenant_balance(d.tenant_id)[0]:,.0f}')
+
+
 def send_billing_reminders(now=None):
     """Email owners 3 days before their trial/subscription ends and when it has ended."""
     now = now or datetime.utcnow()
@@ -11337,9 +11511,15 @@ def snippe_webhook():
         payment = Payment.query.filter(Payment.provider == 'snippe', Payment.reference == ours, Payment.provider_id.is_(None)).first()
         by_ours = payment is not None
     sub = None if payment else SubscriptionPayment.query.filter_by(method='snippe', provider_id=ref).first()
-    payout = None if payment or sub else Withdrawal.query.filter_by(payout_provider='snippe', payout_id=ref).first()
-    own = None if payment or sub or payout else PlatformWithdrawal.query.filter_by(payout_id=ref).first()
-    if payment is None and sub is None and payout is None and own is None:
+    deposit = None
+    if payment is None and sub is None:
+        deposit = WalletDeposit.query.filter_by(method='snippe', provider_id=ref).first()
+        if deposit is None and ours:
+            deposit = WalletDeposit.query.filter(WalletDeposit.method == 'snippe', WalletDeposit.reference == ours,
+                                                 WalletDeposit.provider_id.is_(None)).first()
+    payout = None if payment or sub or deposit else Withdrawal.query.filter_by(payout_provider='snippe', payout_id=ref).first()
+    own = None if payment or sub or deposit or payout else PlatformWithdrawal.query.filter_by(payout_id=ref).first()
+    if payment is None and sub is None and deposit is None and payout is None and own is None:
         return jsonify(received=True)
     account = _payment_account(payment) if payment else _platform_account('snippe')
     if not snippe.verify_webhook(raw, request.headers.get('X-Webhook-Timestamp'), request.headers.get('X-Webhook-Signature'),
@@ -11364,6 +11544,8 @@ def snippe_webhook():
             _refresh_payment(payment.reference, force=True)
         elif sub:
             _refresh_subscription(sub.reference, force=True)
+        elif deposit:
+            _refresh_deposit(deposit.reference, force=True)
         elif own:
             _refresh_platform_withdrawal(PlatformWithdrawal.query.filter_by(id=own.id).with_for_update().first())
             db.session.commit()

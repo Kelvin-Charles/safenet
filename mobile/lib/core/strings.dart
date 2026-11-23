@@ -138,6 +138,7 @@ class S {
     'Dark theme': 'Mwonekano wa giza',
     'Opens the full dashboard': 'Inafungua dashibodi kamili',
     'Your guest app link': 'Kiungo cha app ya wateja wako',
+    'Deposit': 'Weka pesa',
     'Withdraw': 'Toa pesa',
     'Earned': 'Umepata',
     'Withdrawn': 'Umetoa',

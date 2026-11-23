@@ -275,6 +275,7 @@
             {{ link(['finance_report'], url_for('finance_report'), 'bi-file-earmark-bar-graph', _('Financial report')) }}{% endif %}
             {% if is_admin %}
             {{ link(['earnings'], url_for('earnings'), 'bi-wallet2', _('Earnings')) }}
+            {% if current_user.has_role('admin') %}{{ link(['wallet', 'wallet_payment'], url_for('wallet'), 'bi-plus-circle', _('Wallet')) }}{% endif %}
             {{ link(['expenses', 'add_expense', 'edit_expense'], url_for('expenses'), 'bi-receipt-cutoff', _('Expenses')) }}
             {{ link(['finance_report'], url_for('finance_report'), 'bi-file-earmark-bar-graph', _('Financial report')) }}
             {{ link(['packages', 'add_package', 'edit_package'], url_for('packages'), 'bi-bag', _('Packages')) }}

@@ -961,6 +961,35 @@ class SubscriptionPayment(db.Model):
         return f'<SubscriptionPayment {self.reference} {self.status}>'
 
 
+class WalletDeposit(db.Model):
+    """Money a business adds to its SafeNet Pay balance by mobile money, for SMS and its SafeNet plan (not withdrawable)."""
+    __tablename__ = 'wallet_deposits'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id', ondelete='CASCADE'), nullable=False, index=True)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)                     # what the balance gets
+    fee_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0, server_default='0')   # mobile-money fee, on top
+    currency = db.Column(db.String(3), nullable=False, default='TZS')
+    phone = db.Column(db.String(16), nullable=False)
+    method = db.Column(db.String(16), nullable=False)                         # clickpesa, snippe
+    reference = db.Column(db.String(20), unique=True, nullable=False, index=True)
+    status = db.Column(db.String(16), nullable=False, default='pending', index=True)   # pending, paid, failed, review
+    provider_id = db.Column(db.String(64), index=True)
+    provider_status = db.Column(db.String(16))
+    channel = db.Column(db.String(32))
+    message = db.Column(db.String(255))
+    created_by_id = db.Column(db.Integer, db.ForeignKey('admins.id', ondelete='SET NULL'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    checked_at = db.Column(db.DateTime)
+    paid_at = db.Column(db.DateTime)
+
+    @property
+    def pushed(self):
+        return self.amount + (self.fee_amount or 0)
+
+    tenant = db.relationship('Tenant')
+
+
 class SiteAddress(db.Model):
     """A public internet address a site was seen from (its login pages, access points, gateway box), so the mobile app
     can tell which SafeNet Wi-Fi a phone is on: the app's request comes from the same address."""

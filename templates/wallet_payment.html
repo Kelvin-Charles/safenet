@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Deposit') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Wallet') }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-7 col-lg-5">
+        <div class="card text-center">
+            <div class="card-body p-5">
+                <div class="spinner-border text-primary mb-3" role="status" id="spin"></div>
+                <h4 id="title">{{ _('Check your phone') }}</h4>
+                <p id="text">{{ _('Enter your mobile-money PIN to pay') }} <strong>{{ d.currency }} {{ '{:,.0f}'.format(d.pushed) }}</strong>. {{ _('We sent the prompt to {phone}.', phone=d.phone) }}</p>
+                <p class="small text-muted mb-0" id="hint">{{ _('This page updates by itself.') }}</p>
+                <a href="{{ url_for('wallet') }}" class="btn btn-outline-secondary mt-3 d-none" id="back">{{ _('Back to wallet') }}</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const $ = id => document.getElementById(id);
+    const T = {
+        paid: {{ _('Deposit received')|tojson }}, balance: {{ _('Your balance is now {amount}.')|tojson }},
+        failed: {{ _('Payment not completed')|tojson }}, review: {{ _('Payment needs checking')|tojson }},
+        retry: {{ _('Please try again.')|tojson }},
+        waiting: {{ _("Still waiting. If you've paid, your balance will update by itself.")|tojson }},
+    };
+    let tries = 0;
+    async function poll() {
+        tries++;
+        try {
+            const r = await fetch('{{ url_for("wallet_payment_status", reference=d.reference) }}', { credentials: 'same-origin' });
+            const d = await r.json();
+            if (d.status !== 'pending') {
+                $('spin').remove(); $('hint').remove(); $('back').classList.remove('d-none');
+                $('title').textContent = T[d.status] || T.failed;
+                $('text').textContent = d.status === 'paid' ? T.balance.replace('{amount}', d.balance) : (d.message || T.retry);
+                return;
+            }
+        } catch (e) { /* retry */ }
+        if (tries > 80) { $('hint').textContent = T.waiting; $('back').classList.remove('d-none'); }
+        setTimeout(poll, 3000);
+    }
+    poll();
+})();
+</script>
+{% endblock %}

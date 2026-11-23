@@ -113,7 +113,7 @@
             {% endif %}
             {% if send_sms %}<div class="small mb-3">
                 {{ _('{n} customers × {parts} SMS × {cur} {price} = {cur} {cost}', n=with_phone, parts=parts, cur=currency, price=price, cost='{:,.0f}'.format(cost)) }}
-                · {% if balance is not none %}{{ _('Taken from your SafeNet Pay balance ({cur} {balance}).', cur=currency, balance='{:,.0f}'.format(balance)) }}{% else %}{{ _('Added to your next SafeNet bill.') }}{% endif %}
+                · {% if balance is not none %}{{ _('Taken from your SafeNet Pay balance ({cur} {balance}).', cur=currency, balance='{:,.0f}'.format(balance)) }} <a href="{{ url_for('wallet', amount=((cost - balance)|round(0, 'ceil')|int if cost > balance else none)) }}" target="_blank">{{ _('Deposit') }}</a>{% else %}{{ _('Added to your next SafeNet bill.') }}{% endif %}
             </div>{% endif %}
             {% endif %}
             <button class="btn btn-outline-secondary" name="action" value="preview" type="submit">{{ _('Update') }}</button>

@@ -316,6 +316,17 @@ class EarningsScreen extends StatelessWidget {
                     Text(S.t('SafeNet Pay balance'), style: const TextStyle(color: Colors.white70)),
                     const SizedBox(height: 6),
                     Text(money(d['balance'] as num, cur), style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w800)),
+                    if (s.can('packages')) ...[
+                      const SizedBox(height: 14),
+                      SnButton.icon(variant: SnVariant.light, size: SnSize.medium,
+                        onPressed: () async {
+                          await openWeb(context, S.t('Deposit'), '/wallet');
+                          reload();
+                        },
+                        icon: const Icon(Icons.add_rounded),
+                        label: Text(S.t('Deposit')),
+                      ),
+                    ],
                     if (s.can('withdraw')) ...[
                       const SizedBox(height: 14),
                       SnButton.icon(variant: SnVariant.light, size: SnSize.medium,

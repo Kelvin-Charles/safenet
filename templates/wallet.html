@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('Wallet') }} - {{ app_name }}{% endblock %}
+{% block page_title %}{{ _('Wallet') }}{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-wallet2"></i> {{ _('Deposit money') }}</div>
+            <div class="card-body">
+                <div class="text-muted small">{{ _('SafeNet Pay balance') }}</div>
+                <div class="fs-3 fw-bold {{ 'text-danger' if balance < 0 else 'text-success' }}">{{ cur }} {{ '{:,.0f}'.format(balance) }}</div>
+                <p class="small text-muted">{{ _('About {n} SMS at {cur} {price} each.', n='{:,}'.format([(balance // price)|int, 0]|max if price else 0), cur=cur, price=price) }}</p>
+                {% if ready %}
+                <form method="POST" action="{{ url_for('wallet_deposit') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3"><label class="form-label" for="amount">{{ _('Amount to deposit ({cur})', cur=cur) }}</label>
+                        <input id="amount" name="amount" type="number" inputmode="numeric" min="{{ least }}" max="{{ most }}" step="1" class="form-control" required value="{{ amount }}">
+                        <div class="form-text">{{ _('From {least} to {most}.', least='{:,}'.format(least), most='{:,}'.format(most)) }}</div></div>
+                    <div class="mb-3"><label class="form-label" for="phone">{{ _('Mobile money number to pay from') }}</label>
+                        <input id="phone" name="phone" type="tel" class="form-control" required value="{{ phone }}" placeholder="0712 345 678"></div>
+                    {% if rate %}
+                    <p class="small mb-2" id="dep-sum" data-rate="{{ rate }}" data-cur="{{ cur }}">{{ _('Mobile-money fee') }}: <strong id="dep-fee">–</strong> · {{ _('You pay') }}: <strong id="dep-pay">–</strong></p>
+                    {% endif %}
+                    <button class="btn btn-primary" type="submit"><i class="bi bi-phone"></i> {{ _('Deposit') }}</button>
+                </form>
+                <p class="small text-muted mt-3 mb-0">{{ _('Deposits pay for SMS and your SafeNet plan. They cannot be withdrawn; your sales can.') }}</p>
+                {% else %}
+                <div class="alert alert-warning mb-0">{{ _('Online payment is not available right now. Please contact SafeNet.') }}</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-clock-history"></i> {{ _('Deposits') }}</div>
+            <div class="card-body">
+                {% if unspent > 0 %}<p class="small">{{ _('Deposited and not used yet: {cur} {amount}.', cur=cur, amount='{:,.0f}'.format(unspent)) }}</p>{% endif %}
+                <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+                    <thead><tr><th>{{ _('Date') }}</th><th>{{ _('Amount') }}</th><th>{{ _('Phone') }}</th><th>{{ _('Status') }}</th></tr></thead>
+                    <tbody>
+                    {% for d in deposits %}
+                    <tr><td class="small">{{ d.created_at|local }}<small class="d-block text-muted">{{ d.reference }}</small></td>
+                        <td>{{ d.currency }} {{ '{:,.0f}'.format(d.amount) }}{% if d.fee_amount %}<small class="d-block text-muted">{{ _('+ {amount} mobile-money fee', amount='{:,.0f}'.format(d.fee_amount)) }}</small>{% endif %}</td>
+                        <td class="small">{{ d.phone }}</td>
+                        <td>{% if d.status == 'paid' %}<span class="badge bg-success">{{ _('Paid') }}</span>
+                            {% elif d.status == 'pending' %}<a href="{{ url_for('wallet_payment', reference=d.reference) }}" class="badge bg-warning text-dark">{{ _('Waiting') }}</a>
+                            {% elif d.status == 'review' %}<span class="badge bg-info text-dark">{{ _('Being checked') }}</span>
+                            {% else %}<span class="badge bg-secondary">{{ _('Failed') }}</span>{% if d.message %}<small class="d-block text-muted">{{ d.message }}</small>{% endif %}{% endif %}</td></tr>
+                    {% else %}<tr><td colspan="4" class="text-center text-muted py-3">{{ _('No deposits yet.') }}</td></tr>{% endfor %}
+                    </tbody></table></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const box = document.getElementById('dep-sum'), amount = document.getElementById('amount');
+    if (!box) return;
+    const rate = +box.dataset.rate, money = n => box.dataset.cur + ' ' + n.toLocaleString('en-US');
+    function sum() {
+        const a = Math.floor(+amount.value) || 0, pay = Math.ceil(+(a * 100 / (100 - rate)).toFixed(6));
+        document.getElementById('dep-fee').textContent = a > 0 ? money(pay - a) : '–';
+        document.getElementById('dep-pay').textContent = a > 0 ? money(pay) : '–';
+    }
+    amount.addEventListener('input', sum); sum();
+})();
+</script>
+{% endblock %}

@@ -52,6 +52,10 @@
                         <td class="text-end">{{ tzs(s.sub) }} <small class="text-muted d-block">{{ s.sub_n }}</small></td>
                         <td class="text-end">{{ tzs(o.sub) }} <small class="text-muted d-block">{{ o.sub_n }}</small></td>
                         <td class="text-end">{{ diff(s.sub, o.sub) }}</td></tr>
+                    {% if s.dep_n or o.dep_n %}<tr><td>Deposits <small class="text-muted d-block">businesses adding to their balance</small></td>
+                        <td class="text-end">{{ tzs(s.dep) }} <small class="text-muted d-block">{{ s.dep_n }}</small></td>
+                        <td class="text-end">{{ tzs(o.dep) }} <small class="text-muted d-block">{{ o.dep_n }}</small></td>
+                        <td class="text-end">{{ diff(s.dep, o.dep) }}</td></tr>{% endif %}
                     <tr><td>Snippe's fees on payments <small class="text-muted d-block">SafeNet column: the fee added to guests' price</small></td>
                         <td class="text-end">{{ tzs(s.fees) }}</td><td class="text-end">{{ tzs(o.customer_fees) }}</td>
                         <td class="text-end">{% set d = o.customer_fees - s.fees %}{% if d >= 0 %}<span class="text-success">guests covered it{% if d > 0 %} (+{{ tzs(d) }}){% endif %}</span>{% else %}<strong class="text-danger">{{ tzs(d) }} paid by SafeNet</strong>{% endif %}</td></tr>
