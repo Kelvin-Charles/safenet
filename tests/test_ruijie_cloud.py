@@ -467,6 +467,35 @@ assert blocks[1]['macs'] == [{'mac': '06:5a:00:00:00:07', 'name': 'Troublemaker'
 assert '06:5A:00:00:00:07' in html.unescape(c.get(f'/sites/{SID}/reyee').text)
 assert 'can join again' in act(action='unblock', mac='06:5a:00:00:00:07') and blocks[1]['macs'] == []
 assert 'Enter a phone MAC' in act(action='block', mac='nonsense')
+# the same from the mobile app
+from models import Admin
+with app.app_context():
+    tid_ = db.session.get(Site, SID).tenant_id
+    other_ = Site(tenant_id=tid_, name='Elsewhere'); db.session.add(other_)
+    stf = Admin(username='rcstaff', email='rcstaff@x.tz', tenant_id=tid_, role='staff', email_verified_at=datetime.utcnow()); stf.set_password('password1')
+    db.session.add(stf); db.session.flush()
+    bearer = lambda a: {'Authorization': 'Bearer ' + appmod.mobile_api._business_token(a)}
+    H = bearer(Admin.query.filter_by(tenant_id=tid_, role='owner').first()); HS = bearer(stf)
+    db.session.commit()
+m = lambda h=None, sid=SID, **d: app.test_client().post(f'/api/m/sites/{sid}/reyee', json=d, headers=h or H)
+nets[0]['password'] = 'karibu123'
+raw = app.test_client().get(f'/api/m/sites/{SID}/reyee', headers=H); j = raw.get_json()
+assert j['aps'][0]['name'] == 'Hostel AP' and j['wifi'][0]['secure'] and j['error'] is None and 'karibu123' not in raw.text
+assert any(p['one_click'] for p in j['portals'])
+rebooted.clear(); kicked.clear()
+assert m(action='reboot', sn='G1AP1').status_code == 200 and rebooted == ['G1AP1']
+assert m(action='reboot', sn='NOT-MINE').status_code == 404
+assert m(action='wifi', ssid_id='500', name='App WiFi', security='open', enable=True, hidden=False).get_json()['ok']
+assert (nets[0]['ssidName'], nets[0]['enable'], nets[0]['ishidden'], nets[0]['encryptionMode']) == ('App WiFi', 'true', 'false', 'open')
+assert m(action='wifi', ssid_id='500', name='App WiFi', security='wpa2-psk', password='short', enable=True).status_code == 400
+assert m(action='block', mac='06:5a:00:00:00:07').status_code == 200 and len(blocks[1]['macs']) == 1
+assert m(action='unblock', mac='06:5a:00:00:00:07').status_code == 200 and blocks[1]['macs'] == []
+assert m(action='block', mac='nonsense').status_code == 400 and m(action=None).status_code == 400
+assert m(HS, action='free').status_code == 403 and app.test_client().get(f'/api/m/sites/{SID}/reyee', headers=HS).status_code == 403
+assert m(sid=99999, action='free').status_code == 404 and app.test_client().post(f'/api/m/sites/{SID}/reyee', json={'action': 'free'}).status_code == 401
+assert [x['reyee'] for x in app.test_client().get('/api/m/sites', headers=H).get_json()['sites'] if x['id'] == SID] == [True]
+with app.app_context():
+    db.session.delete(Admin.query.filter_by(username='rcstaff').one()); db.session.commit()
 # an access point going offline: an alert (not on the first read), and back online
 with app.app_context():
     from models import Notification

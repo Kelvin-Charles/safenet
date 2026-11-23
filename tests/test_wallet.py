@@ -90,4 +90,26 @@ assert login('zzowner').get(f'/wallet/payments/{REF}/status').status_code == 404
 s = login('kpstaff'); assert 'Deposit money' not in s.get('/wallet', follow_redirects=True).text
 o = login('ownowner'); assert 'do not need to deposit' in html.unescape(o.get('/wallet', follow_redirects=True).text)
 assert '/wallet' in c.get('/offers/sms').text
+# the same from the mobile app
+with app.app_context():
+    hd = {u: {'Authorization': 'Bearer ' + appmod.mobile_api._business_token(Admin.query.filter_by(username=u).one())} for u in ('kpowner', 'kpstaff', 'zzowner', 'ownowner')}
+api = app.test_client
+w = api().get('/api/m/wallet', headers=hd['kpowner']).get_json()
+assert w['balance'] == 10000 and w['ready'] and w['fee_percent'] == 2.5 and len(w['deposits']) == 4 and w['phone']
+mdep = lambda u='kpowner', **d: api().post('/api/m/wallet/deposit', json=d, headers=hd[u])
+n = len(pushes)
+for bad in ({'amount': '999', 'phone': '0684000111'}, {'amount': None, 'phone': '0684000111'}, {'amount': [1], 'phone': '0684000111'}, {'amount': 5000, 'phone': '12'}):
+    assert mdep(**bad).status_code == 400, bad
+assert mdep('kpstaff', amount=5000, phone='0684000111').status_code == 403 and mdep('ownowner', amount=5000, phone='0684000111').status_code == 400
+assert len(pushes) == n
+r = mdep(amount='5000', phone='0684000111').get_json()
+assert r['status'] == 'pending' and r['pays'] == 5129 and pushes[-1][0] == 5129
+st = lambda u='kpowner': api().get(f"/api/m/wallet/deposit/{r['reference']}", headers=hd[u])
+assert st('zzowner').status_code == 404
+state[r['reference']] = 'completed'
+with app.app_context():
+    WalletDeposit.query.filter_by(reference=r['reference']).one().checked_at = None; db.session.commit()
+assert st().get_json()['status'] == 'paid' and st().get_json()['balance'] == 15000
+e = api().get('/api/m/earnings', headers=hd['kpowner']).get_json()
+assert e['withdrawable'] + e['deposits_left'] == e['balance'] == 15000
 print('WALLET OK')

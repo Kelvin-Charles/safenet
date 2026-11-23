@@ -7821,18 +7821,13 @@ def _ruijie_ap_watch(site, cloud, now=None):
 
 def _reyee_site_or_404(site_id):
     site = owned_or_404(Site, site_id)
-    if not site.ruijie_ready:
+    if not site.ruijie_ready or (current_user.site_id and not current_user.is_superadmin and current_user.site_id != site.id):
         abort(404)
     return site
 
 
-@app.route('/sites/<int:site_id>/reyee')
-@login_required
-@role_required('admin')
-def site_reyee(site_id):
-    """Run the site's Reyee access points from SafeNet: what Ruijie Cloud has, read now."""
-    site = _reyee_site_or_404(site_id)
-    tenant = db.session.get(Tenant, site.tenant_id)
+def _reyee_read(site):
+    """What Ruijie Cloud has for the site, read now (the web page and the app): (data, guests logged in, error)."""
     data, error = {}, None
     try:
         with ruijie.lane('page'):
@@ -7860,6 +7855,17 @@ def site_reyee(site_id):
         guests.append({'mac': mac, 'ip': x.get('userIp') or '', 'code': v.code if v else ('' if free else str(x.get('account') or '')),
                        'state': v.state if v else '', 'free': free and v is None, 'since': _ms_utc(x.get('loginTimes')),
                        'signal': (phones.get(mac) or {}).get('rssi')})
+    return data, guests, error
+
+
+@app.route('/sites/<int:site_id>/reyee')
+@login_required
+@role_required('admin')
+def site_reyee(site_id):
+    """Run the site's Reyee access points from SafeNet."""
+    site = _reyee_site_or_404(site_id)
+    tenant = db.session.get(Tenant, site.tenant_id)
+    data, guests, error = _reyee_read(site)
     return render_template('sites_reyee.html', site=site, data=data, error=error, guests=guests,
                            trial=_guest_trial(tenant, site), auth_names=RUIJIE_AUTH_NAMES, ms=_ms_utc)
 
@@ -7867,45 +7873,38 @@ def site_reyee(site_id):
 RUIJIE_AUTH_NAMES = {'15': 'Voucher', '8': 'One-Click (free)', '2': 'Account', '4': 'SMS', '19': 'Social login'}
 
 
-@app.route('/sites/<int:site_id>/reyee', methods=['POST'])
-@login_required
-@role_required('admin')
-def site_reyee_action(site_id):
-    _check_csrf()
-    site = _reyee_site_or_404(site_id)
-    action = request.form.get('action')
-    back = redirect(url_for('site_reyee', site_id=site.id))
-    mac = _mac_norm(request.form.get('mac') or '')
+def _reyee_do(site, form):
+    """One change on the site's Ruijie Cloud (the web page and the app): ('success' or 'danger', message)."""
+    action = form.get('action')
+    kicked = []
+    mac = _mac_norm(form.get('mac') or '')
     try:
         with ruijie.lane('page'):
             cloud = _ruijie_cloud(site)
             g = site.ruijie_group_id
             if action == 'reboot':
-                sn = (request.form.get('sn') or '').strip()
+                sn = (form.get('sn') or '').strip()
                 if sn not in {a['sn'] for a in cloud.device_list(g)}:
                     abort(404)
                 cloud.reboot([sn])
-                flash(tr('Restarting the access point. Guests are back online in about 2 minutes.'), 'success')
+                done = 'success', tr('Restarting the access point. Guests are back online in about 2 minutes.')
             elif action == 'wifi':
                 tpl, nets = cloud.wifi(g)
-                net = next((n for n in nets if str(n.get('id')) == request.form.get('ssid_id')), None)
+                net = next((n for n in nets if str(n.get('id')) == form.get('ssid_id')), None)
                 if net is None:
                     abort(404)
-                name = (request.form.get('name') or '').strip()
-                secure = request.form.get('security') == 'wpa2-psk'
-                password = request.form.get('password') or ''
+                name = (form.get('name') or '').strip()
+                secure = form.get('security') == 'wpa2-psk'
+                password = form.get('password') or ''
                 if not 1 <= len(name.encode()) <= 32:
-                    flash(tr('The Wi-Fi name must be 1 to 32 characters.'), 'danger')
-                    return back
+                    return 'danger', tr('The Wi-Fi name must be 1 to 32 characters.')
                 if secure and not password and net.get('encryptionMode') == 'open':
-                    flash(tr('Enter a password of 8 to 63 characters, or keep the Wi-Fi open.'), 'danger')
-                    return back
+                    return 'danger', tr('Enter a password of 8 to 63 characters, or keep the Wi-Fi open.')
                 if secure and password and not 8 <= len(password) <= 63:
-                    flash(tr('Enter a password of 8 to 63 characters, or keep the Wi-Fi open.'), 'danger')
-                    return back
+                    return 'danger', tr('Enter a password of 8 to 63 characters, or keep the Wi-Fi open.')
                 net['ssidName'] = name
-                net['enable'] = 'true' if request.form.get('enable') else 'false'
-                net['ishidden'] = 'true' if request.form.get('hidden') else 'false'
+                net['enable'] = 'true' if form.get('enable') else 'false'
+                net['ishidden'] = 'true' if form.get('hidden') else 'false'
                 net['encryptionMode'] = 'wpa2-psk' if secure else 'open'
                 if secure and password:
                     net['password'] = password
@@ -7914,28 +7913,40 @@ def site_reyee_action(site_id):
                 cloud.save_wifi(tpl, net)
                 if site.ruijie_managed:
                     site.ruijie_ssid = name[:32]
-                flash(tr('Wi-Fi saved. The access points take it within a minute; phones on it reconnect.'), 'success')
+                done = 'success', tr('Wi-Fi saved. The access points take it within a minute; phones on it reconnect.')
             elif action == 'block' and mac:
-                _ruijie_block(site, cloud, mac, request.form.get('name') or '')
-                _ruijie_enforce(site, cloud, cloud.logins(g), only_mac=mac)
-                flash(tr('{mac} is blocked on this Wi-Fi.', mac=mac.upper()), 'success')
+                _ruijie_block(site, cloud, mac, form.get('name') or '')
+                kicked = _ruijie_enforce(site, cloud, cloud.logins(g), only_mac=mac)
+                done = 'success', tr('{mac} is blocked on this Wi-Fi.', mac=mac.upper())
             elif action == 'unblock' and mac:
                 _ruijie_unblock(site, cloud, mac)
-                flash(tr('{mac} can join again.', mac=mac.upper()), 'success')
+                done = 'success', tr('{mac} can join again.', mac=mac.upper())
             elif action == 'kick' and mac:
-                n = len(_ruijie_enforce(site, cloud, cloud.logins(g), only_mac=mac))
-                flash(tr('{n} logged out', n=n), 'success')
+                kicked = _ruijie_enforce(site, cloud, cloud.logins(g), only_mac=mac)
+                done = 'success', tr('{n} logged out', n=len(kicked))
             elif action == 'free':
-                n = len(_ruijie_enforce(site, cloud, cloud.logins(g), free=True))
-                flash(tr('{n} logged out', n=n), 'success')
+                kicked = _ruijie_enforce(site, cloud, cloud.logins(g), free=True)
+                done = 'success', tr('{n} logged out', n=len(kicked))
             else:
-                flash(tr('Enter a phone MAC address, like 8e:4a:3b:ef:71:6c.'), 'danger')
+                done = 'danger', tr('Enter a phone MAC address, like 8e:4a:3b:ef:71:6c.')
     except ruijie.RuijieError as e:
         db.session.rollback()
-        flash(tr('Ruijie Cloud did not do it: {error}', error=str(e)), 'danger')
-        return back
+        return 'danger', tr('Ruijie Cloud did not do it: {error}', error=str(e))
+    if kicked:                               # off the Online list now, not at the next read
+        site.ruijie_clients = json.dumps([p for p in json.loads(site.ruijie_clients or '[]') if _mac_norm(p.get('mac')) not in kicked])
     db.session.commit()
-    return back
+    return done
+
+
+@app.route('/sites/<int:site_id>/reyee', methods=['POST'])
+@login_required
+@role_required('admin')
+def site_reyee_action(site_id):
+    _check_csrf()
+    site = _reyee_site_or_404(site_id)
+    category, message = _reyee_do(site, request.form)
+    flash(message, category)
+    return redirect(url_for('site_reyee', site_id=site.id))
 
 
 @app.route('/live/reyee', methods=['POST'])
@@ -11037,7 +11048,7 @@ def _refresh_deposit(reference, force=False):
                     total = f'{d.currency} {tenant_balance(d.tenant_id)[0]:,.0f}'
                     notify(d.tenant_id, 'billing', {
                         'en': (f'Deposit received: {d.currency} {d.amount:,.0f}', f'Your balance is now {total}. Ref {d.reference}.'),
-                        'sw': (f'Pesa imeingia: {d.currency} {d.amount:,.0f}', f'Salio lako sasa ni {total}. Kumb. {d.reference}.')})
+                        'sw': (f'Pesa imeingia: {d.currency} {d.amount:,.0f}', f'Salio lako sasa ni {total}. Kumb. {d.reference}.')}, link='earnings')
             elif result['state'] == 'failed':
                 d.status = 'failed'
     db.session.commit()
@@ -11062,19 +11073,13 @@ def wallet():
                            deposits=scoped(WalletDeposit).order_by(WalletDeposit.id.desc()).limit(50).all())
 
 
-@app.route('/wallet/deposit', methods=['POST'])
-@login_required
-@role_required('admin')
-def wallet_deposit():
-    _check_csrf()
-    tenant = current_tenant()
-    if tenant.payment_mode != 'platform':
-        return redirect(url_for('wallet'))
+def _start_deposit(tenant, amount, phone):
+    """Check and send a deposit's PIN prompt (the web page and the app): (deposit or None, amount, what is wrong or None)."""
     try:
-        amount = int((request.form.get('amount') or '').replace(',', '').strip())
+        amount = int(str(amount or '').replace(',', '').strip())
     except ValueError:
         amount = 0
-    phone = _normalize_tz_phone(request.form.get('phone', ''))
+    phone = _normalize_tz_phone(str(phone or ''))
     account = _platform_account()
     fee = _customer_fee(account, Decimal(amount)) if amount > 0 else Decimal(0)
     problem = None
@@ -11089,8 +11094,7 @@ def wallet_deposit():
     if not problem and _rate_limited('deposit', f'tenant:{tenant.id}', 10, 60):
         problem = tr('Too many tries. Please wait a while and try again.')
     if problem:
-        flash(problem, 'danger')
-        return redirect(url_for('wallet', amount=amount if amount > 0 else None))
+        return None, amount, problem
     _rate_hit('deposit', f'tenant:{tenant.id}')
     d = WalletDeposit(tenant_id=tenant.id, amount=Decimal(amount), fee_amount=fee, currency=tenant.currency or 'TZS', phone=phone,
                       method=account.provider, reference='DP' + secrets.token_hex(6).upper(), created_by_id=current_user.id)
@@ -11106,8 +11110,22 @@ def wallet_deposit():
             d.status, d.message = 'failed', (e.detail or '')[:255]
     db.session.commit()
     if d.status == 'failed':
-        flash(tr("We couldn't send the payment request: {error}.", error=d.message or tr('try again')), 'danger')
-        return redirect(url_for('wallet', amount=amount))
+        return None, amount, tr("We couldn't send the payment request: {error}.", error=d.message or tr('try again'))
+    return d, amount, None
+
+
+@app.route('/wallet/deposit', methods=['POST'])
+@login_required
+@role_required('admin')
+def wallet_deposit():
+    _check_csrf()
+    tenant = current_tenant()
+    if tenant.payment_mode != 'platform':
+        return redirect(url_for('wallet'))
+    d, amount, problem = _start_deposit(tenant, request.form.get('amount'), request.form.get('phone'))
+    if problem:
+        flash(problem, 'danger')
+        return redirect(url_for('wallet', amount=amount if amount > 0 else None))
     return redirect(url_for('wallet_payment', reference=d.reference))
 
 

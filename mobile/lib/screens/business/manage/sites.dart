@@ -7,6 +7,7 @@ import '../../../core/strings.dart';
 import '../../../ui/theme.dart';
 import '../../../ui/widgets.dart';
 import '../web_page.dart';
+import 'reyee.dart';
 import '../../../ui/kit.dart';
 
 /// Sites (money and who is online at each) and the health of every device.
@@ -92,6 +93,19 @@ class _SitesScreenState extends State<SitesScreen> {
                           _Fig(Icons.calendar_month_rounded, compactMoney(site['month'] as num), S.t('This month'), kGold),
                         ]),
                         const SizedBox(height: 4),
+                        if (site['reyee'] == true && s.can('packages'))
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: SnButton.icon(
+                              variant: SnVariant.ghost,
+                              size: SnSize.medium,
+                              expand: true,
+                              icon: const Icon(Icons.router_rounded, size: 18),
+                              label: Text(S.t('Manage access points')),
+                              onPressed: () => Navigator.push(
+                                  context, MaterialPageRoute(builder: (_) => ReyeeScreen(siteId: site['id'] as int, siteName: '${site['name']}'))),
+                            ),
+                          ),
                         Align(
                           alignment: Alignment.centerRight,
                           child: SnButton(variant: SnVariant.ghost, size: SnSize.small,

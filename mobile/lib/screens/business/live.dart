@@ -9,6 +9,7 @@ import '../../core/session.dart';
 import '../../core/strings.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
+import 'manage/reyee.dart';
 import 'shell.dart';
 import '../../ui/kit.dart';
 
@@ -73,6 +74,15 @@ class _LiveScreenState extends State<LiveScreen> {
     }
   }
 
+  Future<void> kick(Map o) async {
+    if (!await confirm(context, S.t('Log this phone out?'), yes: S.t('Log out'), danger: true) || !mounted) return;
+    if (await reyeeDo(context, o['reyee_site'] as int, {'action': 'kick', 'mac': o['mac']}) && mounted) load();
+  }
+
+  Future<void> block(Map o) async {
+    if (await reyeeBlock(context, o['reyee_site'] as int, '${o['mac']}') && mounted) load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = context.watch<Session>();
@@ -96,10 +106,30 @@ class _LiveScreenState extends State<LiveScreen> {
                   child: Text(S.t('Updated every 15 seconds'), textAlign: TextAlign.center, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.outline)),
                 ),
                 SectionTitle('${S.t('Online now')} (${(d['online'] as List).length})'),
+                for (final r in d['reyee'] as List? ?? const [])
+                  SnCard(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: SnTile(
+                      leading: const Icon(Icons.router_rounded, color: kAccent),
+                      title: Text('${r['name']}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: Text(S.t('Manage access points')),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReyeeScreen(siteId: r['id'] as int, siteName: '${r['name']}')))
+                          .then((_) => mounted ? load() : null),
+                    ),
+                  ),
                 if ((d['online'] as List).isEmpty)
                   SnCard(child: EmptyView(icon: Icons.wifi_off_rounded, text: S.t('Nobody is online right now.')))
                 else
-                  for (final o in d['online'] as List) _OnlineCard(o: o as Map, onDisconnect: s.can('change') && (o['user'] as String? ?? '').isNotEmpty ? () => disconnect(o) : null),
+                  for (final o in d['online'] as List) _OnlineCard(
+                      o: o as Map,
+                      onDisconnect: o['reyee_site'] != null
+                          ? (s.can('packages') ? () => kick(o) : null)
+                          : s.can('change') && (o['user'] as String? ?? '').isNotEmpty
+                              ? () => disconnect(o)
+                              : null,
+                      onBlock: o['reyee_site'] != null && s.can('packages') ? () => block(o) : null,
+                    ),
                 if ((d['events'] as List).isNotEmpty) ...[
                   SectionTitle(S.t('Activity')),
                   SnCard(
@@ -159,9 +189,9 @@ class _Mini extends StatelessWidget {
 }
 
 class _OnlineCard extends StatelessWidget {
-  const _OnlineCard({required this.o, this.onDisconnect});
+  const _OnlineCard({required this.o, this.onDisconnect, this.onBlock});
   final Map o;
-  final VoidCallback? onDisconnect;
+  final VoidCallback? onDisconnect, onBlock;
 
   @override
   Widget build(BuildContext context) {
@@ -188,6 +218,7 @@ class _OnlineCard extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodySmall),
                 ]),
               ),
+              if (onBlock != null) SnIconButton(onPressed: onBlock, icon: const Icon(Icons.block_rounded, size: 20, color: kBad), tooltip: S.t('Block')),
               if (onDisconnect != null) SnIconButton(onPressed: onDisconnect, icon: const Icon(Icons.power_settings_new_rounded, color: kBad), tooltip: S.t('Disconnect')),
             ]),
             const SizedBox(height: 10),

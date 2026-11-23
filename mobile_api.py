@@ -23,7 +23,8 @@ from sqlalchemy.exc import IntegrityError
 
 from i18n import tr
 from models import (db, Admin, Package, Payment, Plan, RadAcct, RadCheck, RadReply, RadUserGroup, RateEvent, Site,
-                    SmsContact, Tenant, Voucher, Withdrawal, OutageCredit, Outage, Notification, PushDevice)
+                    SmsContact, Tenant, Voucher, Withdrawal, OutageCredit, Outage, Notification, PushDevice,
+                    WalletDeposit)
 
 bp = Blueprint('mobile', __name__)
 A = None                     # the app module (set by init): its helpers, looked up when called so tests can replace them
@@ -589,7 +590,8 @@ def earnings():
                     'phone': getattr(w, 'phone', None), 'created': _iso(w.created_at)}
                    for w in A.scoped(Withdrawal).order_by(Withdrawal.created_at.desc()).limit(30)]
     return jsonify(currency=tenant.currency or 'TZS', platform=tenant.payment_mode == 'platform',
-                   balance=_money(balance), earned=_money(earned), withdrawn=_money(withdrawn),
+                   balance=_money(balance), withdrawable=_money(A.withdrawable(tenant.id)),
+                   deposits_left=_money(A.unspent_deposits(tenant.id)), earned=_money(earned), withdrawn=_money(withdrawn),
                    gross=total(Payment.amount), fees=total(Payment.fee_amount, paid.filter(Payment.provider_account == 'platform')),
                    sms={'count': sms_count, 'amount': _money(sms_amount)}, min_withdrawal=A._min_withdrawal(),
                    fee_percent=float(A._fee_percent(tenant)), withdrawals=withdrawals)
@@ -1281,7 +1283,7 @@ def sites():
             online += len(A.json.loads(site.ruijie_clients))
         kind = 'Reyee' if site.ruijie_ready else 'Omada' if getattr(site, 'omada_site_id', None) or getattr(site, 'omada_enabled', False) else \
             'Ruijie' if site.wifidog_enabled else None
-        rows.append({'id': site.id, 'name': site.name, 'kind': kind, 'online': online,
+        rows.append({'id': site.id, 'name': site.name, 'kind': kind, 'reyee': bool(site.ruijie_ready), 'online': online,
                      'today': _money(A._collected(tid, site, midnight)['total']), 'month': _money(A._collected(tid, site, month_start)['total'])})
     devices = []
     for gw in A.scoped(A.Gateway).order_by(A.Gateway.name):
@@ -1707,3 +1709,75 @@ def alert_settings_save():
     user.push_off = ','.join(sorted(off))
     db.session.commit()
     return alert_settings()
+
+
+# ---------------------------------------------------------------- business: Reyee access points (Ruijie Cloud)
+@bp.route('/api/m/sites/<int:sid>/reyee')
+def reyee(sid):
+    _need_login('admin')
+    site = A._reyee_site_or_404(sid)
+    data, guests, error = A._reyee_read(site)
+    trial = A._guest_trial(db.session.get(Tenant, site.tenant_id), site)
+    return jsonify(
+        site={'id': site.id, 'name': site.name}, error=error,
+        aps=[{'name': a['name'], 'model': a['model'], 'sn': a['sn'], 'ip': a['ip'], 'online': a['online'],
+              'last_online': _iso(A._ms_utc(a['last_online']))} for a in data.get('aps') or []],
+        # never the Wi-Fi password itself
+        wifi=[{'id': str(n.get('id')), 'name': n.get('ssidName') or '', 'secure': n.get('encryptionMode') != 'open',
+               'enable': n.get('enable') == 'true', 'hidden': n.get('ishidden') == 'true'} for n in data.get('wifi') or []],
+        portals=[{'name': p['name'], 'wifi': list(p['ssids']), 'auth': [tr(A.RUIJIE_AUTH_NAMES.get(x, x)) for x in p['auth']],
+                  'one_click': '8' in p['auth']} for p in data.get('portals') or []],
+        trial_minutes=trial.minutes if trial else None,
+        blocked=[{'mac': mac, 'name': name} for mac, name in data.get('blocked') or []],
+        guests=[{**x, 'since': _iso(x['since'])} for x in guests])
+
+
+@bp.route('/api/m/sites/<int:sid>/reyee', methods=['POST'])
+def reyee_do(sid):
+    _need_login('admin')
+    d = request.get_json(silent=True)
+    d = d if isinstance(d, dict) else {}
+    form = {k: ('1' if v is True else '' if v in (False, None) else str(v)[:200]) for k, v in d.items()}
+    category, message = A._reyee_do(A._reyee_site_or_404(sid), form)
+    if category != 'success':
+        return _err(message, 400)
+    return jsonify(ok=True, message=message)
+
+
+# ---------------------------------------------------------------- business: wallet (deposits by mobile money)
+def _deposit_json(d):
+    return {'reference': d.reference, 'amount': _money(d.amount), 'fee': _money(d.fee_amount), 'pays': _money(d.pushed), 'phone': d.phone,
+            'status': d.status, 'message': d.message, 'created': _iso(d.created_at)}
+
+
+@bp.route('/api/m/wallet')
+def wallet():
+    _need_login('admin')
+    tenant = A.current_tenant()
+    account = A._platform_account()
+    phone = A._normalize_tz_phone(tenant.phone or '')
+    return jsonify(platform=tenant.payment_mode == 'platform', ready=A.paylib.is_ready(account), currency=tenant.currency or 'TZS',
+                   balance=_money(A.tenant_balance(tenant.id)[0]), unspent=_money(A.unspent_deposits(tenant.id)),
+                   least=A.DEPOSIT_MIN, most=A.DEPOSIT_MAX, sms_price=float(A.Config.SMS_PRICE or 0),
+                   phone=A.portal_ui.local_phone(phone) if phone else '',
+                   fee_percent=float(A.Config.SNIPPE_FEE_PERCENT) if account.provider == 'snippe' else 0,
+                   deposits=[_deposit_json(d) for d in A.scoped(WalletDeposit).order_by(WalletDeposit.id.desc()).limit(30)])
+
+
+@bp.route('/api/m/wallet/deposit', methods=['POST'])
+def wallet_deposit():
+    _need_login('admin')
+    tenant = A.current_tenant()
+    if tenant.payment_mode != 'platform':
+        return _err(tr('SMS is added to your SafeNet bill, so you do not need to deposit.'), 400)
+    body = request.get_json(silent=True)
+    body = body if isinstance(body, dict) else {}
+    d, _, problem = A._start_deposit(tenant, body.get('amount'), body.get('phone'))
+    return _err(problem, 400) if problem else jsonify(_deposit_json(d))
+
+
+@bp.route('/api/m/wallet/deposit/<reference>')
+def wallet_deposit_status(reference):
+    _need_login('admin')
+    d = A._refresh_deposit(A.scoped(WalletDeposit).filter_by(reference=reference).first_or_404().reference)
+    return jsonify(**_deposit_json(d), balance=_money(A.tenant_balance(d.tenant_id)[0]))

@@ -14,10 +14,12 @@ import 'manage/finance_report.dart';
 import 'manage/offers.dart';
 import 'manage/packages.dart';
 import 'manage/plans.dart';
+import 'manage/reyee.dart';
 import 'manage/settings.dart';
 import 'manage/sites.dart';
 import 'manage/sms.dart';
 import 'manage/team.dart';
+import 'manage/wallet.dart';
 import 'web_page.dart';
 import '../account_actions.dart';
 import '../../ui/kit.dart';
@@ -35,6 +37,7 @@ class MoreScreen extends StatelessWidget {
     void web(String title, String path) => openWeb(context, title, path);
     final admin = s.can('customers');
     final change = s.can('change');
+    final reyee = s.sites.where((x) => x['reyee'] == true).toList();
     final groups = <(String, List<_Tile>)>[
       (S.t('Sell'), [
         if (admin) _Tile(Icons.inventory_2_rounded, S.t('Packages'), kAccent, () => push(const PackagesScreen())),
@@ -46,6 +49,7 @@ class MoreScreen extends StatelessWidget {
       (S.t('Money'), [
         _Tile(Icons.receipt_long_rounded, S.t('Payments'), kGood, () => push(const PaymentsScreen())),
         if (s.can('money')) _Tile(Icons.account_balance_wallet_rounded, S.t('Earnings'), kGold, () => push(const EarningsScreen())),
+        if (admin && tenant['payment_mode'] == 'platform') _Tile(Icons.savings_rounded, S.t('Wallet'), kGood, () => push(const WalletScreen())),
         if (s.can('withdraw')) _Tile(Icons.call_made_rounded, S.t('Withdraw'), Colors.green.shade800, () => web(S.t('Withdraw'), '/earnings')),
         if (s.can('expenses')) _Tile(Icons.receipt_long_outlined, S.t('Expenses'), kBad, () => push(const ExpensesScreen())),
         if (s.can('expenses')) _Tile(Icons.picture_as_pdf_rounded, S.t('Financial report'), Colors.deepPurple, () => push(const FinanceReportScreen())),
@@ -53,6 +57,20 @@ class MoreScreen extends StatelessWidget {
       ]),
       (S.t('Network'), [
         _Tile(Icons.hub_rounded, S.t('Sites & devices'), Colors.indigo, () => push(const SitesScreen())),
+        if (admin && reyee.isNotEmpty)
+          _Tile(Icons.router_rounded, S.t('Reyee access points'), kAccent, () async {
+            var site = reyee.length == 1 ? reyee.first : reyee.where((x) => x['id'] == s.api.siteId).firstOrNull;
+            site ??= await showSnSheet<Map<String, dynamic>>(
+              context: context,
+              isScrollControlled: true,
+              builder: (c) => SafeArea(
+                child: ListView(shrinkWrap: true, children: [
+                  for (final x in reyee) SnTile(leading: const Icon(Icons.place_outlined), title: Text('${x['name']}'), onTap: () => Navigator.pop(c, x)),
+                ]),
+              ),
+            );
+            if (site != null && context.mounted) push(ReyeeScreen(siteId: site['id'] as int, siteName: '${site['name']}'));
+          }),
         if (admin) _Tile(Icons.speed_rounded, S.t('Speed plans'), Colors.orange, () => push(const PlansScreen())),
         if (change) _Tile(Icons.badge_rounded, S.t('Customer accounts'), Colors.cyan.shade700, () => web(S.t('Accounts (customers)'), '/users')),
         if (admin) _Tile(Icons.palette_rounded, S.t('Login page'), Colors.deepPurple, () => web(S.t('Login page design'), '/portal')),
@@ -147,7 +165,7 @@ class MoreScreen extends StatelessWidget {
                   physics: const NeverScrollableScrollPhysics(),
                   mainAxisSpacing: 10,
                   crossAxisSpacing: 10,
-                  childAspectRatio: 0.98,
+                  childAspectRatio: 0.9,
                   padding: EdgeInsets.zero,
                   children: g.$2,
                 ),
@@ -316,11 +334,15 @@ class EarningsScreen extends StatelessWidget {
                     Text(S.t('SafeNet Pay balance'), style: const TextStyle(color: Colors.white70)),
                     const SizedBox(height: 6),
                     Text(money(d['balance'] as num, cur), style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w800)),
+                    if ((d['deposits_left'] as num? ?? 0) > 0)
+                      Text(S.t('{sales} you can withdraw · {deposits} deposited for SMS and your plan',
+                          {'sales': money(d['withdrawable'] as num, cur), 'deposits': money(d['deposits_left'] as num, cur)}),
+                          style: const TextStyle(color: Colors.white70)),
                     if (s.can('packages')) ...[
                       const SizedBox(height: 14),
                       SnButton.icon(variant: SnVariant.light, size: SnSize.medium,
                         onPressed: () async {
-                          await openWeb(context, S.t('Deposit'), '/wallet');
+                          await Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletScreen()));
                           reload();
                         },
                         icon: const Icon(Icons.add_rounded),

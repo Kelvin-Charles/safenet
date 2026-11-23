@@ -9,7 +9,7 @@ import '../../../core/strings.dart';
 import '../../../ui/theme.dart';
 import '../../../ui/widgets.dart';
 import '../../../ui/kit.dart';
-import '../web_page.dart';
+import 'wallet.dart';
 
 /// SMS to customers: pick who (site, recent buyers, tag, time left, quiet ones, or customers ticked on Customers),
 /// write or pick an offer message, see the exact SMS and the cost, untick anyone, send.
@@ -136,7 +136,7 @@ class _SmsScreenState extends State<SmsScreen> {
                           variant: SnVariant.ghost,
                           size: SnSize.medium,
                           onPressed: () async {
-                            await openWeb(context, S.t('Deposit'), '/wallet?amount=${((x['cost'] as num) - (x['balance'] as num)).ceil()}');
+                            await Navigator.push(context, MaterialPageRoute(builder: (_) => WalletScreen(amount: ((x['cost'] as num) - (x['balance'] as num)).ceil())));
                             if (mounted) refresh(keepTicks: true);
                           },
                           child: Text(S.t('Deposit')),
